@@ -1,0 +1,1124 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"math"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/dlclark/regexp2"
+)
+
+// ================== 数据结构定义 ==================
+type BotInfo struct {
+	Name     string      `json:"name"`
+	Category interface{} `json:"category"`
+	URL      string      `json:"url,omitempty"`
+	Producer *Producer   `json:"producer,omitempty"`
+}
+
+type Producer struct {
+	Name string `json:"name"`
+	URL  string `json:"url,omitempty"`
+}
+
+type BotRule struct {
+	Name     string      `json:"name"`
+	Regex    string      `json:"regex"`
+	Category interface{} `json:"category"`
+	URL      string      `json:"url,omitempty"`
+	Producer *Producer   `json:"producer,omitempty"`
+	compiled *regexp2.Regexp
+}
+
+type BotCheckRequest struct {
+	SessionToken string  `json:"sessionToken"`
+	UserAgent    string  `json:"userAgent"`
+	MouseTrack   [][]int `json:"mouseTrack"` // [x, y]
+	MouseMeta    struct {
+		Timestamps []int64   `json:"timestamps"`
+		Speeds     []float64 `json:"speeds"`
+	} `json:"mouseMeta"`
+	ClickIntervals []int64 `json:"clickIntervals"`
+}
+
+type MousePoint struct {
+	X, Y         int     `json:"x"`
+	T            int64   `json:"t"`
+	Speed        float64 `json:"speed"`
+	Acceleration float64 `json:"acceleration"`
+}
+
+type SessionInfo struct {
+	LastUpdate time.Time
+	Requests   []time.Time
+	Score      int
+	UA         string
+	IP         string
+}
+
+// ================== 新增日志结构 ==================
+type UnifiedLog struct {
+	Base      *BaseLog      `json:"base,omitempty"`
+	Detection *DetectionLog `json:"detection,omitempty"`
+	Abnormal  bool          `json:"abnormal,omitempty"`
+	Standalone bool          `json:"standalone,omitempty"`
+}
+
+type BaseLog struct {
+	Timestamp  string `json:"timestamp"`
+	IP         string `json:"ip"`
+	UserAgent  string `json:"userAgent"`
+	RequestURL string `json:"requestUrl"`
+	Method     string `json:"method"`
+	Duration   string `json:"duration"`
+	IsBot      bool   `json:"isBot"`
+}
+
+type DetectionLog struct {
+    Timestamp    string   `json:"timestamp"`
+    SessionID    string   `json:"sessionId,omitempty"`
+    Score        int      `json:"score"`
+    MousePoints  int      `json:"mousePoints"`
+    ClickCount   int      `json:"clickCount"`
+    Reasons      []string `json:"reasons"`
+    IsBot        bool     `json:"isBot"`
+    RequestURL   string   `json:"requestUrl"`
+    Method       string   `json:"method"`
+    DetectMethod string   `json:"detectMethod"` 
+}
+
+// ================== 高性能Bot检测器 ==================
+type BotDetector struct {
+	rules         []*BotRule
+	combinedRegex *regexp2.Regexp
+	cache         *sync.Map
+	cacheTTL      time.Duration
+}
+
+// ================== 全局变量 ==================
+var (
+	sessions = struct {
+		sync.RWMutex
+		data map[string]*SessionInfo
+	}{data: make(map[string]*SessionInfo)}
+
+	detector *BotDetector
+
+	recentIPs = struct {
+		sync.RWMutex
+		data map[string]time.Time
+	}{data: make(map[string]time.Time)}
+
+	ipToSession = struct {
+		sync.RWMutex
+		data map[string]string
+	}{data: make(map[string]string)}
+
+	ipBaseLogs = struct {
+		sync.RWMutex
+		data map[string]*BaseLog
+	}{data: make(map[string]*BaseLog)}
+
+	pendingLogs = struct {
+        sync.RWMutex
+        data map[string]*BaseLog // key: IP地址
+    }{data: make(map[string]*BaseLog)}
+
+	logDelayDuration = 5 * time.Second
+    logCleanupInterval = 1 * time.Hour
+)
+
+const (
+	BotScoreThreshold = 5
+	CacheTTL          = 10 * time.Minute
+)
+
+// ================== 初始化函数 ==================
+func setupLogger() {
+	// 配置日志格式
+	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
+	log.SetPrefix("[BotDetector] ")
+
+	// 可选：同时输出到文件和控制台
+	logFile, err := os.OpenFile("bot_detector.log",
+		os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		multiWriter := io.MultiWriter(os.Stdout, logFile)
+		log.SetOutput(multiWriter)
+	}
+}
+
+func logUnified(logEntry UnifiedLog) {
+	logBytes, err := json.Marshal(logEntry)
+	if err != nil {
+		log.Printf("Failed to marshal log entry: %v", err)
+		return
+	}
+	log.Println(string(logBytes))
+}
+
+// ================== 辅助函数 ==================
+func getCategoryName(category interface{}) string {
+	switch v := category.(type) {
+	case string:
+		return v
+	case int:
+		categoryMap := map[int]string{
+			0: "search_engine",
+			1: "web_crawler",
+			2: "security_scanner",
+			3: "seo_tool",
+			4: "monitoring",
+			5: "analytics",
+			6: "rss_reader",
+			7: "social_media",
+			8: "ai_bot",
+			9: "miscellaneous",
+		}
+		if name, ok := categoryMap[v]; ok {
+			return name
+		}
+		return fmt.Sprintf("category_%d", v)
+	case float64:
+		return getCategoryName(int(v))
+	default:
+		return "unknown"
+	}
+}
+
+func getClientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		return ip
+	}
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		return ip
+	}
+	return strings.Split(r.RemoteAddr, ":")[0]
+}
+
+func combineMouseTrackWithT(data BotCheckRequest) [][]int64 {
+	track := [][]int64{}
+	minLen := len(data.MouseTrack)
+	if len(data.MouseMeta.Timestamps) < minLen {
+		minLen = len(data.MouseMeta.Timestamps)
+	}
+
+	for i := 0; i < minLen; i++ {
+		x := int64(data.MouseTrack[i][0])
+		y := int64(data.MouseTrack[i][1])
+		t := data.MouseMeta.Timestamps[i]
+		track = append(track, []int64{x, y, t})
+	}
+	return track
+}
+
+// ================== Bot检测器核心功能 ==================
+func NewBotDetector(rulesFile string) (*BotDetector, error) {
+	file, err := os.ReadFile(rulesFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read rules file: %v", err)
+	}
+
+	var rules []*BotRule
+	if err := json.Unmarshal(file, &rules); err != nil {
+		return nil, fmt.Errorf("failed to parse rules file: %v", err)
+	}
+
+	// 预编译正则表达式
+	var regexPatterns []string
+	for i, rule := range rules {
+		compiled, err := regexp2.Compile(rule.Regex, regexp2.RE2)
+		if err != nil {
+			log.Printf("Warning: invalid regex for rule %s: %v\nRegex: %s", rule.Name, err, rule.Regex)
+			continue
+		}
+		compiled.MatchTimeout = time.Second
+		rules[i].compiled = compiled
+		regexPatterns = append(regexPatterns, rule.Regex)
+	}
+
+	// 创建组合正则表达式
+	combinedPattern := "(?i)" + strings.Join(regexPatterns, "|")
+	combinedRegex, err := regexp2.Compile(combinedPattern, regexp2.RE2)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile combined regex: %v", err)
+	}
+	combinedRegex.MatchTimeout = time.Second
+
+	log.Printf("Bot检测器初始化完成，加载了 %d 条规则", len(rules))
+	return &BotDetector{
+		rules:         rules,
+		combinedRegex: combinedRegex,
+		cache:         &sync.Map{},
+		cacheTTL:      CacheTTL,
+	}, nil
+}
+
+func (bd *BotDetector) IsBot(userAgent string) bool {
+	if userAgent == "" {
+		return false
+	}
+
+	if cached, ok := bd.cache.Load(userAgent); ok {
+		if result, ok := cached.(bool); ok {
+			return result
+		}
+	}
+
+	isMatch, err := bd.combinedRegex.MatchString(userAgent)
+	if err != nil {
+		log.Printf("Regex match error: %v", err)
+		return false
+	}
+
+	bd.cache.Store(userAgent, isMatch)
+	go func(ua string) {
+		time.Sleep(bd.cacheTTL)
+		bd.cache.Delete(ua)
+	}(userAgent)
+
+	return isMatch
+}
+
+func (bd *BotDetector) Parse(userAgent string) (*BotInfo, bool) {
+	if !bd.IsBot(userAgent) {
+		return nil, false
+	}
+
+	cacheKey := "parse:" + userAgent
+	if cached, ok := bd.cache.Load(cacheKey); ok {
+		if result, ok := cached.(*BotInfo); ok && result != nil {
+			return result, true
+		}
+	}
+
+	for _, rule := range bd.rules {
+		if rule.compiled != nil {
+			isMatch, err := rule.compiled.MatchString(userAgent)
+			if err != nil {
+				log.Printf("Regex match error for %s: %v", rule.Name, err)
+				continue
+			}
+			if isMatch {
+				botInfo := &BotInfo{
+					Name:     rule.Name,
+					Category: rule.Category,
+					URL:      rule.URL,
+					Producer: rule.Producer,
+				}
+
+				bd.cache.Store(cacheKey, botInfo)
+				go func(key string) {
+					time.Sleep(bd.cacheTTL)
+					bd.cache.Delete(key)
+				}(cacheKey)
+
+				return botInfo, true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// ================== 行为分析函数 ==================
+func calculateVariances(track []MousePoint) (accelVariance, speedVariance float64) {
+	if len(track) < 2 {
+		return 0, 0
+	}
+
+	var accelSum, accelSqSum, speedSum, speedSqSum float64
+	n := float64(len(track))
+
+	for _, p := range track {
+		accelSum += p.Acceleration
+		accelSqSum += p.Acceleration * p.Acceleration
+		speedSum += p.Speed
+		speedSqSum += p.Speed * p.Speed
+	}
+
+	accelMean := accelSum / n
+	speedMean := speedSum / n
+
+	return accelSqSum/n - accelMean*accelMean, speedSqSum/n - speedMean*speedMean
+}
+
+func calculateClickVariance(intervals []int64) float64 {
+	if len(intervals) < 2 {
+		return 0
+	}
+
+	var sum, sumSq float64
+	n := float64(len(intervals))
+
+	for _, v := range intervals {
+		val := float64(v)
+		sum += val
+		sumSq += val * val
+	}
+
+	mean := sum / n
+	return sumSq/n - mean*mean
+}
+
+func analyzeRequestFrequency(requests []time.Time) int {
+	if len(requests) < 2 {
+		return 0
+	}
+
+	var intervals []float64
+	for i := 1; i < len(requests); i++ {
+		interval := requests[i].Sub(requests[i-1]).Seconds()
+		intervals = append(intervals, interval)
+	}
+
+	var sum, sumSq float64
+	for _, interval := range intervals {
+		sum += interval
+		sumSq += interval * interval
+	}
+
+	mean := sum / float64(len(intervals))
+	variance := sumSq/float64(len(intervals)) - mean*mean
+
+	if variance < 0.1 {
+		return 2
+	}
+	return 0
+}
+
+func calcScore(s *SessionInfo, mouseTrack [][]int64, clickIntervals []int64) int {
+	score := 0
+	log.Printf("===== 开始检测会话 %s (IP: %s) =====\n", s.IP, s.UA)
+
+	// 记录判断依据
+	var reasons []string
+
+	// 1. UA检测
+	if detector.IsBot(s.UA) {
+		// Headless UA直接判定Bot
+		score += 3
+		reason := fmt.Sprintf("UA匹配Bot规则 (得分+3) → %s", s.UA)
+		reasons = append(reasons, reason)
+		log.Println("[UA检测]", reason)
+
+		if botInfo, ok := detector.Parse(s.UA); ok {
+			log.Printf("[UA解析] 识别为 %s (分类: %v)\n",
+				botInfo.Name, getCategoryName(botInfo.Category))
+		}
+	} else {
+		log.Printf("[UA检测] 正常UA: %s\n", s.UA)
+	}
+
+	// 2. 鼠标轨迹分析
+	if len(mouseTrack) < 5 {
+		score += 2 // 放宽得分
+		reason := fmt.Sprintf("鼠标轨迹点过少 (%d < 5) (得分+2)", len(mouseTrack))
+		reasons = append(reasons, reason)
+		log.Println("[行为检测]", reason)
+	} else {
+		if isRegularMouseTrack(mouseTrack) {
+			score += 3
+			reason := "鼠标轨迹过于规律 (得分+3)"
+			reasons = append(reasons, reason)
+			log.Println("[行为检测]", reason)
+		}
+	}
+
+	// 3. 点击间隔分析
+	if len(clickIntervals) > 1 {
+		variance := calculateClickVariance(clickIntervals)
+		log.Printf("[行为检测] 点击间隔方差: %.2fms\n", variance)
+
+		if variance < 1000 { // 放宽阈值
+			score += 3
+			reason := fmt.Sprintf("点击间隔过于规律 (方差=%.2f) (得分+3)", variance)
+			reasons = append(reasons, reason)
+			log.Println("[行为检测]", reason)
+		}
+	} else if len(clickIntervals) == 0 {
+		score += 1
+		reason := "无点击事件记录 (得分+1)"
+		reasons = append(reasons, reason)
+		log.Println("[行为检测]", reason)
+	}
+
+	// 4. 请求频率检测
+	if len(s.Requests) > 2 { // 放宽要求
+		freqScore := analyzeRequestFrequency(s.Requests)
+		if freqScore > 0 {
+			score += freqScore
+			reason := fmt.Sprintf("请求频率异常 (得分+%d)", freqScore)
+			reasons = append(reasons, reason)
+			log.Println("[请求分析]", reason)
+		}
+	}
+
+	log.Printf("===== 检测结束 总分: %d =====\n", score)
+	if len(reasons) > 0 {
+		log.Println("【Bot判断依据】")
+		for _, r := range reasons {
+			log.Printf("  - %s", r)
+		}
+	} else {
+		log.Println("【Bot判断依据】无异常行为，判定为正常用户")
+	}
+
+	// 强制判定 Headless UA 为 Bot
+	if strings.Contains(strings.ToLower(s.UA), "headlesschrome") {
+		score = BotScoreThreshold
+		log.Println("⚠️ 强制判定 HeadlessChrome 为 Bot")
+	}
+
+	return score
+}
+
+// 新增辅助函数
+// 替换掉旧的 isRegularMouseTrack 函数，使用这个改进版
+func isRegularMouseTrack(track [][]int64) bool {
+	n := len(track)
+	if n < 6 {
+		log.Printf("[MouseTrack] 太短的轨迹: %d 个点", n)
+		return false
+	}
+
+	// 提取浮动数值
+	xs := make([]float64, n)
+	ys := make([]float64, n)
+	ts := make([]float64, n) // 秒
+	for i := 0; i < n; i++ {
+		xs[i] = float64(track[i][0])
+		ys[i] = float64(track[i][1])
+		ts[i] = float64(track[i][2]) / 1000.0
+	}
+
+	// 计算 dt, dist, 原始速度
+	dts := make([]float64, n-1)
+	dists := make([]float64, n-1)
+	speeds := make([]float64, n-1)
+	for i := 1; i < n; i++ {
+		dt := ts[i] - ts[i-1]
+		if dt <= 0 {
+			dt = 0.01
+		}
+		dts[i-1] = dt
+		dx := xs[i] - xs[i-1]
+		dy := ys[i] - ys[i-1]
+		dist := math.Hypot(dx, dy)
+		dists[i-1] = dist
+		speeds[i-1] = dist / dt // px / s
+	}
+
+	// 使用小的滑动平均平滑位置和速度，以模拟连续曲线
+	smoothX := movingAverageFloat64(xs, 3)
+	smoothY := movingAverageFloat64(ys, 3)
+	smoothSpeeds := movingAverageFloat64(speeds, 3)
+
+	// 计算方向（角度）和转弯角度（角度变化）
+	dirs := []float64{}
+	for i := 1; i < n; i++ {
+		dx := smoothX[i] - smoothX[i-1]
+		dy := smoothY[i] - smoothY[i-1]
+		ang := math.Atan2(dy, dx) * 180.0 / math.Pi
+		dirs = append(dirs, ang)
+	}
+	turns := []float64{} // 角度变化
+	for i := 1; i < len(dirs); i++ {
+		da := normalizeAngle(dirs[i] - dirs[i-1]) // -180..180
+		turns = append(turns, da)
+	}
+
+	// 曲率：abs(转弯角度) / 步长距离（避免除0）
+	curvatures := []float64{}
+	for i := 1; i < len(dists); i++ {
+		dist := dists[i]
+		if dist < 1e-6 {
+			dist = 1.0
+		}
+		curv := math.Abs(turns[i-1]) / dist // 每像素度数
+		curvatures = append(curvatures, curv)
+	}
+
+	// 计算加速度（从平滑后的速度计算）
+	accs := []float64{}
+	for i := 1; i < len(smoothSpeeds); i++ {
+		dt := dts[i]
+		if dt <= 0 {
+			dt = 0.01
+		}
+		acc := (smoothSpeeds[i] - smoothSpeeds[i-1]) / dt // px/s^2
+		accs = append(accs, acc)
+	}
+
+	// 特征计算
+	pauseCount := 0
+	for _, dist := range dists {
+		if dist < 1.0 {
+			pauseCount++
+		}
+	}
+	pauseRatio := float64(pauseCount) / float64(len(dists))
+
+	meanAbsTurn := meanAbs(turns)
+	turnVar := variance(turns, mean(turns))
+	curvVar := variance(curvatures, mean(curvatures))
+	accelVar := varianceFloat64(accs)
+	speedVar := varianceFloat64(smoothSpeeds)
+	speedAC1 := autocorrLag1(smoothSpeeds)
+
+	// 日志诊断信息
+	log.Printf("[MouseTrack] 点数=%d, pauseRatio=%.3f, meanAbsTurn=%.3fdeg, turnVar=%.3f, curvVar=%.6f, accelVar=%.3f, speedVar=%.3f, speedAC1=%.3f",
+		n, pauseRatio, meanAbsTurn, turnVar, curvVar, accelVar, speedVar, speedAC1)
+
+	// 针对 "机械/规律" 特征进行打分（分数越高越像 Bot）
+	botScore := 0
+
+	// 1) 太少停顿 -> +1
+	if pauseRatio < 0.05 {
+		botScore += 1
+	}
+
+	// 2) 方向变化太小（近直线） -> +2
+	if meanAbsTurn < 7.5 { // 平均转角 < 8度 很像直线
+		botScore += 2
+	}
+
+	// 3) 方向变化方差非常小（持续直线） -> +2
+	if turnVar < 10.0 {
+		botScore += 2
+	}
+
+	// 4) 曲率方差小（缺少曲线行为） -> +2
+	if curvVar < 0.45 {
+		botScore += 2
+	}
+
+	// 5) 加速度方差极小（匀速） -> +2
+	if accelVar < 180.0 {
+		botScore += 2
+	}
+
+	// 6) 速度自相关非常高（非常规律） -> +1
+	if speedAC1 > 0.93 {
+		botScore += 1
+	}
+
+	log.Printf("[MouseTrack] 机械性评分(botScore) = %d (>=4 表示较规律/可疑)", botScore)
+
+	// 判定阈值：botScore >= 4 判定为规律轨迹 (可调)
+	return botScore >= 43
+}
+
+// ---------------- 辅助函数 ----------------
+
+// movingAverageFloat64: 简单的中心滑动平均（窗口大小为奇数）
+func movingAverageFloat64(arr []float64, window int) []float64 {
+	if window <= 1 {
+		out := make([]float64, len(arr))
+		copy(out, arr)
+		return out
+	}
+	n := len(arr)
+	out := make([]float64, n)
+	half := window / 2
+	for i := 0; i < n; i++ {
+		sum := 0.0
+		cnt := 0
+		for j := i - half; j <= i+half; j++ {
+			if j >= 0 && j < n {
+				sum += arr[j]
+				cnt++
+			}
+		}
+		if cnt > 0 {
+			out[i] = sum / float64(cnt)
+		} else {
+			out[i] = arr[i]
+		}
+	}
+	return out
+}
+
+// normalizeAngle：将角度规范化为 [-180, 180]
+func normalizeAngle(a float64) float64 {
+	for a <= -180 {
+		a += 360
+	}
+	for a > 180 {
+		a -= 360
+	}
+	return a
+}
+
+// mean：计算平均值
+func mean(arr []float64) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	s := 0.0
+	for _, v := range arr {
+		s += v
+	}
+	return s / float64(len(arr))
+}
+
+// meanAbs：计算绝对值的平均值
+func meanAbs(arr []float64) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	s := 0.0
+	for _, v := range arr {
+		s += math.Abs(v)
+	}
+	return s / float64(len(arr))
+}
+
+// variance：计算方差
+func variance(arr []float64, m float64) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	s := 0.0
+	for _, v := range arr {
+		d := v - m
+		s += d * d
+	}
+	return s / float64(len(arr))
+}
+
+// varianceFloat64：计算浮动数值数组的方差
+func varianceFloat64(arr []float64) float64 {
+	if len(arr) == 0 {
+		return 0
+	}
+	m := mean(arr)
+	return variance(arr, m)
+}
+
+// autocorrLag1：计算滞后1的自相关（返回值范围[-1, 1]）
+func autocorrLag1(arr []float64) float64 {
+	n := len(arr)
+	if n < 3 {
+		return 0
+	}
+	m := mean(arr)
+	num := 0.0
+	den := 0.0
+	for i := 0; i < n-1; i++ {
+		num += (arr[i] - m) * (arr[i+1] - m)
+	}
+	for i := 0; i < n; i++ {
+		den += (arr[i] - m) * (arr[i] - m)
+	}
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
+// ================== 中间件：对所有请求进行Bot检测 ==================
+func requestTypeMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 从Header中获取请求类型
+		requestType := r.Header.Get("X-Request-Type")
+
+		// 为没有标记的请求设置默认类型
+		if requestType == "" {
+			if strings.HasPrefix(r.URL.Path, "/bot-check") {
+				requestType = "api"
+			} else {
+				requestType = "original"
+			}
+		}
+
+		// 将请求类型存入上下文
+		ctx := context.WithValue(r.Context(), "requestType", requestType)
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// func botDetectionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+//     return func(w http.ResponseWriter, r *http.Request) {
+//         startTime := time.Now()
+//         requestType := r.Context().Value("requestType").(string)
+
+//         // API 请求直接跳过检测
+//         if requestType == "api" {
+//             next(w, r)
+//             return
+//         }
+
+//         ua := r.UserAgent()
+//         ip := getClientIP(r)
+
+//         // 记录最近访问过的 IP
+//         recentIPs.Lock()
+//         recentIPs.data[ip] = time.Now()
+//         recentIPs.Unlock()
+
+//         // 查找 IP 是否已有 session
+//         ipToSession.RLock()
+//         sessionToken, hasSession := ipToSession.data[ip]
+//         ipToSession.RUnlock()
+
+//         if hasSession {
+//             log.Printf("🔍 检测请求: %s %s (IP:%s, 已关联Session:%s)", r.Method, r.URL.Path, ip, sessionToken)
+//         } else {
+//             log.Printf("🔍 检测请求: %s %s (IP:%s, 暂无Session)", r.Method, r.URL.Path, ip)
+//         }
+//         log.Printf("   ├─ UA: %s", ua)
+
+//         // Bot检测逻辑（只打印，不拦截）
+//         isBot := detector.IsBot(ua)
+//         if isBot {
+//             log.Printf("   ⚠️ 检测结果: Bot")
+//         } else {
+//             log.Printf("   ✅ 检测结果: 非Bot")
+//         }
+
+//         log.Printf("   └─ 检测耗时: %v", time.Since(startTime))
+
+//	        // 继续调用下一个处理器
+//	        next(w, r)
+//	    }
+//	}
+func botDetectionMiddleware(next http.HandlerFunc) http.HandlerFunc {
+    return func(w http.ResponseWriter, r *http.Request) {
+        start := time.Now()
+        ip := getClientIP(r)
+        ua := r.UserAgent()
+
+        // 构建基础日志
+        baseLog := &BaseLog{
+            Timestamp:  time.Now().Format(time.RFC3339Nano),
+            IP:         ip,
+            UserAgent:  ua,
+            RequestURL: r.URL.Path,
+            Method:     r.Method,
+            IsBot:      detector.IsBot(ua),
+            Duration:   time.Since(start).String(),
+        }
+
+        // 存入待处理队列
+        pendingLogs.Lock()
+        pendingLogs.data[ip] = baseLog
+        pendingLogs.Unlock()
+
+        // 启动延迟打印goroutine
+        go func(ip string, base *BaseLog) {
+            // 等待指定延迟时间
+            time.Sleep(logDelayDuration)
+
+            pendingLogs.Lock()
+            defer pendingLogs.Unlock()
+
+            // 检查日志是否仍在队列中（未被/bot-check消费）
+            if _, exists := pendingLogs.data[ip]; exists {
+                logUnified(UnifiedLog{
+                    Base:       base,
+                    Detection:  nil,
+                    Standalone: true, // 标记为独立基础日志
+                })
+                delete(pendingLogs.data, ip)
+            }
+        }(ip, baseLog)
+
+        next(w, r)
+    }
+}
+
+// ================== HTTP处理器 ==================
+func mainHandler(w http.ResponseWriter, r *http.Request) {
+	// 返回前端HTML
+	htmlBytes, err := os.ReadFile("/var/www/front/index.html")
+	if err != nil {
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(htmlBytes)
+}
+
+// func botCheckHandler(w http.ResponseWriter, r *http.Request) {
+//     startTime := time.Now()
+
+//     var data BotCheckRequest
+
+//     // 解析前端 JSON
+//     if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+//         log.Printf("[错误] 无效的JSON请求: %v", err)
+//         w.WriteHeader(http.StatusBadRequest)
+//         json.NewEncoder(w).Encode(map[string]string{
+//             "error": "Invalid JSON: " + err.Error(),
+//         })
+//         return
+//     }
+
+//     ip := getClientIP(r)
+
+//     // 建立 IP ↔ Session 关系
+//     recentIPs.RLock()
+//     _, seen := recentIPs.data[ip]
+//     recentIPs.RUnlock()
+
+//     if seen {
+//         ipToSession.Lock()
+//         ipToSession.data[ip] = data.SessionToken
+//         ipToSession.Unlock()
+//         log.Printf("[关联] 建立 IP:%s ↔ Session:%s", ip, data.SessionToken)
+//     } else {
+//         log.Printf("[警告] 收到未知IP的检测请求: %s", ip)
+//     }
+
+//     // 获取或创建 session
+//     sessions.Lock()
+//     s, ok := sessions.data[data.SessionToken]
+//     if !ok {
+//         s = &SessionInfo{
+//             LastUpdate: time.Now(),
+//             Requests:   []time.Time{},
+//             UA:         data.UserAgent,
+//             IP:         ip,
+//         }
+//         sessions.data[data.SessionToken] = s
+//         log.Printf("创建新会话: %s", data.SessionToken)
+//     }
+//     sessions.Unlock()
+
+//     // ========== 组合 [x,y,t] ==========
+//     mouseTrackWithT := combineMouseTrackWithT(data)
+
+//     // 调用原有分析函数
+//     score := calcScore(s, mouseTrackWithT, data.ClickIntervals)
+//     isBot := score >= BotScoreThreshold
+
+//     log.Printf("检测结果: IP=%s Session=%s 分数=%d 判定=%v 耗时=%v\n",
+//         s.IP, data.SessionToken, score, isBot, time.Since(startTime))
+
+//	    // 返回前端结果
+//	    w.Header().Set("Content-Type", "application/json")
+//	    json.NewEncoder(w).Encode(map[string]interface{}{
+//	        "isBot":       isBot,
+//	        "score":       score,
+//	        "mousePoints": len(mouseTrackWithT),
+//	        "clickCount":  len(data.ClickIntervals),
+//	    })
+//	}
+func botCheckHandler(w http.ResponseWriter, r *http.Request) {
+	//startTime := time.Now()
+
+	var data BotCheckRequest
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		log.Printf("[错误] 无效的JSON请求: %v", err)
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Invalid JSON: " + err.Error(),
+		})
+		return
+	}
+
+	ip := getClientIP(r)
+
+	// 建立 IP ↔ Session 关系
+	recentIPs.RLock()
+	_, seen := recentIPs.data[ip]
+	recentIPs.RUnlock()
+
+	if seen {
+		ipToSession.Lock()
+		ipToSession.data[ip] = data.SessionToken
+		ipToSession.Unlock()
+	}
+
+	// 获取基础日志
+	var baseLog *BaseLog
+    pendingLogs.Lock()
+    if log, exists := pendingLogs.data[ip]; exists {
+        baseLog = log
+        delete(pendingLogs.data, ip) // 移出队列
+    }
+    pendingLogs.Unlock()
+
+	// 获取或创建 session
+	sessions.Lock()
+	s, ok := sessions.data[data.SessionToken]
+	if !ok {
+		s = &SessionInfo{
+			LastUpdate: time.Now(),
+			Requests:   []time.Time{},
+			UA:         data.UserAgent,
+			IP:         ip,
+		}
+		sessions.data[data.SessionToken] = s
+	}
+	sessions.Unlock()
+
+	mouseTrackWithT := combineMouseTrackWithT(data)
+	score := calcScore(s, mouseTrackWithT, data.ClickIntervals)
+	isBot := score >= BotScoreThreshold
+
+	// 收集判断依据
+	var reasons []string
+	if detector.IsBot(data.UserAgent) {
+		reasons = append(reasons, "UA匹配Bot规则")
+	}
+	if len(mouseTrackWithT) < 5 {
+		reasons = append(reasons, "鼠标轨迹点过少")
+	} else if isRegularMouseTrack(mouseTrackWithT) {
+		reasons = append(reasons, "鼠标轨迹过于规律")
+	}
+	if len(data.ClickIntervals) > 1 {
+		if variance := calculateClickVariance(data.ClickIntervals); variance < 1000 {
+			reasons = append(reasons, fmt.Sprintf("点击间隔过于规律(方差=%.2f)", variance))
+		}
+	} else if len(data.ClickIntervals) == 0 {
+		reasons = append(reasons, "无点击事件记录")
+	}
+	if len(s.Requests) > 2 {
+		if freqScore := analyzeRequestFrequency(s.Requests); freqScore > 0 {
+			reasons = append(reasons, fmt.Sprintf("请求频率异常(得分+%d)", freqScore))
+		}
+	}
+	if strings.Contains(strings.ToLower(data.UserAgent), "headlesschrome") {
+		reasons = append(reasons, "HeadlessChrome UA")
+	}
+
+	// 构建检测日志
+	detectionLog := &DetectionLog{
+		Timestamp:   time.Now().Format(time.RFC3339Nano),
+		SessionID:   data.SessionToken,
+		Score:       score,
+		MousePoints: len(mouseTrackWithT),
+		ClickCount:  len(data.ClickIntervals),
+		Reasons:     reasons,
+		IsBot:       score >= BotScoreThreshold,
+		RequestURL:  r.URL.Path,
+		Method:      r.Method,
+		DetectMethod: "advanced", // 使用正确的字段名
+	}
+
+    // 输出合并日志
+    logUnified(UnifiedLog{
+        Base:       baseLog,
+        Detection:  detectionLog,
+        Abnormal:   baseLog == nil, // 标记是否缺少基础日志
+    })
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"isBot":       isBot,
+		"score":       score,
+		"mousePoints": len(mouseTrackWithT),
+		"clickCount":  len(data.ClickIntervals),
+	})
+}
+
+// ================== 默认检测器 ==================
+func createDefaultDetector() *BotDetector {
+	defaultRules := []*BotRule{
+		{
+			Name:     "Googlebot",
+			Regex:    `(?i)googlebot`,
+			Category: "search_engine",
+			Producer: &Producer{Name: "Google Inc."},
+		},
+		{
+			Name:     "Common Bots",
+			Regex:    `(?i)bot|spider|crawl|curl|wget|python|headless`,
+			Category: "generic_bot",
+			Producer: &Producer{Name: "Various"},
+		},
+	}
+
+	// 预编译正则表达式
+	for i, rule := range defaultRules {
+		compiled, err := regexp2.Compile(rule.Regex, regexp2.RE2)
+		if err == nil {
+			compiled.MatchTimeout = time.Second
+			defaultRules[i].compiled = compiled
+		}
+	}
+
+	combinedRegex, _ := regexp2.Compile(`(?i)bot|spider|crawl`, regexp2.RE2)
+	combinedRegex.MatchTimeout = time.Second
+
+	log.Println("使用默认Bot检测规则")
+	return &BotDetector{
+		rules:         defaultRules,
+		combinedRegex: combinedRegex,
+		cache:         &sync.Map{},
+		cacheTTL:      CacheTTL,
+	}
+}
+
+// ================== 主函数 ==================
+func main() {
+	setupLogger()
+	log.Println("Bot Detection System 正在启动...")
+
+	// 初始化缓存清理
+	go func() {
+		for {
+			time.Sleep(30 * time.Minute)
+			now := time.Now()
+			
+			// 清理IP基础日志
+			ipBaseLogs.Lock()
+			for ip, entry := range ipBaseLogs.data {
+				if entry == nil {
+					delete(ipBaseLogs.data, ip)
+					continue
+				}
+				
+				timestamp, err := time.Parse(time.RFC3339Nano, entry.Timestamp)
+				if err != nil {
+					log.Printf("Invalid timestamp for IP %s: %v", ip, err)
+					delete(ipBaseLogs.data, ip)
+					continue
+				}
+				
+				if now.Sub(timestamp) > 1*time.Hour {
+					delete(ipBaseLogs.data, ip)
+				}
+			}
+			ipBaseLogs.Unlock()
+			
+			// 清理最近IP记录
+			recentIPs.Lock()
+			for ip, lastSeen := range recentIPs.data {
+				if now.Sub(lastSeen) > 1*time.Hour {
+					delete(recentIPs.data, ip)
+				}
+			}
+			recentIPs.Unlock()
+		}
+	}()
+
+	// 初始化Bot检测器
+	var err error
+	detector, err = NewBotDetector("bots.json")
+	if err != nil {
+		log.Printf("Warning: Failed to load bots.json, using default rules: %v", err)
+		detector = createDefaultDetector()
+	}
+
+	// 注册HTTP处理器 - 对所有路由应用Bot检测中间件
+	http.HandleFunc("/", requestTypeMiddleware(botDetectionMiddleware(mainHandler)))
+	http.HandleFunc("/bot-check", requestTypeMiddleware(botCheckHandler))
+
+	log.Println("Server started on :8080")
+	// log.Println("Endpoints:")
+	// log.Println("  GET  /         - 主页面（带Bot检测）")
+	// log.Println("  POST /bot-check - 前端主动检测API")
+
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}

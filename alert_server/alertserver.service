@@ -1,0 +1,15 @@
+[Unit]
+Description=File alert server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/dnslog/server
+ExecStart=/home/dnslog/server/server
+Restart=always
+RestartSec=3
+Environment=PORT=8080
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target

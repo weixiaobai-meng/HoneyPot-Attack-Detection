@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Alert Message</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-top: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #ffebeb;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+
+        th,
+        td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: #ff6b6b;
+            color: #fff;
+            font-weight: bold;
+        }
+
+        .icon {
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 10px;
+            font-size: 28px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1><span class="icon">&#128683;</span>文件触发告警</h1>
+        <table>
+            <tr>
+                <th>属性</th>
+                <th>值</th>
+            </tr>
+			<tr>
+                <td>告警信息</td>
+                <td>{{.Message}}</td>
+            </tr>
+			<tr>
+                <td>告警IP:</td>
+                <td>{{.IpAddress}}</td>
+            </tr>
+            <tr>
+                <td>Agent:</td>
+                <td>{{.Agent}}</td>
+            </tr>
+            <tr>
+                <td>告警时间:</td>
+                <td>{{.Time}}</td>
+            </tr>
+            <tr>
+                <td>Token:</td>
+                <td>{{.Token}}</td>
+            </tr>
+            
+        </table>
+    </div>
+</body>
+
+</html>

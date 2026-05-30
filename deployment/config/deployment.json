@@ -1,0 +1,46 @@
+{
+  "system": {
+    "name": "蜜点管理系统",
+    "version": "1.0.0",
+    "created_at": "2026-05-29T11:55:56.371067"
+  },
+  "components": {
+    "systemwire2": {
+      "host": "0.0.0.0",
+      "port": 5001,
+      "grpc_port": 50051,
+      "db_type": "sqlite",
+      "tls_enabled": true
+    },
+    "alert_server": {
+      "host": "0.0.0.0",
+      "port": 8080,
+      "admin_port": 8081
+    },
+    "ssh_vpn": {
+      "ssh_port": 2222,
+      "vpn_port": 1194
+    }
+  },
+  "honeypot_types": {
+    "file": {
+      "enabled": true,
+      "description": "文件蜜点 - 诱饵文件被访问时触发告警"
+    },
+    "account": {
+      "enabled": true,
+      "description": "账户蜜点 - 虚假登录凭证被使用时触发告警"
+    },
+    "parasitic": {
+      "enabled": true,
+      "description": "寄生蜜点 - 网页被爬虫访问时触发告警"
+    }
+  },
+  "data_flow": {
+    "step1_input": "deployment/output/",
+    "step1_output": "step1_data_collection/output/unified_alerts.json",
+    "step2_output": "step2_causal_graph/output/causal_graph.json",
+    "step3_output": "step3_dqn_pruning/output/pruned_graph.json",
+    "step4_output": "step4_graph_to_text/output/llm_prompt_*.txt"
+  }
+}

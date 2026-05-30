@@ -1,0 +1,94 @@
+{
+  "components": {
+    "systemwire2": {
+      "path": "../systemwire2",
+      "type": "management",
+      "description": "蜜点管理端 (Flask + gRPC)",
+      "ports": {
+        "web": 5001,
+        "grpc": 50051
+      },
+      "start_command": "python app.py",
+      "alerts": {
+        "file_alerts": "instance/tripwire.db",
+        "parasitic_alerts": "log/url_alert.json"
+      }
+    },
+    "alert_server": {
+      "path": "../alert_server",
+      "type": "alert_receiver",
+      "description": "文件蜜点告警接收服务 (Go)",
+      "ports": {
+        "http": 8080,
+        "admin": 8081
+      },
+      "start_command": "go run cmd/main.go",
+      "alerts": {
+        "file_alerts": "data/alert.db"
+      }
+    },
+    "agent_go": {
+      "path": "../agent-go",
+      "type": "probe",
+      "description": "探针端 - 部署蜜点和采集日志 (Go)",
+      "start_command": "go run ./cmd",
+      "alerts": {
+        "audit_logs": "log/file_event_audit-*.log",
+        "url_alerts": "log/url_alert.json"
+      }
+    },
+    "ssh_vpn": {
+      "path": "../ssh-vpn",
+      "type": "honeypot",
+      "description": "SSH蜜罐 - 记录登录尝试 (Go)",
+      "ports": {
+        "ssh": 2222,
+        "vpn": 1194
+      },
+      "start_command": "go run main.go",
+      "alerts": {
+        "ssh_auth": "ssh_auth_log.json",
+        "passwords": "ssh_passwords_only.json"
+      }
+    },
+    "js": {
+      "path": "../js",
+      "type": "script",
+      "description": "寄生蜜点脚本 (JavaScript)",
+      "files": {
+        "bot_detection": "bot.js",
+        "fingerprint": "fingerprint.js",
+        "network": "network.js"
+      }
+    }
+  },
+  "alert_types": {
+    "file_honeypot": {
+      "source": "alert_server",
+      "description": "文件蜜点被访问时触发",
+      "collector": "file_adapter"
+    },
+    "account_honeypot": {
+      "source": "ssh_vpn",
+      "description": "虚假SSH登录凭证被使用时触发",
+      "collector": "account_adapter"
+    },
+    "parasitic_honeypot": {
+      "source": "agent_go",
+      "description": "网页被爬虫/机器人访问时触发",
+      "collector": "parasitic_adapter"
+    },
+    "audit_event": {
+      "source": "agent_go",
+      "description": "文件系统操作监控",
+      "collector": "audit_adapter"
+    }
+  },
+  "data_flow": {
+    "step1_input": "deployment/alerts/",
+    "step1_output": "step1_data_collection/output/unified_alerts.json",
+    "step2_output": "step2_causal_graph/output/causal_graph.json",
+    "step3_output": "step3_dqn_pruning/output/pruned_graph.json",
+    "step4_output": "step4_graph_to_text/output/llm_prompt_*.txt"
+  }
+}

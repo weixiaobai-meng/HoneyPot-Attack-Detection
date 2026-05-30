@@ -1,0 +1,11 @@
+{
+  "nodes": [],
+  "edges": [],
+  "triples": [],
+  "pruning_stats": {
+    "original_edges": 0,
+    "kept_edges": 0,
+    "pruned_edges": 0,
+    "compression_ratio": "0.0%"
+  }
+}

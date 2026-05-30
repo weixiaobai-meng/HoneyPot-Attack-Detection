@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>寄生日志查看</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f6f8fa;
+      color: #0b1220;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 24px;
+      margin-bottom: 16px;
+      color: #1a1a1a;
+    }
+    .meta {
+      color: #666;
+      margin-bottom: 24px;
+    }
+    .log-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .log-table th,
+    .log-table td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid #eef2f6;
+    }
+    .log-table th {
+      background: #fbfcfe;
+      font-weight: 600;
+      color: #444;
+    }
+    .log-table tr:last-child td {
+      border-bottom: none;
+    }
+    .geo-loading {
+      color: #999;
+      font-style: italic;
+    }
+    .btn {
+      padding: 6px 10px;
+      border-radius: 4px;
+      border: 1px solid #d0d7de;
+      background: #f6f8fa;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .btn:hover {
+      background: #eaeef2;
+    }
+    .pagination {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .page-info {
+      font-size: 14px;
+      color: #666;
+    }
+    dialog {
+      width: min(1000px, 95%);
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      padding: 0;
+      max-height: 90vh;
+    }
+    dialog::backdrop {
+      background: rgba(0,0,0,0.5);
+    }
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      border-bottom: 1px solid #eef2f6;
+      background: #2d3748;
+      color: white;
+    }
+    .dialog-content {
+      padding: 16px;
+      max-height: 70vh;
+      overflow: auto;
+      background: #1a2436;
+      color: #e6eef8;
+    }
+    .loading-placeholder {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+    }
+    .error-message {
+      color: #d12424;
+      text-align: center;
+      padding: 20px;
+    }
+    
+    /* 详情卡片样式 */
+    .browser-info {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .info-card {
+      background: #2d3748;
+      border-radius: 10px;
+      padding: 18px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      border-left: 4px solid #6e45e2;
+    }
+    .card-title {
+      color: #6e45e2;
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #4a5568;
+    }
+    .card-title svg {
+      margin-right: 8px;
+    }
+    .card-content {
+      color: #e6eef8;
+    }
+    .info-item {
+      margin-bottom: 12px;
+    }
+    .info-label {
+      font-weight: 500;
+      color: #a0aec0;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+    .info-value {
+      font-size: 14px;
+      color: #e6eef8;
+      word-break: break-all;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 6px 10px;
+      border-radius: 4px;
+    }
+    .info-value.small-text {
+      font-size: 13px;
+    }
+    .info-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+    }
+    .detail-btn {
+      padding: 8px 16px;
+      border-radius: 6px;
+      border: none;
+      background: #4a5568;
+      color: white;
+      cursor: pointer;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .detail-btn:hover {
+      background: #6e45e2;
+    }
+    .close-btn {
+      background: transparent;
+      font-size: 20px;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+    }
+    .close-btn:hover {
+      background: #e53e3e;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>寄生日志查看</h1>
+  <p class="meta">展示时间、代理结果、代理IP/真实IP及其地理位置</p>
+
+  <table class="log-table">
+    <thead>
+      <tr>
+        <th style="width:180px">时间</th>
+        <th style="width:100px">代理结果</th>
+        <th style="width:160px">代理IP</th>
+        <th style="width:200px">代理位置</th>
+        <th style="width:160px">真实IP</th>
+        <th style="width:200px">真实位置</th>
+        <th style="width:100px">操作</th>
+      </tr>
+    </thead>
+    <tbody id="logTableBody">
+      <tr><td colspan="7" class="loading-placeholder">正在加载日志数据...</td></tr>
+    </tbody>
+  </table>
+
+  <div class="pagination">
+    <button id="prevBtn" class="btn" disabled>上一页</button>
+    <span id="pageInfo" class="page-info">第 1 页</span>
+    <button id="nextBtn" class="btn" disabled>下一页</button>
+    <select id="pageSizeSelect" class="btn">
+      <option value="10">10条/页</option>
+      <option value="20">20条/页</option>
+      <option value="50">50条/页</option>
+    </select>
+  </div>
+
+  <dialog id="detailDialog">
+    <div class="dialog-header">
+      <strong id="detailTitle">记录详情</strong>
+      <div class="button-group">
+        <button id="copyBtn" class="detail-btn">
+          <svg width="16" height="16" viewBox=" 0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z" fill="currentColor"/>
+          </svg>
+          复制
+        </button>
+        <button id="closeBtn" class="close-btn">✕</button>
+      </div>
+    </div>
+    <div id="detailContent" class="dialog-content">
+      <!-- 这里将显示卡片式详情内容 -->
+    </div>
+  </dialog>
+</div>
+
+<script>
+// 全局状态管理
+const state = {
+  currentPage: 1,
+  pageSize: 10,
+  totalRecords: 0,
+  geoCache: new Map(),
+  lastGeoRequest: 0,
+  geoRequestQueue: [],
+  isProcessingQueue: false,
+  preloadedPages: new Set()
+};
+
+// DOM元素
+const elements = {
+  tableBody: document.getElementById('logTableBody'),
+  prevBtn: document.getElementById('prevBtn'),
+  nextBtn: document.getElementById('nextBtn'),
+  pageInfo: document.getElementById('pageInfo'),
+  pageSizeSelect: document.getElementById('pageSizeSelect'),
+  detailDialog: document.getElementById('detailDialog'),
+  detailTitle: document.getElementById('detailTitle'),
+  detailContent: document.getElementById('detailContent'),
+  copyBtn: document.getElementById('copyBtn'),
+  closeBtn: document.getElementById('closeBtn')
+};
+
+// 初始化事件监听
+function initEventListeners() {
+  elements.prevBtn.addEventListener('click', () => loadLogs(state.currentPage - 1));
+  elements.nextBtn.addEventListener('click', () => loadLogs(state.currentPage + 1));
+  elements.pageSizeSelect.addEventListener('change', (e) => {
+    state.pageSize = parseInt(e.target.value);
+    state.preloadedPages.clear();
+    loadLogs(1);
+  });
+  elements.closeBtn.addEventListener('click', () => elements.detailDialog.close());
+  elements.copyBtn.addEventListener('click', copyDetailContent);
+}
+
+// 主加载函数
+async function loadLogs(page = 1) {
+  try {
+    state.currentPage = page;
+    showLoadingState();
+    
+    const { data, total } = await fetchLogData(page);
+    state.totalRecords = total;
+    
+    renderTable(data);
+    updatePaginationControls();
+    updateGeoLocations(data);
+    
+    // 预加载下一页
+    if (shouldPreloadNextPage(page)) {
+      preloadPage(page + 1);
+    }
+    
+  } catch (error) {
+    showErrorState(error);
+  }
+}
+
+// 获取日志数据（带完整错误处理）
+async function fetchLogData(page) {
+  try {
+    // 使用模拟数据（实际使用时替换为真实API调用）
+    // const mockData = {
+    //   data: [
+    //     {
+    //       time: "2025-09-23T10:57:44+08:00",
+    //       RemoteIP: "192.168.253.1",
+    //       IPs: ["165.154.157.192"],
+    //       ProxyDetectResult: "false",
+    //       FingerprintData: "{\"browser\":\"Edge\",\"browserVersion\":\"140.0.0.0\",\"cpu\":\"amd64\",\"cpuCores\":24,\"fingerprint\":2510232250,\"fonts\":\"Agency FB, Arial Black, Arial, Bauhaus 93, Bell MT, Bodoni MT, Bookman Old Style, Broadway, Calibri Light, Calibri, Californian FB, Cambria Math, Cambria, Candara, Castellar, Centaur, Century Gothic, Colonna MT, Comic Sans MS, Consolas, Constantia, Copperplate Gothic Light, Corbel, Courier New, Ebrima, Engravers MT, FangSong, Forte, Franklin Gothic Heavy, Franklin Gothic Medium, French Script MT, Gabriola, Georgia, Gigi, Goudy Old Style, Haettenschweiler, Harrington, Impact, Informal Roman, KaiTi, Leelawadee, Lucida Bright, Lucida Console, Lucida Fax, Lucida Sans Unicode, MS Gothic, MS PGothic, MS Reference Sans Serif, MS UI Gothic, MV Boli, Magneto, Malgun Gothic, Marlett, Matura MT Script Capitals, Microsoft Himalaya, Microsoft JhengHei, Microsoft New Tai Lue, Microsoft PhagsPa, Microsoft Sans Serif, Microsoft Tai Le, Microsoft Uighur, Microsoft YaHei, Microsoft Yi Baiti, MingLiU-ExtB, MingLiU_HKSCS-ExtB, Mongolian Baiti, NSimSun, Niagara Solid, PMingLiU-ExtB, Palace Script MT, Palatino Linotype, Papyrus, Perpetua, Playbill, Rockwell, Segoe Print, Segoe Script, Segoe UI Light, Segoe UI Semibold, Segoe UI Symbol, Segoe UI, Showcard Gothic, SimHe, SimSun, SimSun-ExtB, Snap ITC, Sylfaen, Symbol, Tahoma, Times New Roman, Trebuchet MS, Verdana, Vladimir Script, Webdings, Wide Latin, Wingdings\",\"gpuuinfo\":{\"renderer\":\"ANGLE (Intel, Intel(R) UHD Graphics (0x0000A78B) Direct3D11 vs_5_0 ps_5_0, D3D11)\",\"vendor\":\"Google Inc. (Intel)\"},\"isLocalStorage\":true,\"isMobile\":false,\"iscookie\":true,\"language\":\"zh-CN\",\"os\":\"Windows\",\"osVersion\":\"10\",\"plugins\":\"PDF Viewer, Chrome PDF Viewer, Chromium PDF Viewer, Microsoft Edge PDF Viewer, WebKit built-in PDF\",\"screenPrint\":\"Current Resolution: 1920x1080, Available Resolution: 1920x1032, Color Depth: 24, Device XDPI: undefined, Device YDPI: undefined\",\"sessionStorage\":true,\"timeZone\":\"+08\",\"userAgent\":\"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 Edg/140.0.0.0\"}"
+    //     }
+    //   ],
+    //   total: 1
+    // };
+    
+    // 实际API调用（取消注释使用）
+    
+    const response = await fetch(
+      `/api/logs?page=${page}&size=${state.pageSize}`
+    );
+    
+    if (!response.ok) {
+      throw new Error(`HTTP错误: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    
+    // const result = mockData; // 使用模拟数据
+    
+    // 数据校验
+    if (!Array.isArray(result?.data)) {
+      throw new Error("无效的响应格式: data字段缺失或非数组");
+    }
+    
+    if (!Number.isInteger(result.total) || result.total < 0) {
+      console.warn("total字段异常，使用默认值0");
+      result.total = 0;
+    }
+    
+    // 处理每条记录 - 关键修复：解析FingerprintData字符串
+    const processedData = result.data.map(log => ({
+      time: validateTime(log.time),
+      RemoteIP: log.RemoteIP || null,
+      IPs: Array.isArray(log.IPs) ? log.IPs : [],
+      ProxyDetectResult: String(log.ProxyDetectResult || 'false'),
+      FingerprintData: parseFingerprint(log.FingerprintData) // 这里修复了
+    }));
+    
+    return { data: processedData, total: result.total };
+    
+  } catch (error) {
+    console.error('获取日志失败:', error);
+    throw new Error(`数据加载失败: ${error.message}`);
+  }
+}
+
+// 渲染表格
+function renderTable(logs) {
+  if (logs.length === 0) {
+    elements.tableBody.innerHTML = `
+      <tr>
+        <td colspan="7" style="text-align:center;color:#999;">
+          第 ${state.currentPage} 页没有数据
+        </td>
+      </tr>
+    `;
+    return;
+  }
+  
+  elements.tableBody.innerHTML = logs.map(log => `
+    <tr>
+      <td>${formatTime(log.time)}</td>
+      <td>${getProxyStatus(log)}</td>
+      <td>${log.RemoteIP || '-'}</td>
+      <td class="geo-loading">查询中...</td>
+      <td>${log.IPs[0] || '-'}</td>
+      <td class="geo-loading">查询中...</td>
+      <td>
+        <button class="btn" 
+                onclick="showDetail(${escapeJsonForHtml(JSON.stringify(log))})">
+          详情
+        </button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// 更新分页控件
+function updatePaginationControls() {
+  const totalPages = Math.max(1, Math.ceil(state.totalRecords / state.pageSize));
+  
+  elements.prevBtn.disabled = state.currentPage <= 1;
+  elements.nextBtn.disabled = state.currentPage >= totalPages;
+  
+  elements.pageInfo.textContent = 
+    `第 ${state.currentPage} 页 / 共 ${totalPages} 页 (总计 ${state.totalRecords} 条)`;
+}
+
+// 显示详情对话框 - 这是修改后的函数
+function showDetail(logJson) {
+  try {
+    const log = typeof logJson === 'string' ? JSON.parse(logJson) : logJson;
+    elements.detailTitle.textContent = `记录详情 - ${formatTime(log.time)}`;
+    
+    // 创建卡片式详情内容
+    elements.detailContent.innerHTML = createDetailCards(log);
+    
+    elements.detailDialog.showModal();
+  } catch (error) {
+    console.error('解析日志数据失败:', error);
+    elements.detailContent.textContent = '无法解析日志数据: ' + error.message;
+    elements.detailDialog.showModal();
+  }
+}
+
+// 创建卡片式详情内容
+function createDetailCards(log) {
+  const fingerprint = log.FingerprintData || {};
+  
+  return `
+    <div class="browser-info">
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M20 4H4C2.89 4 2 4.89 2 6V18C2 19.1 2.9 20 4 20H20C21.1 20 22 19.1 22 18V6C22 4.89 21.1 4 20 4ZM20 18H4V10H20V18ZM20 6H4V8H20V6Z" fill="currentColor"/>
+            </svg>
+            基本信息
+          </div>
+          <div class="card-content">
+            <div class="info-item">
+              <div class="info-label">时间</div>
+              <div class="info-value">${formatTime(log.time)}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">远程IP</div>
+              <div class="info-value">${log.RemoteIP || 'null'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">IP列表</div>
+              <div class="info-value">${JSON.stringify(log.IPs)}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">代理检测结果</div>
+              <div class="info-value">${log.ProxyDetectResult}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="info-card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20Z" fill="currentColor"/>
+              <path d="M12 6C8.69 6 6 8.69 6 12C6 15.31 8.69 18 12 18C15.31 18 18 15.31 18 12C18 8.69 15.31 6 12 6Z" fill="currentColor"/>
+            </svg>
+            浏览器信息
+          </div>
+          <div class="card-content">
+            <div class="info-item">
+              <div class="info-label">浏览器</div>
+              <div class="info-value">${fingerprint.browser || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">浏览器版本</div>
+              <div class="info-value">${fingerprint.browserVersion || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">User Agent</div>
+              <div class="info-value small-text">${fingerprint.userAgent || '未知'}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="info-card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3ZM19 19H5V5H19V19Z" fill="currentColor"/>
+              <path d="M12 7C9.24 7 7 9.24 7 12C7 14.76 9.24 17 12 17C14.76 17 17 14.76 17 12C17 9.24 14.76 7 12 7Z" fill="currentColor"/>
+            </svg>
+            系统信息
+          </div>
+          <div class="card-content">
+            <div class="info-item">
+              <div class="info-label">操作系统</div>
+              <div class="info-value">${fingerprint.os || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">操作系统版本</div>
+              <div class="info-value">${fingerprint.osVersion || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">CPU架构</div>
+              <div class="info-value">${fingerprint.cpu || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">CPU核心数</div>
+              <div class="info-value">${fingerprint.cpuCores || '未知'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2C13.1 2 14 2.9 14 4C14 5.1 13.1 6 12 6C10.9 6 10 5.1 10 4C10 2.9 10.9 2 12 2ZM21 9V7L15 5.5V7H9V5.5L3 7V9L10 11V17L7.5 17.5V20L12 19L16.5 20V17.5L14 17V11L21 9Z" fill="currentColor"/>
+            </svg>
+            设备信息
+          </div>
+          <div class="card-content">
+            <div class="info-item">
+              <div class="info-label">是否为移动设备</div>
+              <div class="info-value">${fingerprint.isMobile ? '是' : '否'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">屏幕信息</div>
+              <div class="info-value small-text">${fingerprint.screenPrint || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">时区</div>
+              <div class="info-value">${fingerprint.timeZone || '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">语言</div>
+              <div class="info-value">${fingerprint.language || '未知'}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="info-card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M21 3H3C1.9 3 1 3.9 1 5V19C1 20.1 1.9 21 3 21H21C22.1 21 23 20.1 23 19V5C23 3.9 22.1 3 21 3ZM21 19H3V5H21V19Z" fill="currentColor"/>
+              <path d="M12 8C9.79 8 8 9.79 8 12C8 14.21 9.79 16 12 16C14.21 16 16 14.21 16 12C16 9.79 14.21 8 12 8Z" fill="currentColor"/>
+            </svg>
+            GPU信息
+          </div>
+          <div class="card-content">
+            <div class="info-item">
+              <div class="info-label">渲染器</div>
+              <div class="info-value small-text">${fingerprint.gpuuinfo ? fingerprint.gpuuinfo.renderer : '未知'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">供应商</div>
+              <div class="info-value">${fingerprint.gpuuinfo ? fingerprint.gpuuinfo.vendor : '未知'}</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="info-card">
+          <div class="card-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3ZM19 19H5V5H19V19Z" fill="currentColor"/>
+              <path d="M12 7C9.24 7 7 9.24 7 12C7 14.76 9.24 17 12 17C14.76 17 17 14.76 17 12C17 9.24 14.76 7 12 7Z" fill="currentColor"/>
+            </svg>
+            存储与插件
+          </div>
+          <div class="card-content">
+            <div class="info-item">
+              <div class="info-label">本地存储</div>
+              <div class="info-value">${fingerprint.isLocalStorage ? '支持' : '不支持'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">会话存储</div>
+              <div class="info-value">${fingerprint.sessionStorage ? '支持' : '不支持'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">Cookie</div>
+              <div class="info-value">${fingerprint.iscookie ? '支持' : '不支持'}</div>
+            </div>
+            <div class="info-item">
+              <div class="info-label">插件</div>
+              <div class="info-value small-text">${fingerprint.plugins || '未知'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// 复制详情内容
+async function copyDetailContent() {
+  try {
+    const activeLog = window.currentDetailLog;
+    if (activeLog) {
+      await navigator.clipboard.writeText(JSON.stringify(activeLog, null, 2));
+      elements.copyBtn.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M9 16.17L4.83 12L3.41 13.41L9 19L21 7L19.59 5.59L9 16.17Z" fill="currentColor"/>
+        </svg>
+        已复制
+      `;
+      setTimeout(() => {
+        elements.copyBtn.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M16 1H4C2.9 1 2 1.9 2 3V17H4V3H16V1ZM19 5H8C6.9 5 6 5.9 6 7V21C6 22.1 6.9 23 8 23H19C20.1 23 21 22.1 21 21V7C21 5.9 20.1 5 19 5ZM19 21H8V7H19V21Z" fill="currentColor"/>
+          </svg>
+          复制
+        `;
+      }, 2000);
+    }
+  } catch (error) {
+    alert('复制失败: ' + error.message);
+  }
+}
+
+// ============== 工具函数 ==============
+function showLoadingState() {
+  elements.tableBody.innerHTML = `
+    <tr>
+      <td colspan="7" class="loading-placeholder">
+        正在加载第 ${state.currentPage} 页数据...
+      </td>
+    </tr>
+  `;
+}
+
+function showErrorState(error) {
+  elements.tableBody.innerHTML = `
+    <tr>
+      <td colspan="7" class="error-message">
+        ${error.message}
+        <button onclick="loadLogs(state.currentPage)" 
+                class="btn" 
+                style="margin-left:12px;">
+          重试
+        </button>
+      </td>
+    </tr>
+  `;
+}
+
+function shouldPreloadNextPage(currentPage) {
+  return (
+    currentPage * state.pageSize < state.totalRecords && 
+    !state.preloadedPages.has(currentPage + 1)
+  );
+}
+
+async function preloadPage(page) {
+  try {
+    const { data } = await fetchLogData(page);
+    state.preloadedPages.add(page);
+    
+    // 预缓存地理位置
+    data.forEach(log => {
+      if (log.RemoteIP) getGeoLocation(log.RemoteIP);
+      if (log.IPs[0]) getGeoLocation(log.IPs[0]);
+    });
+  } catch (error) {
+    console.error('预加载失败:', error);
+  }
+}
+
+function validateTime(isoTime) {
+  if (!isoTime || isNaN(new Date(isoTime))) {
+    console.warn('无效时间格式:', isoTime);
+    return new Date().toISOString();
+  }
+  return isoTime;
+}
+
+function formatTime(input) {
+  try {
+    const date = input ? new Date(input) : new Date();
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  } catch {
+    return input || '-';
+  }
+}
+
+function getProxyStatus(log) {
+  const isProxyByIP = log.RemoteIP && log.IPs.length > 0 && log.RemoteIP !== log.IPs[0];
+  const isDetectedProxy = String(log.ProxyDetectResult).toLowerCase() === 'true';
+  return isProxyByIP || isDetectedProxy ? '代理' : '非代理';
+}
+
+// 关键修复：正确解析FingerprintData
+function parseFingerprint(data) {
+  try {
+    if (typeof data === 'string') {
+      return JSON.parse(data);
+    } else if (typeof data === 'object' && data !== null) {
+      return data;
+    }
+    return {};
+  } catch (error) {
+    console.warn('解析FingerprintData失败:', error, '原始数据:', data);
+    return {};
+  }
+}
+
+function escapeJsonForHtml(obj) {
+  return JSON.stringify(obj)
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+// ============== 地理位置查询 ==============
+async function getGeoLocation(ip) {
+  if (!ip || ip.startsWith('192.168.')) return '内网IP';
+  
+  // 检查缓存
+  if (state.geoCache.has(ip)) {
+    return state.geoCache.get(ip);
+  }
+
+  // 节流控制（每秒最多5个请求）
+  const now = Date.now();
+  if (now - state.lastGeoRequest < 200) {
+    return new Promise(resolve => {
+      state.geoRequestQueue.push({ ip, resolve });
+      if (!state.isProcessingQueue) processGeoQueue();
+    });
+  }
+  state.lastGeoRequest = now;
+
+  try {
+    const response = await fetch(`https://ipapi.co/${ip}/json/`);
+    if (!response.ok) throw new Error('API限制');
+    
+    const data = await response.json();
+    const location = formatGeoData(data);
+    
+    state.geoCache.set(ip, location);
+    return location;
+  } catch (error) {
+    console.warn(`IP ${ip} 查询失败:`, error);
+    return '未知';
+  }
+}
+
+function formatGeoData(data) {
+  return [data.country, data.region, data.city]
+    .filter(Boolean)
+    .join(' ') || '未知';
+}
+
+async function processGeoQueue() {
+  state.isProcessingQueue = true;
+  while (state.geoRequestQueue.length > 0) {
+    const { ip, resolve } = state.geoRequestQueue.shift();
+    const result = await getGeoLocation(ip);
+    resolve(result);
+    await new Promise(r => setTimeout(r, 200)); // 控制速率
+  }
+  state.isProcessingQueue = false;
+}
+
+async function updateGeoLocations(logs) {
+  const ipUpdates = [];
+  
+  logs.forEach((log, index) => {
+    if (log.RemoteIP) ipUpdates.push({
+      selector: `#logTableBody tr:nth-child(${index + 1}) td:nth-child(4)`,
+      ip: log.RemoteIP
+    });
+    if (log.IPs[0]) ipUpdates.push({
+      selector: `#logTableBody tr:nth-child(${index + 1}) td:nth-child(6)`,
+      ip: log.IPs[0]
+    });
+  });
+
+  // 批量预加载到缓存
+  await Promise.all(ipUpdates.map(item => getGeoLocation(item.ip)));
+
+  // 更新DOM
+  ipUpdates.forEach(item => {
+    const cell = document.querySelector(item.selector);
+    if (cell) {
+      cell.textContent = state.geoCache.get(item.ip) || '未知';
+      cell.classList.remove('geo-loading');
+    }
+  });
+}
+
+// ============== 初始化 ==============
+document.addEventListener('DOMContentLoaded', () => {
+  initEventListeners();
+  loadLogs(1);
+});
+
+// 全局变量，用于存储当前显示的日志详情
+window.currentDetailLog = null;
+</script>
+</body>
+</html>
