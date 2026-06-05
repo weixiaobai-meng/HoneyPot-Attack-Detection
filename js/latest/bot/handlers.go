@@ -88,6 +88,18 @@ func mainHandler(w http.ResponseWriter, r *http.Request) {
 
 func botCheckHandler(w http.ResponseWriter, r *http.Request) {
 	//startTime := time.Now()
+	enableCors(&w, r)
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Method not allowed",
+		})
+		return
+	}
 
 	var data BotCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {

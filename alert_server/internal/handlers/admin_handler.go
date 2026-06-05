@@ -14,6 +14,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func buildPublicTokenURL(token string) string {
+	scheme := "http"
+	if pkg.Cfg.EnableHTTPS {
+		scheme = "https"
+	}
+
+	host := pkg.Cfg.Public_ip
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	base := fmt.Sprintf("%s://%s", scheme, host)
+	if pkg.Cfg.Public_port != "" {
+		base = fmt.Sprintf("%s:%s", base, pkg.Cfg.Public_port)
+	}
+
+	return base + "/contact/" + token
+}
+
 // API:服务器测试
 func TestHandler(c *gin.Context) {
 	c.JSON(200, gin.H{
@@ -88,15 +107,7 @@ func CreateTokenHandler(c *gin.Context) {
 		})
 		return
 	} else {
-		var token string
-		workerDomain := "https://checfile.1662284883.workers.dev/" //worker的域名
-		if !pkg.Cfg.EnableHTTPS {
-			token = workerDomain + "contact/" + tokenStr
-			println(token)
-		} else {
-			token = workerDomain + "contact/" + tokenStr
-			println(token)
-		}
+		token := buildPublicTokenURL(tokenStr)
 		c.JSON(http.StatusOK, gin.H{
 			"code":    0,
 			"message": "Success",

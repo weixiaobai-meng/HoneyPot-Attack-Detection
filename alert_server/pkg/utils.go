@@ -34,6 +34,9 @@ func InitProjectDir() error {
 	// 项目根目录
 	if strings.Contains(ExuteFilePath, string(filepath.Separator)+"cmd") {
 		ProjectRootDir = filepath.Join(ExuteDir, "..") // 可执行文件所在目录(cmd)上层就是项目根目录
+	} else if strings.Contains(ExuteFilePath, "go-build") || strings.Contains(ExuteDir, string(filepath.Separator)+"tmp"+string(filepath.Separator)) {
+		// go run / 调试模式下，可执行文件在临时目录中，回退到工作目录
+		ProjectRootDir = WorkingDir
 	} else {
 		ProjectRootDir = ExuteDir // 可执行文件所在目录就是项目根目录
 	}

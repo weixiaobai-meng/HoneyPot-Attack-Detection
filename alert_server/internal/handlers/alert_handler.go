@@ -94,12 +94,7 @@ func TriggerHandler(c *gin.Context) {
 
 		logrus.Info("[告警]: 文件触发告警 \t,ip:", srcIP, "\t,message:", tokenInfo.Alert_msg)
 		//告警日志插入数据库
-		var token_url string
-		if pkg.Cfg.EnableHTTPS {
-			token_url = "https://" + pkg.Cfg.Public_ip + ":" + pkg.Cfg.Public_port + "/contact/" + token
-		} else {
-			token_url = "http://" + pkg.Cfg.Public_ip + ":" + pkg.Cfg.Public_port + "/contact/" + token
-		}
+		token_url := buildPublicTokenURL(token)
 
 		loc, err := time.LoadLocation("Asia/Shanghai")
 		if err != nil {

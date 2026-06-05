@@ -1,4 +1,6 @@
-﻿[server]
+[server]
+# public_ip/public_port are embedded into file honeypot links.
+# local_port is the manage API port that systemwire2 should use as MANAGE_ADDRESS.
 mode = debug
 public_ip = 127.0.0.1
 public_port = 9090
@@ -7,7 +9,7 @@ https = true
 key_mode = 2
 api-key = Xiaocheng
 whitelist_mode = false
-trigger_auth = true
+trigger_auth = false
 trigger_auth_key = 4m-2024
 
 [alert]

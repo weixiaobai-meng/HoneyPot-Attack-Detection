@@ -34,5 +34,8 @@ __pycache__/
 /tmp_output/
 /alert_server/tmp/
 
+# Go 临时编译缓存
+/.tmp/
+
 # 根目录的临时脚本
 /tmp_*
