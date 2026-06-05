@@ -1,0 +1,34 @@
+# 独立 Git 仓库（原 submodule）
+/agent-go/
+/ssh-vpn/
+/systemwire2/
+
+# Go 编译后的二进制文件
+*.exe
+
+# 日志文件
+*.log
+
+# SQLite 数据库文件
+*.db
+
+# SSL 证书
+*.pem
+*.csr
+
+# Python __pycache__ 和编译缓存
+__pycache__/
+*.pyc
+
+# PyTorch 模型检查点
+*.pt
+
+# 实验生成目录
+/generated_runs/
+
+# 临时文件目录
+/tmp/
+/tmp_output/
+
+# 根目录的临时脚本
+/tmp_*

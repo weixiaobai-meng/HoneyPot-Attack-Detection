@@ -2,82 +2,88 @@ package main
 
 import (
 	"encoding/json"
-	"net/http"
-	"os"
-	"strings"
-	"time"
 	"fmt"
 	"log"
 	"net"
-
+	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
-	
-
 )
 
-// func mainHandler(w http.ResponseWriter, r *http.Request) {
-// 	// 返回前端HTML
-// 	htmlBytes, err := os.ReadFile("/var/www/front/index.html")
-// 	if err != nil {
-// 		return
-// 	}
+func loadFrontPage() ([]byte, error) {
+	candidates := []string{}
+	if env := strings.TrimSpace(os.Getenv("BOT_FRONT_HTML")); env != "" {
+		candidates = append(candidates, env)
+	}
+	candidates = append(candidates,
+		filepath.Join("static", "index.html"),
+		"/var/www/front/index.html",
+	)
+	for _, candidate := range candidates {
+		htmlBytes, err := os.ReadFile(candidate)
+		if err == nil {
+			return htmlBytes, nil
+		}
+	}
+	return nil, fmt.Errorf("front page not found in %v", candidates)
+}
 
-// 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-// 	w.Write(htmlBytes)
-// }
 func mainHandler(w http.ResponseWriter, r *http.Request) {
-    // === 1. 定义陷阱列表 (Map结构) ===
-    // Key(左边) = 陷阱路径
-    // Value(右边) = 对应的伪造返回内容
-    traps := map[string]string{
-        "/config.json": `{"db_host": "10.0.0.5", "secret": "sk-fake-token"}`,
-        "/.env":        `DB_PASSWORD=root_pass_123\nAWS_KEY=AKIAIOSFODNN7EXAMPLE`,
-        "/backup.sql":  `-- MySQL dump 10.13\n-- Host: localhost\nINSERT INTO users VALUES (1, 'admin', 'md5_hash');`,
-        "/web.rar":     "Error: File is corrupted", // 假装文件损坏，骗他下载
-        "/admin/":      "<h1>403 Forbidden</h1>",   // 假装有后台但没权限
-    }
+	// === 1. 瀹氫箟闄烽槺鍒楄〃 (Map缁撴瀯) ===
+	// Key(宸﹁竟) = 闄烽槺璺緞
+	// Value(鍙宠竟) = 瀵瑰簲鐨勪吉閫犺繑鍥炲唴瀹?
+	traps := map[string]string{
+		"/config.json": `{"db_host": "10.0.0.5", "secret": "sk-fake-token"}`,
+		"/.env":        `DB_PASSWORD=root_pass_123\nAWS_KEY=AKIAIOSFODNN7EXAMPLE`,
+		"/backup.sql":  `-- MySQL dump 10.13\n-- Host: localhost\nINSERT INTO users VALUES (1, 'admin', 'md5_hash');`,
+		"/web.rar":     "Error: File is corrupted", // 鍋囪鏂囦欢鎹熷潖锛岄獥浠栦笅杞?
+		"/admin/":      "<h1>403 Forbidden</h1>",   // 鍋囪鏈夊悗鍙颁絾娌℃潈闄?
+	}
 
-    // === 2. 检查当前请求是否踩中陷阱 ===
-    // traps[r.URL.Path] 会尝试在 map 里找当前路径
-    // 如果找到了，ok 为 true，fakeContent 就是上面的伪造内容
-    if fakeContent, ok := traps[r.URL.Path]; ok {
-        ip := getClientIP(r)
+	// === 2. 妫€鏌ュ綋鍓嶈姹傛槸鍚﹁俯涓櫡闃?===
+	// traps[r.URL.Path] 浼氬皾璇曞湪 map 閲屾壘褰撳墠璺緞
+	// 濡傛灉鎵惧埌浜嗭紝ok 涓?true锛宖akeContent 灏辨槸涓婇潰鐨勪吉閫犲唴瀹?
+	if fakeContent, ok := traps[r.URL.Path]; ok {
+		ip := getClientIP(r)
 
-        // 🚨 记录攻击 (调用独立的记录函数)
-        go RecordHoneypotHit(ip, r.URL.Path, r.UserAgent())
+		// 馃毃 璁板綍鏀诲嚮 (璋冪敤鐙珛鐨勮褰曞嚱鏁?
+		go RecordHoneypotHit(ip, r.URL.Path, r.UserAgent())
 
-        // 根据文件类型设置一下 Header，演得像一点
-        if strings.HasSuffix(r.URL.Path, ".json") {
-            w.Header().Set("Content-Type", "application/json")
-        } else {
-            w.Header().Set("Content-Type", "text/plain")
-        }
+		// 鏍规嵁鏂囦欢绫诲瀷璁剧疆涓€涓?Header锛屾紨寰楀儚涓€鐐?
+		if strings.HasSuffix(r.URL.Path, ".json") {
+			w.Header().Set("Content-Type", "application/json")
+		} else {
+			w.Header().Set("Content-Type", "text/plain")
+		}
 
-        // 返回伪造数据
-        w.WriteHeader(http.StatusOK)
-        w.Write([]byte(fakeContent))
-        return // 结束战斗，不要返回真的网页
-    }
+		// 杩斿洖浼€犳暟鎹?
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fakeContent))
+		return // 缁撴潫鎴樻枟锛屼笉瑕佽繑鍥炵湡鐨勭綉椤?
+	}
 
-    // === 3. 正常用户的逻辑 (只有没踩中陷阱才会走到这里) ===
-    // 你的网页入口通常是 "/" 或者 "/index.html"
-    if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-        htmlBytes, err := os.ReadFile("/var/www/front/index.html")
-        if err != nil {
-            http.NotFound(w, r)
-            return
-        }
-        w.Header().Set("Content-Type", "text/html; charset=utf-8")
-        w.Write(htmlBytes)
-        return
-    }
+	// === 3. 姝ｅ父鐢ㄦ埛鐨勯€昏緫 (鍙湁娌¤俯涓櫡闃辨墠浼氳蛋鍒拌繖閲? ===
+	// 浣犵殑缃戦〉鍏ュ彛閫氬父鏄?"/" 鎴栬€?"/index.html"
+	if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+		htmlBytes, err := loadFrontPage()
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(htmlBytes)
+		return
+	}
 
-    // === 4. 处理静态资源或其他不存在的路径 ===
-    // 如果既不是陷阱，也不是首页，可能是 css/js 或者真的不存在
-    // 这里简单处理为 404，或者你可以交给 http.FileServer 处理静态文件
-    http.NotFound(w, r)
+	// === 4. 澶勭悊闈欐€佽祫婧愭垨鍏朵粬涓嶅瓨鍦ㄧ殑璺緞 ===
+	// 濡傛灉鏃笉鏄櫡闃憋紝涔熶笉鏄椤碉紝鍙兘鏄?css/js 鎴栬€呯湡鐨勪笉瀛樺湪
+	// 杩欓噷绠€鍗曞鐞嗕负 404锛屾垨鑰呬綘鍙互浜ょ粰 http.FileServer 澶勭悊闈欐€佹枃浠?
+	http.NotFound(w, r)
 }
 
 func botCheckHandler(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +91,7 @@ func botCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	var data BotCheckRequest
 	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
-		log.Printf("[错误] 无效的JSON请求: %v", err)
+		log.Printf("[閿欒] 鏃犳晥鐨凧SON璇锋眰: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": "Invalid JSON: " + err.Error(),
@@ -95,7 +101,7 @@ func botCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 	ip := getClientIP(r)
 
-	// 建立 IP ↔ Session 关系
+	// 寤虹珛 IP 鈫?Session 鍏崇郴
 	recentIPs.RLock()
 	_, seen := recentIPs.data[ip]
 	recentIPs.RUnlock()
@@ -106,21 +112,21 @@ func botCheckHandler(w http.ResponseWriter, r *http.Request) {
 		ipToSession.Unlock()
 	}
 
-	// 获取基础日志
+	// 鑾峰彇鍩虹鏃ュ織
 	var baseLog *BaseLog
-    pendingLogs.Lock()
-	// log.Printf("[调试] === 开始查找基础日志 ===")
-	// log.Printf("[调试] 查找IP: %s", ip)
-	// log.Printf("[调试] pendingLogs映射大小: %d", len(pendingLogs.data))
-    
-	if log, exists := pendingLogs.data[ip]; exists {
-        baseLog = log
-        delete(pendingLogs.data, ip) // 移出队列
-    }
-    pendingLogs.Unlock()
-	// log.Printf("[调试] 找到基础日志: %+v", baseLog)
+	pendingLogs.Lock()
+	// log.Printf("[璋冭瘯] === 寮€濮嬫煡鎵惧熀纭€鏃ュ織 ===")
+	// log.Printf("[璋冭瘯] 鏌ユ壘IP: %s", ip)
+	// log.Printf("[璋冭瘯] pendingLogs鏄犲皠澶у皬: %d", len(pendingLogs.data))
 
-	// 获取或创建 session
+	if log, exists := pendingLogs.data[ip]; exists {
+		baseLog = log
+		delete(pendingLogs.data, ip) // 绉诲嚭闃熷垪
+	}
+	pendingLogs.Unlock()
+	// log.Printf("[璋冭瘯] 鎵惧埌鍩虹鏃ュ織: %+v", baseLog)
+
+	// 鑾峰彇鎴栧垱寤?session
 	sessions.Lock()
 	s, ok := sessions.data[data.SessionToken]
 	if !ok {
@@ -138,53 +144,53 @@ func botCheckHandler(w http.ResponseWriter, r *http.Request) {
 	score := calcScore(s, mouseTrackWithT, data.ClickIntervals)
 	isBot := score >= BotScoreThreshold
 
-	// 收集判断依据
+	// 鏀堕泦鍒ゆ柇渚濇嵁
 	var reasons []string
 	if detector.IsBot(data.UserAgent) {
-		reasons = append(reasons, "UA匹配Bot规则")
+		reasons = append(reasons, "UA鍖归厤Bot瑙勫垯")
 	}
 	if len(mouseTrackWithT) < 5 {
-		reasons = append(reasons, "鼠标轨迹点过少")
+		reasons = append(reasons, "Mouse trace points are too few")
 	} else if isRegularMouseTrack(mouseTrackWithT) {
-		reasons = append(reasons, "鼠标轨迹过于规律")
+		reasons = append(reasons, "榧犳爣杞ㄨ抗杩囦簬瑙勫緥")
 	}
 	if len(data.ClickIntervals) > 1 {
 		if variance := calculateClickVariance(data.ClickIntervals); variance < 1000 {
-			reasons = append(reasons, fmt.Sprintf("点击间隔过于规律(方差=%.2f)", variance))
+			reasons = append(reasons, fmt.Sprintf("鐐瑰嚮闂撮殧杩囦簬瑙勫緥(鏂瑰樊=%.2f)", variance))
 		}
 	} else if len(data.ClickIntervals) == 0 {
-		reasons = append(reasons, "无点击事件记录")
+		reasons = append(reasons, "No click events recorded")
 	}
 	if len(s.Requests) > 2 {
 		if freqScore := analyzeRequestFrequency(s.Requests); freqScore > 0 {
-			reasons = append(reasons, fmt.Sprintf("请求频率异常(得分+%d)", freqScore))
+			reasons = append(reasons, fmt.Sprintf("璇锋眰棰戠巼寮傚父(寰楀垎+%d)", freqScore))
 		}
 	}
 	if strings.Contains(strings.ToLower(data.UserAgent), "headlesschrome") {
 		reasons = append(reasons, "HeadlessChrome UA")
 	}
 
-	// 构建检测日志
+	// 鏋勫缓妫€娴嬫棩蹇?
 	detectionLog := &DetectionLog{
-		Timestamp:   time.Now().Format(time.RFC3339Nano),
-		SessionID:   data.SessionToken,
-		IP:			 ip,
-		Score:       score,
-		MousePoints: len(mouseTrackWithT),
-		ClickCount:  len(data.ClickIntervals),
-		Reasons:     reasons,
-		IsBot:       score >= BotScoreThreshold,
-		RequestURL:  r.URL.Path,
-		Method:      r.Method,
-		DetectMethod: "advanced", // 使用正确的字段名
+		Timestamp:    time.Now().Format(time.RFC3339Nano),
+		SessionID:    data.SessionToken,
+		IP:           ip,
+		Score:        score,
+		MousePoints:  len(mouseTrackWithT),
+		ClickCount:   len(data.ClickIntervals),
+		Reasons:      reasons,
+		IsBot:        score >= BotScoreThreshold,
+		RequestURL:   r.URL.Path,
+		Method:       r.Method,
+		DetectMethod: "advanced", // 浣跨敤姝ｇ‘鐨勫瓧娈靛悕
 	}
 
-    // 输出合并日志
-    logUnified(UnifiedLog{
-        Base:       baseLog,
-        Detection:  detectionLog,
-        Abnormal:   baseLog == nil, // 标记是否缺少基础日志
-    })
+	// 杈撳嚭鍚堝苟鏃ュ織
+	logUnified(UnifiedLog{
+		Base:      baseLog,
+		Detection: detectionLog,
+		Abnormal:  baseLog == nil, // 鏍囪鏄惁缂哄皯鍩虹鏃ュ織
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -195,8 +201,7 @@ func botCheckHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
-// 新增的WebSocket处理器
+// 鏂板鐨刉ebSocket澶勭悊鍣?
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -236,7 +241,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	logLatency(remoteAddr)
 }
 
-// 新增的IPS处理器
+// 鏂板鐨処PS澶勭悊鍣?
 // func handleIPS(w http.ResponseWriter, r *http.Request) {
 // 	enableCors(&w, r)
 
@@ -277,10 +282,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 // 		return
 // 	}
 
-// 	log.Printf("[webRTC] %v", logLine)
-// 	w.WriteHeader(http.StatusOK)
-// 	w.Write([]byte("IP addresses logged successfully"))
-// }
+//		log.Printf("[webRTC] %v", logLine)
+//		w.WriteHeader(http.StatusOK)
+//		w.Write([]byte("IP addresses logged successfully"))
+//	}
 func handleIPS(w http.ResponseWriter, r *http.Request) {
 	enableCors(&w, r)
 	if r.Method == http.MethodOptions {
@@ -304,25 +309,25 @@ func handleIPS(w http.ResponseWriter, r *http.Request) {
 
 	ipAddress := getClientIP(r)
 
-	// 本地文件日志 (保留你原来的逻辑)
+	// 鏈湴鏂囦欢鏃ュ織 (淇濈暀浣犲師鏉ョ殑閫昏緫)
 	logLine := fmt.Sprintf("Time: %v, RemoteIP: %s, IPs: %v\n", time.Now().Format(time.RFC3339), ipAddress, requestBody.IPs)
 	appendToFile("log/wrt_ips.log", logLine)
 	log.Printf("[WebRTC] %v", logLine)
 
 	// ==========================================
-	// 🛠️ 修改部分：使用 SessionManager
+	// 馃洜锔?淇敼閮ㄥ垎锛氫娇鐢?SessionManager
 	// ==========================================
 
-	// 1. 获取 Buffer
+	// 1. 鑾峰彇 Buffer
 	buf := sm.GetBuffer(ipAddress)
 
-	// 2. 更新 WebRTC 数据 (加锁)
+	// 2. 鏇存柊 WebRTC 鏁版嵁 (鍔犻攣)
 	sm.mu.Lock()
-	buf.Data.Ips = requestBody.IPs // 存入 IP 数组
-	buf.IsWebRTCReady = true       // 🚩 标记 WebRTC 就绪
+	buf.Data.Ips = requestBody.IPs // 瀛樺叆 IP 鏁扮粍
+	buf.IsWebRTCReady = true       // 馃毄 鏍囪 WebRTC 灏辩华
 	sm.mu.Unlock()
 
-	// 3. 发送信号
+	// 3. 鍙戦€佷俊鍙?
 	select {
 	case sm.checkCh <- ipAddress:
 	default:
@@ -332,7 +337,7 @@ func handleIPS(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("IP addresses logged successfully"))
 }
 
-// 新增的POST处理器
+// 鏂板鐨凱OST澶勭悊鍣?
 // func handlePost(w http.ResponseWriter, r *http.Request) {
 // 	enableCors(&w, r)
 // 	if r.Method == http.MethodOptions {
@@ -365,7 +370,6 @@ func handleIPS(w http.ResponseWriter, r *http.Request) {
 // 	realPath := path
 // 	delete(fingerprintData, "path")
 // 	delete(fingerprintData, "canvas")
-	
 
 // 	sessionToken := ""
 // 	if val, ok := fingerprintData["sessionToken"]; ok {
@@ -387,11 +391,11 @@ func handleIPS(w http.ResponseWriter, r *http.Request) {
 // 		fingerprintID,
 // 		string(details),
 // 	)
-	// log.Printf("[Fingerprint] RemoteIP: %s, Path: %v, Fingerprint: %v",
-	// 	ipAddress,
-	// 	realPath,
-	// 	fingerprintID,
-	// )
+// log.Printf("[Fingerprint] RemoteIP: %s, Path: %v, Fingerprint: %v",
+// 	ipAddress,
+// 	realPath,
+// 	fingerprintID,
+// )
 // 	if _, ok := dataMap[ipAddress]; !ok {
 // 		dataMap[ipAddress] = &parasitism{}
 // 	}
@@ -451,34 +455,33 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 本地文件日志 (保留)
+	// 鏈湴鏂囦欢鏃ュ織 (淇濈暀)
 	logLine := fmt.Sprintf(
 		"Time: %s, RemoteIP: %s, Path: %v, Fingerprint: %v, Details: %v\n",
 		currentTime, ipAddress, realPath, fingerprintID, string(details),
 	)
 	appendToFile("log/fingerprint.log", logLine)
 
-
 	log.Printf("[Fingerprint] RemoteIP: %s, Path: %v, Fingerprint: %v", ipAddress, realPath, fingerprintID)
 
 	// ==========================================
-	// 🛠️ 修改部分：使用 SessionManager
+	// 馃洜锔?淇敼閮ㄥ垎锛氫娇鐢?SessionManager
 	// ==========================================
 
-	// 1. 获取 Buffer
+	// 1. 鑾峰彇 Buffer
 	buf := sm.GetBuffer(ipAddress)
 
-	// 2. 更新 HTTP 数据 (加锁)
+	// 2. 鏇存柊 HTTP 鏁版嵁 (鍔犻攣)
 	sm.mu.Lock()
 	buf.Data.SessionToken = sessionToken
 	buf.Data.FingerprintDetails = string(details)
 	buf.Data.Path = realPath
 	buf.Data.Fingerprint = fingerprintID
 
-	buf.IsHTTPReady = true // 🚩 标记 HTTP 就绪
+	buf.IsHTTPReady = true // 馃毄 鏍囪 HTTP 灏辩华
 	sm.mu.Unlock()
 
-	// 3. 发送信号
+	// 3. 鍙戦€佷俊鍙?
 	select {
 	case sm.checkCh <- ipAddress:
 	default:
@@ -487,17 +490,16 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-
-// 辅助结构体：仅用于解析 FingerprintData 中的关键字段
+// 杈呭姪缁撴瀯浣擄細浠呯敤浜庤В鏋?FingerprintData 涓殑鍏抽敭瀛楁
 type FingerprintMeta struct {
 	Path     string `json:"path"`
-	PathAlt  string `json:"Path"` // 兼容大小写
+	PathAlt  string `json:"Path"` // 鍏煎澶у皬鍐?
 	OS       string `json:"os"`
 	TimeZone string `json:"timeZone"`
 	Language string `json:"language"`
 }
 
-// 核心日志查询接口 (支持筛选 + 综合代理判定逻辑)
+// 鏍稿績鏃ュ織鏌ヨ鎺ュ彛 (鏀寔绛涢€?+ 缁煎悎浠ｇ悊鍒ゅ畾閫昏緫)
 func logHandler(w http.ResponseWriter, r *http.Request) {
 	enableCors(&w, r)
 	if r.Method != http.MethodGet {
@@ -505,27 +507,33 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// === 1. 解析参数 ===
+	// === 1. 瑙ｆ瀽鍙傛暟 ===
 	q := r.URL.Query()
-	
+
 	page, _ := strconv.Atoi(q.Get("page"))
 	size, _ := strconv.Atoi(q.Get("size"))
-	if page < 1 { page = 1 }
-	if size < 1 || size > 100 { size = 10 }
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 10
+	}
 
-	// 筛选参数提取器
+	// 绛涢€夊弬鏁版彁鍙栧櫒
 	parseParam := func(key string) []string {
 		val := q.Get(key)
-		if val == "" { return nil }
+		if val == "" {
+			return nil
+		}
 		return strings.Split(val, ",")
 	}
 
 	filterTargets := parseParam("target")
-	filterBots    := parseParam("is_bot")
-	filterProxies := parseParam("is_proxy") // 前端传 "true" 或 "false"
-	filterOS      := parseParam("os")
-	filterTZ      := parseParam("timezone")
-	filterLangs   := parseParam("language")
+	filterBots := parseParam("is_bot")
+	filterProxies := parseParam("is_proxy") // 鍓嶇浼?"true" 鎴?"false"
+	filterOS := parseParam("os")
+	filterTZ := parseParam("timezone")
+	filterLangs := parseParam("language")
 
 	cacheMutex.RLock()
 	defer cacheMutex.RUnlock()
@@ -534,13 +542,15 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Options Sets
 	optTargets := make(map[string]bool)
-	optOS      := make(map[string]bool)
-	optTZ      := make(map[string]bool)
-	optLang    := make(map[string]bool)
+	optOS := make(map[string]bool)
+	optTZ := make(map[string]bool)
+	optLang := make(map[string]bool)
 
-	// 通用匹配函数
+	// 閫氱敤鍖归厤鍑芥暟
 	matchExact := func(filters []string, val string) bool {
-		if len(filters) == 0 { return true }
+		if len(filters) == 0 {
+			return true
+		}
 		for _, f := range filters {
 			if strings.EqualFold(strings.TrimSpace(f), strings.TrimSpace(val)) {
 				return true
@@ -549,35 +559,47 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 		return false
 	}
 
-	// === 2. 遍历全量日志 ===
+	// === 2. 閬嶅巻鍏ㄩ噺鏃ュ織 ===
 	for _, rawLog := range logCache {
-		// 复制一份 log 数据，避免修改原始缓存 (因为我们要修改 ProxyDetectResult 用于展示)
-		log := rawLog 
+		// 澶嶅埗涓€浠?log 鏁版嵁锛岄伩鍏嶄慨鏀瑰師濮嬬紦瀛?(鍥犱负鎴戜滑瑕佷慨鏀?ProxyDetectResult 鐢ㄤ簬灞曠ず)
+		log := rawLog
 
-		// --- A. 解析指纹元数据 ---
+		// --- A. 瑙ｆ瀽鎸囩汗鍏冩暟鎹?---
 		var fp FingerprintMeta
 		if log.FingerprintData != "" {
 			_ = json.Unmarshal([]byte(log.FingerprintData), &fp)
 		}
 
-		// 归一化 Target
+		// 褰掍竴鍖?Target
 		currentPath := fp.Path
-		if currentPath == "" { currentPath = fp.PathAlt }
-		if currentPath == "" { currentPath = "Unknown" }
+		if currentPath == "" {
+			currentPath = fp.PathAlt
+		}
+		if currentPath == "" {
+			currentPath = "Unknown"
+		}
 
-		// --- B. 收集选项 ---
-		if currentPath != "Unknown" { optTargets[currentPath] = true }
-		if fp.OS != ""              { optOS[fp.OS] = true }
-		if fp.TimeZone != ""        { optTZ[fp.TimeZone] = true }
-		if fp.Language != ""        { optLang[fp.Language] = true }
+		// --- B. 鏀堕泦閫夐」 ---
+		if currentPath != "Unknown" {
+			optTargets[currentPath] = true
+		}
+		if fp.OS != "" {
+			optOS[fp.OS] = true
+		}
+		if fp.TimeZone != "" {
+			optTZ[fp.TimeZone] = true
+		}
+		if fp.Language != "" {
+			optLang[fp.Language] = true
+		}
 
-		// --- C. 核心修改：综合代理判定逻辑 ---
-		// 逻辑：IP不一致 ? True : LatencyResult
-		
+		// --- C. 鏍稿績淇敼锛氱患鍚堜唬鐞嗗垽瀹氶€昏緫 ---
+		// 閫昏緫锛欼P涓嶄竴鑷?? True : LatencyResult
+
 		isProxy := false
-		
-		// 1. 检查 IP 是否不一致 (WebRTC IP vs Remote IP)
-		// 只有当获取到了 WebRTC IPs 时才比较
+
+		// 1. 妫€鏌?IP 鏄惁涓嶄竴鑷?(WebRTC IP vs Remote IP)
+		// 鍙湁褰撹幏鍙栧埌浜?WebRTC IPs 鏃舵墠姣旇緝
 		if len(log.IPs) > 0 {
 			matchFound := false
 			for _, webRTCIP := range log.IPs {
@@ -586,52 +608,52 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
-			// 如果 RemoteIP 不在 WebRTC IPs 列表中 -> 判定为代理
+			// 濡傛灉 RemoteIP 涓嶅湪 WebRTC IPs 鍒楄〃涓?-> 鍒ゅ畾涓轰唬鐞?
 			if !matchFound {
 				isProxy = true
 			}
 		}
 
-		// 2. 如果 IP 一致 (或没拿到 WebRTC)，则回退使用延迟检测结果
+		// 2. 濡傛灉 IP 涓€鑷?(鎴栨病鎷垮埌 WebRTC)锛屽垯鍥為€€浣跨敤寤惰繜妫€娴嬬粨鏋?
 		if !isProxy {
-			// log.ProxyDetectResult 是字符串 "true"/"false"
+			// log.ProxyDetectResult 鏄瓧绗︿覆 "true"/"false"
 			if log.ProxyDetectResult == "true" {
 				isProxy = true
 			}
 		}
 
-		// 3. 将计算后的最终结果赋值回去 (用于筛选 和 返回给前端展示)
+		// 3. 灏嗚绠楀悗鐨勬渶缁堢粨鏋滆祴鍊煎洖鍘?(鐢ㄤ簬绛涢€?鍜?杩斿洖缁欏墠绔睍绀?
 		finalProxyStatus := strconv.FormatBool(isProxy) // "true" or "false"
 		log.ProxyDetectResult = finalProxyStatus
 
-		// --- D. 执行筛选逻辑 ---
+		// --- D. 鎵ц绛涢€夐€昏緫 ---
 
-		// 1. 代理筛选 (使用刚才计算出的 finalProxyStatus)
+		// 1. 浠ｇ悊绛涢€?(浣跨敤鍒氭墠璁＄畻鍑虹殑 finalProxyStatus)
 		if !matchExact(filterProxies, finalProxyStatus) {
 			continue
 		}
 
-		// 2. Target 筛选
+		// 2. Target 绛涢€?
 		if !matchExact(filterTargets, currentPath) {
 			continue
 		}
 
-		// 3. Bot 筛选
+		// 3. Bot 绛涢€?
 		if !matchExact(filterBots, strconv.FormatBool(log.IsBot)) {
 			continue
 		}
 
-		// 4. 时区筛选
+		// 4. 鏃跺尯绛涢€?
 		if !matchExact(filterTZ, fp.TimeZone) {
 			continue
 		}
 
-		// 5. 语言筛选
+		// 5. 璇█绛涢€?
 		if !matchExact(filterLangs, fp.Language) {
 			continue
 		}
 
-		// 6. 操作系统筛选 (模糊匹配)
+		// 6. 鎿嶄綔绯荤粺绛涢€?(妯＄硦鍖归厤)
 		if len(filterOS) > 0 {
 			osMatched := false
 			for _, f := range filterOS {
@@ -640,32 +662,40 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 			}
-			if !osMatched { continue }
+			if !osMatched {
+				continue
+			}
 		}
 
-		// --- E. 通过筛选，加入结果 ---
+		// --- E. 閫氳繃绛涢€夛紝鍔犲叆缁撴灉 ---
 		filteredLogs = append(filteredLogs, log)
 	}
 
-	// === 3. 分页 ===
+	// === 3. 鍒嗛〉 ===
 	total := len(filteredLogs)
 	start := (page - 1) * size
-	if start > total { start = total }
+	if start > total {
+		start = total
+	}
 	end := start + size
-	if end > total { end = total }
+	if end > total {
+		end = total
+	}
 
 	pageData := filteredLogs[start:end]
 
-	// === 4. 格式化选项 ===
+	// === 4. 鏍煎紡鍖栭€夐」 ===
 	getKeys := func(m map[string]bool) []string {
 		keys := make([]string, 0, len(m))
 		for k := range m {
-			if k != "" { keys = append(keys, k) }
+			if k != "" {
+				keys = append(keys, k)
+			}
 		}
 		return keys
 	}
 
-	// === 5. 返回 ===
+	// === 5. 杩斿洖 ===
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"code":  0,
@@ -680,75 +710,72 @@ func logHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// getTargetIPsHandler 专门用于给 Python 中间件提供原始 IP 数据
+// getTargetIPsHandler 涓撻棬鐢ㄤ簬缁?Python 涓棿浠舵彁渚涘師濮?IP 鏁版嵁
 func getTargetIPsHandler(w http.ResponseWriter, r *http.Request) {
-    // 1. 基础检查
-    if r.Method != http.MethodGet {
-        http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-        return
-    }
+	// 1. 鍩虹妫€鏌?
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
-    // 2. 获取 target 参数
-    targetParam := r.URL.Query().Get("target")
-    if targetParam == "" {
-        http.Error(w, "Target parameter is required", http.StatusBadRequest)
-        return
-    }
+	// 2. 鑾峰彇 target 鍙傛暟
+	targetParam := r.URL.Query().Get("target")
+	if targetParam == "" {
+		http.Error(w, "Target parameter is required", http.StatusBadRequest)
+		return
+	}
 
-    // 3. 加读锁，准备遍历
-    cacheMutex.RLock()
-    defer cacheMutex.RUnlock()
+	// 3. 鍔犺閿侊紝鍑嗗閬嶅巻
+	cacheMutex.RLock()
+	defer cacheMutex.RUnlock()
 
-    // 使用 Map 进行 IP 去重 (Set)
-    uniqueIPs := make(map[string]bool)
-    // 最终返回的切片
-    resultIPs := make([]string, 0)
+	// 浣跨敤 Map 杩涜 IP 鍘婚噸 (Set)
+	uniqueIPs := make(map[string]bool)
+	// 鏈€缁堣繑鍥炵殑鍒囩墖
+	resultIPs := make([]string, 0)
 
-    // 4. 遍历内存中的全量日志
-    for _, log := range logCache {
-        
-        // === A. 解析逻辑 (保持与列表页一致) ===
-        // 我们需要确定这条日志到底属于哪个 Target
-        currentTarget := "Unknown"
+	// 4. 閬嶅巻鍐呭瓨涓殑鍏ㄩ噺鏃ュ織
+	for _, log := range logCache {
 
-        // 优先从 FingerprintData 解析 path/Path
-        if log.FingerprintData != "" {
-            var fpData map[string]interface{}
-            // 注意：这里忽略错误，解析失败就当没解析到
-            if json.Unmarshal([]byte(log.FingerprintData), &fpData) == nil {
-                if v, ok := fpData["path"].(string); ok {
-                    currentTarget = v
-                } else if v, ok := fpData["Path"].(string); ok {
-                    currentTarget = v
-                }
-            }
-        }
+		// === A. 瑙ｆ瀽閫昏緫 (淇濇寔涓庡垪琛ㄩ〉涓€鑷? ===
+		// 鎴戜滑闇€瑕佺‘瀹氳繖鏉℃棩蹇楀埌搴曞睘浜庡摢涓?Target
+		currentTarget := "Unknown"
 
+		// 浼樺厛浠?FingerprintData 瑙ｆ瀽 path/Path
+		if log.FingerprintData != "" {
+			var fpData map[string]interface{}
+			// 娉ㄦ剰锛氳繖閲屽拷鐣ラ敊璇紝瑙ｆ瀽澶辫触灏卞綋娌¤В鏋愬埌
+			if json.Unmarshal([]byte(log.FingerprintData), &fpData) == nil {
+				if v, ok := fpData["path"].(string); ok {
+					currentTarget = v
+				} else if v, ok := fpData["Path"].(string); ok {
+					currentTarget = v
+				}
+			}
+		}
 
-        // === B. 匹配逻辑 ===
-        if currentTarget == targetParam {
-            ip := log.RemoteIP
-            
-            // 过滤无效 IP 并去重
-            if ip != "" && ip != "Unknown" && !uniqueIPs[ip] {
-                uniqueIPs[ip] = true
-                resultIPs = append(resultIPs, ip)
-            }
-        }
-    }
+		// === B. 鍖归厤閫昏緫 ===
+		if currentTarget == targetParam {
+			ip := log.RemoteIP
 
-    // 5. 返回 JSON 结果
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]interface{}{
-        "target": targetParam,
-        "count":  len(resultIPs), // 返回 IP 总数方便调试
-        "ips":    resultIPs,      // 核心数据：IP 字符串数组
-    })
+			// 杩囨护鏃犳晥 IP 骞跺幓閲?
+			if ip != "" && ip != "Unknown" && !uniqueIPs[ip] {
+				uniqueIPs[ip] = true
+				resultIPs = append(resultIPs, ip)
+			}
+		}
+	}
+
+	// 5. 杩斿洖 JSON 缁撴灉
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"target": targetParam,
+		"count":  len(resultIPs), // 杩斿洖 IP 鎬绘暟鏂逛究璋冭瘯
+		"ips":    resultIPs,      // 鏍稿績鏁版嵁锛欼P 瀛楃涓叉暟缁?
+	})
 }
 
-
-
-// 1. 定义 1x1 透明 GIF 的二进制数据
+// 1. 瀹氫箟 1x1 閫忔槑 GIF 鐨勪簩杩涘埗鏁版嵁
 var pixelData = []byte{
 	0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00,
 	0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0x21,
@@ -757,55 +784,54 @@ var pixelData = []byte{
 	0x00, 0x3b,
 }
 
-// 2. 新增处理 CSS 埋点请求的 Handler
+// 2. 鏂板澶勭悊 CSS 鍩嬬偣璇锋眰鐨?Handler
 func handlePixel(w http.ResponseWriter, r *http.Request) {
-	// 使用你现有的工具函数获取 IP
+	// 浣跨敤浣犵幇鏈夌殑宸ュ叿鍑芥暟鑾峰彇 IP
 	ip := getClientIP(r)
 	ua := r.UserAgent()
 	referer := r.Referer()
 	if referer == "" {
 		referer = "direct/unknown"
 	}
-	
+
 	currentTime := time.Now().Format(time.RFC3339)
 
-	// 记录日志：你可以选择复用 logUnified 逻辑，或者像 handleIPS 那样直接写文件
-	// 这里为了简单直接，模仿 handleIPS 写入独立文件
+	// 璁板綍鏃ュ織锛氫綘鍙互閫夋嫨澶嶇敤 logUnified 閫昏緫锛屾垨鑰呭儚 handleIPS 閭ｆ牱鐩存帴鍐欐枃浠?
+	// 杩欓噷涓轰簡绠€鍗曠洿鎺ワ紝妯′豢 handleIPS 鍐欏叆鐙珛鏂囦欢
 	logLine := fmt.Sprintf("Time: %s | Type: CSS_TRACK | IP: %s | UA: %s | Ref: %s\n",
 		currentTime, ip, ua, referer)
-	
-	// 写入专门的日志文件，方便区分
-	appendToFile("log/css_track.log", logLine)
-	
-	// 在控制台打印，方便调试
-	log.Printf("[CSS追踪] %s", logLine)
 
-	// === 关键响应设置 ===
+	// 鍐欏叆涓撻棬鐨勬棩蹇楁枃浠讹紝鏂逛究鍖哄垎
+	appendToFile("log/css_track.log", logLine)
+
+	// 鍦ㄦ帶鍒跺彴鎵撳嵃锛屾柟渚胯皟璇?
+	log.Printf("[CSS杩借釜] %s", logLine)
+
+	// === 鍏抽敭鍝嶅簲璁剧疆 ===
 	w.Header().Set("Content-Type", "image/gif")
-	// 禁止缓存，确保每次访问页面都触发请求
+	// 绂佹缂撳瓨锛岀‘淇濇瘡娆¤闂〉闈㈤兘瑙﹀彂璇锋眰
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 
-	// 返回 GIF 图片数据
+	// 杩斿洖 GIF 鍥剧墖鏁版嵁
 	w.Write(pixelData)
 }
 
-
-// 1. 定义接收结构体 (对应 SSH 蜜罐发送的 JSON)
+// 1. 瀹氫箟鎺ユ敹缁撴瀯浣?(瀵瑰簲 SSH 铚滅綈鍙戦€佺殑 JSON)
 type SSHLogRequest struct {
 	Msg           string `json:"msg"`
 	Level         string `json:"level"`
-	User          string `json:"duser"`          // 对应发送端的 duser
-	Password      string `json:"password"`       // 对应发送端的 password
-	Src           string `json:"src"`            // 对应发送端的 src (IP:Port)
-	ClientVersion string `json:"client_version"` // 客户端版本
+	User          string `json:"duser"`          // 瀵瑰簲鍙戦€佺鐨?duser
+	Password      string `json:"password"`       // 瀵瑰簲鍙戦€佺鐨?password
+	Src           string `json:"src"`            // 瀵瑰簲鍙戦€佺鐨?src (IP:Port)
+	ClientVersion string `json:"client_version"` // 瀹㈡埛绔増鏈?
 	Time          string `json:"time"`
 }
 
-// 2. 接收 SSH 日志的 Handler
+// 2. 鎺ユ敹 SSH 鏃ュ織鐨?Handler
 func handleSSHLog(w http.ResponseWriter, r *http.Request) {
-	// 允许跨域 (如果是本机互发其实不需要，但为了保险)
+	// 鍏佽璺ㄥ煙 (濡傛灉鏄湰鏈轰簰鍙戝叾瀹炰笉闇€瑕侊紝浣嗕负浜嗕繚闄?
 	enableCors(&w, r)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
@@ -814,19 +840,19 @@ func handleSSHLog(w http.ResponseWriter, r *http.Request) {
 
 	var logData SSHLogRequest
 	if err := json.NewDecoder(r.Body).Decode(&logData); err != nil {
-		http.Error(w, "JSON 解析失败", http.StatusBadRequest)
+		http.Error(w, "JSON 瑙ｆ瀽澶辫触", http.StatusBadRequest)
 		return
 	}
 
-	// 简单的过滤：只记录含有密码的尝试，或者你可以记录所有连接
-	// 发送端的 msg 通常是 "Request with password"
+	// 绠€鍗曠殑杩囨护锛氬彧璁板綍鍚湁瀵嗙爜鐨勫皾璇曪紝鎴栬€呬綘鍙互璁板綍鎵€鏈夎繛鎺?
+	// 鍙戦€佺鐨?msg 閫氬父鏄?"Request with password"
 	if logData.Password == "" && logData.Msg != "Request with password" {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Ignored (No password)"))
 		return
 	}
 
-	// 处理 IP (去掉端口号)
+	// 澶勭悊 IP (鍘绘帀绔彛鍙?
 	ip := logData.Src
 	if strings.Contains(ip, ":") {
 		host, _, err := net.SplitHostPort(ip)
@@ -835,37 +861,50 @@ func handleSSHLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 入库
+	if db == nil {
+		log.Printf("[SSH] db disabled, skip persistent store for ip=%s user=%s", ip, logData.User)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Logged (db disabled)"))
+		return
+	}
+
+	// 鍏ュ簱
 	stmt, err := db.Prepare(`
 		INSERT INTO ssh_attacks (ip, username, password, client_version, raw_log, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`)
 	if err != nil {
-		log.Printf("SSH 入库 Prepare 失败: %v", err)
+		log.Printf("SSH 鍏ュ簱 Prepare 澶辫触: %v", err)
 		http.Error(w, "DB Error", http.StatusInternalServerError)
 		return
 	}
 	defer stmt.Close()
 
-	// 存入数据库
-	// raw_log 存一下原始 msg 备查
+	// 瀛樺叆鏁版嵁搴?
+	// raw_log 瀛樹竴涓嬪師濮?msg 澶囨煡
 	timestamp := time.Now().Format(time.RFC3339)
 	_, err = stmt.Exec(ip, logData.User, logData.Password, logData.ClientVersion, logData.Msg, timestamp)
 
 	if err != nil {
-		log.Printf("SSH 数据写入失败: %v", err)
+		log.Printf("SSH 鏁版嵁鍐欏叆澶辫触: %v", err)
 	} else {
-		log.Printf("🚨 [SSH蜜罐] 捕获攻击! IP:%s User:%s Pass:%s", ip, logData.User, logData.Password)
+		log.Printf("馃毃 [SSH铚滅綈] 鎹曡幏鏀诲嚮! IP:%s User:%s Pass:%s", ip, logData.User, logData.Password)
 	}
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Logged"))
 }
 
-// 3. (可选) 提供一个接口给前端查询 SSH 攻击列表
+// 3. (鍙€? 鎻愪緵涓€涓帴鍙ｇ粰鍓嶇鏌ヨ SSH 鏀诲嚮鍒楄〃
 func handleGetSSHLogs(w http.ResponseWriter, r *http.Request) {
 	enableCors(&w, r)
-	
+
+	if db == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("[]"))
+		return
+	}
+
 	rows, err := db.Query("SELECT id, ip, username, password, client_version, timestamp FROM ssh_attacks ORDER BY id DESC LIMIT 50")
 	if err != nil {
 		http.Error(w, "DB Query Error", http.StatusInternalServerError)
@@ -878,7 +917,7 @@ func handleGetSSHLogs(w http.ResponseWriter, r *http.Request) {
 		var id int
 		var ip, user, pass, ver, ts string
 		rows.Scan(&id, &ip, &user, &pass, &ver, &ts)
-		
+
 		logs = append(logs, map[string]interface{}{
 			"id": id, "ip": ip, "username": user, "password": pass, "client": ver, "time": ts,
 		})

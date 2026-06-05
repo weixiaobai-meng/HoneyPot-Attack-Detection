@@ -115,4 +115,5 @@ A: 删除 systemwire2/instance/tripwire.db 重新运行 auto_deploy.py。
 ## 详细文档
 
 - [部署指南](DEPLOY_GUIDE.md) - 完整的部署步骤
+- [本地 + 服务器实测部署指南](LOCAL_SERVER_DEPLOY_GUIDE.md) - 已对齐当前代码实现与参数示例
 - [项目根目录README](../README.md) - 项目整体说明

@@ -1,0 +1,15 @@
+﻿[server]
+mode = release
+public_ip = 10.10.10.20
+public_port = 9090
+local_port = 9091
+https = true
+key_mode = 2
+api-key = Xiaocheng
+whitelist_mode = false
+trigger_auth = true
+trigger_auth_key = 4m-2024
+
+[alert]
+mode = 0
+admin_email =

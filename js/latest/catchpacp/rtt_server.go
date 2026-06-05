@@ -34,8 +34,8 @@ func main() {
 
 	http.HandleFunc("/rtt", handleRTTQuery)
 	http.HandleFunc("/debug", handleDebug) // 新增调试接口
-	log.Println("RTT API 启动 :9090")
-	log.Fatal(http.ListenAndServe(":9090", nil))
+	log.Println("RTT API 启动 :9092")
+	log.Fatal(http.ListenAndServe(":9092", nil))
 }
 
 func captureClientRTT(device, filter string) {

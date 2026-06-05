@@ -174,12 +174,12 @@ var (
 	logCleanupInterval = 1 * time.Hour
 
 	// 新增的全局变量
-	logCache       []LogRecord
-	cacheMutex     sync.RWMutex
-	logFilePath    = filepath.Join("log", "total_log.json")
-	connLatencyMap map[string]*latency
+	logCache         []LogRecord
+	cacheMutex       sync.RWMutex
+	logFilePath      = filepath.Join("log", "total_log.json")
+	connLatencyMap   map[string]*latency
 	connLatencyMutex sync.RWMutex
-	latencyLogFile *os.File
+	latencyLogFile   *os.File
 
 	// nginx RTT 查询配置
 	nginxRTTClient = &http.Client{Timeout: 2 * time.Second}
@@ -245,6 +245,10 @@ func logUnified(logEntry UnifiedLog) {
 	log.Println(string(logBytes))
 
 	if logEntry.Detection == nil {
+		return
+	}
+
+	if db == nil {
 		return
 	}
 
@@ -670,27 +674,26 @@ func appendToFile(filename, content string) error {
 
 // getRTTFromNginx 从 nginx 服务器上的抓包服务查询客户端 TCP RTT
 func getRTTFromNginx(ip string) (float64, error) {
-    url := nginxRTTServer + "/rtt?ip=" + ip
-    resp, err := nginxRTTClient.Get(url)
-    if err != nil {
-        log.Printf("[RTT] 请求失败 %s: %v", url, err)
-        return 0, err
-    }
-    defer resp.Body.Close()
+	url := nginxRTTServer + "/rtt?ip=" + ip
+	resp, err := nginxRTTClient.Get(url)
+	if err != nil {
+		log.Printf("[RTT] 请求失败 %s: %v", url, err)
+		return 0, err
+	}
+	defer resp.Body.Close()
 
-    if resp.StatusCode == http.StatusNotFound {
-        log.Printf("[RTT] %s 返回 404", url)
-        return 0, fmt.Errorf("rtt not found")
-    }
+	if resp.StatusCode == http.StatusNotFound {
+		log.Printf("[RTT] %s 返回 404", url)
+		return 0, fmt.Errorf("rtt not found")
+	}
 
-    var rtt float64
-    _, err = fmt.Fscanf(resp.Body, "%f", &rtt)
-    if err != nil {
-        log.Printf("[RTT] 解析失败 %s: %v", url, err)
-    }
-    return rtt, err
+	var rtt float64
+	_, err = fmt.Fscanf(resp.Body, "%f", &rtt)
+	if err != nil {
+		log.Printf("[RTT] 解析失败 %s: %v", url, err)
+	}
+	return rtt, err
 }
-
 
 func waitForTCPRTT(ip string, timeout time.Duration) float64 {
 	interval := 20 * time.Millisecond
@@ -787,6 +790,14 @@ func reloadLogCache1() {
 
 func reloadLogCache() {
 	for {
+		if db == nil {
+			cacheMutex.Lock()
+			logCache = nil
+			cacheMutex.Unlock()
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
 		// 使用 LEFT JOIN 关联两个表
 		// d = device_fingerprints (主表)
 		// b = bot_detections (副表)
@@ -1335,6 +1346,10 @@ var groupCache = struct {
 // 3. 加载缓存
 func LoadFingerprintCache() {
 	log.Println("🔄 [Cache] 正在加载指纹组缓存...")
+	if db == nil {
+		log.Println("⚠️ [Cache] DB disabled, skip cache load")
+		return
+	}
 	rows, err := db.Query("SELECT id, vector_json FROM fingerprint_groups")
 	if err != nil {
 		log.Printf("⚠️ [Cache] 加载失败: %v", err)
@@ -1364,6 +1379,10 @@ func LoadFingerprintCache() {
 
 // 4. 获取 GroupID (核心入口)
 func GetOrCreateGroupID(rawJSON string) int {
+	if db == nil {
+		return 0
+	}
+
 	var newVec HardwareVectors
 	if err := json.Unmarshal([]byte(rawJSON), &newVec); err != nil {
 		log.Printf("[Group] JSON 解析失败: %v", err)
@@ -1632,6 +1651,10 @@ func RecordHoneypotHit(ip, path, ua string) {
 	// 写文件
 	logContent := fmt.Sprintf("Time: %s | IP: %s | Path: %s | UA: %s\n", timestamp, ip, path, ua)
 	appendToFile("log/honeypot.log", logContent)
+
+	if db == nil {
+		return
+	}
 
 	// 入库
 	stmt, err := db.Prepare("INSERT INTO honeypot_events(ip, trap_path, user_agent, timestamp) VALUES(?, ?, ?, ?)")

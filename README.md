@@ -123,5 +123,6 @@ LLM推理 → 攻击意图分析
 ## 详细文档
 
 - [部署指南](deployment/DEPLOY_GUIDE.md) - 完整的部署步骤
+- [本地 + 服务器实测部署指南](deployment/LOCAL_SERVER_DEPLOY_GUIDE.md) - 可直接复现实验环境与参数
 - [项目结构](项目结构与数据流.md) - 详细的目录说明
 - [论文实验](论文实验章节.md) - 实验内容和结果

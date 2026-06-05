@@ -181,6 +181,10 @@ func (s *SessionManager) cleanUp() {
 // }
 
 func saveToDB(data *parasitism) {
+	if db == nil {
+		return
+	}
+
 	if data.SessionToken == "" {
 		log.Printf("⚠️ [DB Warning] IP %s 缺少 SessionToken", data.RemoteIP)
 	}

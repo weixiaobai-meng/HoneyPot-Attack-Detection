@@ -89,9 +89,10 @@ func main() {
 	http.HandleFunc("/api/ssh-list", handleGetSSHLogs)
 
 
-	// fs := http.FileServer(http.Dir("./static"))
-	// http.Handle("/display/", http.StripPrefix("/display", fs))
-	
+	fs := http.FileServer(http.Dir("./static"))
+	http.Handle("/static/", http.StripPrefix("/static/", fs))
+	http.Handle("/display/", http.StripPrefix("/display/", fs))
+
 	http.HandleFunc("/", requestTypeMiddleware(botDetectionMiddleware(mainHandler)))
 
 	log.Fatal(http.ListenAndServe(":8080", nil))
