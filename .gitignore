@@ -5,6 +5,8 @@
 
 # Go 编译后的二进制文件
 *.exe
+/js/latest/bot/bot
+/js/latest/catchpacp/rtt_server
 
 # 日志文件
 *.log
@@ -22,6 +24,7 @@ __pycache__/
 
 # PyTorch 模型检查点
 *.pt
+/shiyan/checkpoints/
 
 # 实验生成目录
 /generated_runs/
@@ -29,6 +32,7 @@ __pycache__/
 # 临时文件目录
 /tmp/
 /tmp_output/
+/alert_server/tmp/
 
 # 根目录的临时脚本
 /tmp_*
