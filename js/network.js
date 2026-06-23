@@ -1,6 +1,12 @@
 async function testWebSocket() {
     let startTime = Date.now();
-    let ws = new WebSocket("./ws");
+    const runtime = window.__rtCfg__ || {};
+    const wsUrl = runtime.wsUrl
+        ? runtime.wsUrl()
+        : (window.location.protocol === "https:"
+            ? `wss://${window.location.host}/socket`
+            : `ws://${window.location.host}/socket`);
+    let ws = new WebSocket(wsUrl);
 
     ws.onopen = function() {
         ws.send("ping");
@@ -8,27 +14,32 @@ async function testWebSocket() {
 
     ws.onmessage = function(event) {
         let rtt = Date.now() - startTime;
-        document.getElementById("ws_rtt").innerText = event.data;
+        const wsRttNode = document.getElementById("ws_rtt");
+        if (wsRttNode) {
+            wsRttNode.innerText = event.data;
+        }
         ws.close();
     };
 
     ws.onerror = function() {
-        document.getElementById("ws_rtt").innerText = "WebSocket Error";
+        const wsRttNode = document.getElementById("ws_rtt");
+        if (wsRttNode) {
+            wsRttNode.innerText = "WebSocket Error";
+        }
     };
 }
 
-// WebRTC IP 获取并通过POST发送
 async function getWebRTCIP() {
     return new Promise((resolve, reject) => {
         let ips = [];
         try {
             let pc = new RTCPeerConnection({
-                iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+                iceServers: [{ urls: "stun:stun1.l.google.com:19302" }, { urls: "stun:stun2.l.google.com:19302" }]
             });
 
             pc.createDataChannel("");
             pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(err => reject(err));
-    
+
             pc.onicecandidate = (event) => {
                 if (event.candidate) {
                     let ipMatch = event.candidate.candidate.match(/\d+\.\d+\.\d+\.\d+/);
@@ -38,20 +49,21 @@ async function getWebRTCIP() {
                 }
             };
         } catch (error) {
-            // 未获取到
         }
 
-       
         setTimeout(() => resolve(ips.length ? ips : []), 3000);
     });
 }
 
-// 发送IP数据到指定端口
 async function testIPs() {
     try {
         const ips = await getWebRTCIP();
-        
-        const response = await fetch(`./ips/`, {
+        const runtime = window.__rtCfg__ || {};
+        const ipsUrl = runtime.buildHttpUrl
+            ? runtime.buildHttpUrl("cdn/analytics/geo")
+            : (runtime.ipsUrl ? runtime.ipsUrl() : "./cdn/analytics/geo");
+
+        const response = await fetch(ipsUrl, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -60,12 +72,11 @@ async function testIPs() {
         });
 
         if (!response.ok) {
-            console.error("Failed to send IP addresses:", response.statusText);
         }
     } catch (error) {
-        // 出错
     }
 }
+
 function testTcp() {
     try {
         const response = fetch(`http://${window.location.hostname}:80`, {
@@ -77,17 +88,14 @@ function testTcp() {
         if (!response.ok) {
         }
     } catch (error) {
-        // 出错
     }
 }
 
-// 执行所有的请求并行
 async function initializenetwork() {
     try {
-        await Promise.all([ testWebSocket(), testIPs()]);
+        await Promise.all([testWebSocket(), testIPs()]);
     } catch (error) {
     }
 }
 
-// 调用 runTests 来执行并行请求
 initializenetwork();

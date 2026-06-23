@@ -1,0 +1,43 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蜜点管理系统 - 注册</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; display: grid; place-items: center; color: #eef7ee; font-family: 'Noto Sans SC', sans-serif; background: radial-gradient(circle at 12% 8%, rgba(125,220,139,.18), transparent 30%), radial-gradient(circle at 86% 12%, rgba(91,214,214,.16), transparent 34%), linear-gradient(135deg, #06100f 0%, #0a1514 48%, #10140c 100%); }
+        .card { width: min(460px, calc(100vw - 32px)); border: 1px solid rgba(148,163,184,.18); border-radius: 30px; padding: 30px; background: linear-gradient(145deg, rgba(13,27,26,.92), rgba(8,18,17,.82)); box-shadow: 0 24px 70px rgba(0,0,0,.34); backdrop-filter: blur(16px); }
+        .logo { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 20px; color: #031210; font-size: 26px; background: linear-gradient(135deg, rgba(125,220,139,.95), rgba(91,214,214,.85)); margin-bottom: 20px; }
+        .eyebrow { color: #7ddc8b; font: 800 12px/1 'Space Grotesk', sans-serif; letter-spacing: .16em; text-transform: uppercase; }
+        h1 { margin: 10px 0 6px; font: 800 34px/1 'Space Grotesk', 'Noto Sans SC', sans-serif; letter-spacing: -.04em; }
+        p { color: #94a79f; margin: 0 0 24px; }
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 8px; color: #94a79f; font-weight: 900; font-size: 13px; }
+        input { width: 100%; min-height: 48px; border-radius: 15px; border: 1px solid rgba(177,197,179,.30); background: rgba(4,11,10,.88); color: #eef7ee; padding: 0 14px; outline: none; font-weight: 800; }
+        input:focus { border-color: rgba(125,220,139,.72); box-shadow: 0 0 0 4px rgba(125,220,139,.1); }
+        .btn { width: 100%; min-height: 50px; border: 0; border-radius: 15px; color: #031210; font-weight: 1000; cursor: pointer; background: linear-gradient(135deg, rgba(125,220,139,.95), rgba(91,214,214,.85)); }
+        .footer { margin-top: 18px; text-align: center; color: #94a79f; }
+        .footer a { color: #7ddc8b; text-decoration: none; font-weight: 900; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <div class="logo"><i class="fas fa-user-plus"></i></div>
+        <div class="eyebrow">Create Operator</div>
+        <h1>注册账号</h1>
+        <p>创建本地管理端账号，用于进入蜜点 SOC 控制台。</p>
+        <form method="POST">
+            <div class="form-group"><label for="username"><i class="fas fa-user"></i> 用户名</label><input type="text" id="username" name="username" required></div>
+            <div class="form-group"><label for="password"><i class="fas fa-lock"></i> 密码</label><input type="password" id="password" name="password" required></div>
+            <div class="form-group"><label for="confirm_password"><i class="fas fa-shield-halved"></i> 确认密码</label><input type="password" id="confirm_password" name="confirm_password" required></div>
+            <button type="submit" class="btn"><i class="fas fa-check"></i> 注册</button>
+        </form>
+        <div class="footer">已有账号？ <a href="{{ url_for('api.login') }}">返回登录</a></div>
+    </main>
+</body>
+</html>

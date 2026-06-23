@@ -1,0 +1,275 @@
+﻿{% extends 'base.html' %}
+
+{% block content %}
+<div id="header">
+    <h2><i class="fas fa-user-secret"></i> 账户蜜点部署</h2>
+</div>
+
+<div id="mid">
+    <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon green"><i class="fas fa-satellite-dish"></i></div><div class="stat-info"><span class="stat-value" id="agentCount">0</span><span class="stat-label">在线探针</span></div></div>
+        <div class="stat-card"><div class="stat-icon blue"><i class="fas fa-list-check"></i></div><div class="stat-info"><span class="stat-value">3</span><span class="stat-label">部署类型</span></div></div>
+        <div class="stat-card"><div class="stat-icon orange"><i class="fas fa-folder-tree"></i></div><div class="stat-info"><span class="stat-value">default</span><span class="stat-label">软件目录</span></div></div>
+        <div class="stat-card"><div class="stat-icon purple"><i class="fas fa-terminal"></i></div><div class="stat-info"><span class="stat-value">agent</span><span class="stat-label">远程落盘</span></div></div>
+    </div>
+
+    <div class="deploy-grid">
+        <div class="card">
+            <div class="card-header"><h3><i class="fas fa-plus-circle"></i> 创建账户蜜点</h3></div>
+            <div class="card-body">
+                <form id="deployForm">
+                    <div class="form-group">
+                        <label><i class="fas fa-satellite-dish"></i> 选择探针</label>
+                        <select id="agentSelect" class="form-control" required>
+                            <option value="">请选择在线探针...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label><i class="fas fa-tag"></i> 账户类型</label>
+                        <select id="accountType" class="form-control" required>
+                            <option value="">请选择类型...</option>
+                            <option value="xshell">Xshell 配置文件</option>
+                            <option value="finalshell">FinalShell 配置文件</option>
+                            <option value="openvpn">OpenVPN 配置文件</option>
+                        </select>
+                    </div>
+
+                    <div class="two-col">
+                        <div class="form-group">
+                            <label><i class="fas fa-globe"></i> 目标主机 / VPN 地址</label>
+                            <input type="text" id="host" class="form-control" placeholder="例如: 192.168.10.23 或 vpn.lab.local">
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-plug"></i> 端口</label>
+                    <input type="number" id="port" class="form-control" placeholder="22" value="22" min="1" max="65535">
+                        </div>
+                    </div>
+
+                    <div id="credentialFields" class="two-col">
+                        <div class="form-group">
+                            <label><i class="fas fa-user"></i> 用户名</label>
+                            <input type="text" id="username" class="form-control" placeholder="admin">
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-lock"></i> 密码</label>
+                            <input type="text" id="password" class="form-control" placeholder="P@ssw0rd123">
+                        </div>
+                    </div>
+
+                    <div class="path-card">
+                        <p><i class="fas fa-folder-open"></i> 当前类型会写入部署主机的软件配置目录</p>
+                        <div id="outputPathHint" class="path-hint">请选择类型</div>
+                    <p id="credentialHint" class="hint-text">本地联调时请把 Xshell / FinalShell 指向 ssh-vpn 监听端口，默认是 22。</p>
+                    </div>
+
+                    <div class="form-group preset-group">
+                        <label><i class="fas fa-wand-magic-sparkles"></i> 快速预设</label>
+                        <div class="preset-grid">
+                            <button type="button" class="btn btn-secondary" onclick="applyPreset('admin')"><i class="fas fa-user-shield"></i> admin</button>
+                            <button type="button" class="btn btn-secondary" onclick="applyPreset('root')"><i class="fas fa-user-shield"></i> root</button>
+                            <button type="button" class="btn btn-secondary" onclick="applyPreset('test')"><i class="fas fa-user"></i> test</button>
+                            <button type="button" class="btn btn-secondary" onclick="applyPreset('db')"><i class="fas fa-database"></i> dbadmin</button>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="resetFormFields()"><i class="fas fa-rotate-left"></i> 重置</button>
+                        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-rocket"></i> 发送部署命令</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div>
+            <div class="card">
+                <div class="card-header"><h3><i class="fas fa-circle-info"></i> 现在的部署规则</h3></div>
+                <div class="card-body note-body">
+                    <p><i class="fas fa-check text-success"></i> Xshell、FinalShell、OpenVPN 不再随便落到 agent 测试目录。</p>
+                    <p><i class="fas fa-check text-success"></i> agent 会先自动扫描真实软件配置目录；扫描不到时，会创建该软件常见默认配置目录作为 fallback。</p>
+                    <p><i class="fas fa-check text-success"></i> 如果确实需要强制测试目录，可在探针主机设置 <code>SYSTEMWIRE_ACCOUNT_OUTPUT_DIR</code> 覆盖。</p>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header"><h3><i class="fas fa-laptop-code"></i> 常见默认目录</h3></div>
+                <div class="card-body note-body">
+                    <p><strong>Xshell:</strong> <code>%USERPROFILE%\Documents\NetSarang Computer\7/8/9\Xshell\Sessions</code></p>
+                    <p><strong>FinalShell:</strong> <code>%USERPROFILE%\.finalshell\conn</code>、<code>%LOCALAPPDATA%\finalshell\conn</code>、<code>%APPDATA%\finalshell\conn</code></p>
+                    <p><strong>OpenVPN:</strong> <code>%USERPROFILE%\OpenVPN\config</code>，找不到时再尝试 <code>Program Files\OpenVPN\config</code></p>
+                    <p><strong>Linux:</strong> Xshell 不支持；FinalShell 使用 <code>~/.finalshell/conn</code>；OpenVPN 优先 <code>~/.config/openvpn</code>。</p>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header"><h3><i class="fas fa-triangle-exclamation"></i> 参数说明</h3></div>
+                <div class="card-body note-body">
+                    <p><strong>Xshell:</strong> 需要主机、端口、用户名、密码。本地联调建议使用 <code>127.0.0.1:22</code>。</p>
+                    <p><strong>FinalShell:</strong> 需要主机、端口、用户名、密码。本地联调建议使用 <code>127.0.0.1:22</code>。</p>
+                    <p><strong>OpenVPN:</strong> 当前 agent 实现只需要 VPN 地址和端口。</p>
+                    <p><strong>命令格式:</strong> Xshell / FinalShell 使用 <code>type:host:port:username:password</code>，OpenVPN 使用 <code>openvpn:host:port</code>。</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header"><h3><i class="fas fa-terminal"></i> 最近一次提交结果</h3></div>
+        <div class="card-body"><div id="lastResult" class="last-result">还没有发送部署命令。</div></div>
+    </div>
+</div>
+
+<style>
+.mt-4 { margin-top: 1rem; }
+.deploy-grid { display: grid; grid-template-columns: minmax(420px, 1.15fr) minmax(320px, 0.85fr); gap: 1.5rem; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.path-card { background: var(--bg-primary); margin-top: 1rem; padding: 1rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); }
+.path-card p { margin: 0 0 0.5rem; font-size: 0.875rem; color: var(--text-secondary); }
+.path-hint { font-family: 'JetBrains Mono', Consolas, monospace; font-size: 0.8125rem; color: var(--text-primary); word-break: break-all; line-height: 1.7; }
+.hint-text { margin-top: 0.75rem !important; font-size: 0.75rem !important; color: var(--text-muted) !important; }
+.preset-group { margin-top: 1rem; }
+.preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-top: 0.75rem; }
+.form-actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem; }
+.note-body { font-size: 0.84rem; color: var(--text-secondary); line-height: 1.85; }
+.last-result { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.8; }
+@media (max-width: 900px) { .deploy-grid, .two-col { grid-template-columns: 1fr; } .form-actions { flex-direction: column; } }
+</style>
+
+<script>
+const presets = {
+    admin: { username: 'admin', password: 'Admin@2024' },
+    root: { username: 'root', password: 'Root@123' },
+    test: { username: 'test', password: 'Test@123' },
+    db: { username: 'dbadmin', password: 'Db@2024secure' }
+};
+
+const outputDirMap = {
+    xshell: '%USERPROFILE%\\Documents\\NetSarang Computer\\7/8/9\\Xshell\\Sessions',
+    finalshell: '%USERPROFILE%\\.finalshell\\conn 或 %LOCALAPPDATA%\\finalshell\\conn',
+    openvpn: '%USERPROFILE%\\OpenVPN\\config 或 %PROGRAMFILES%\\OpenVPN\\config'
+};
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+async function loadAgents() {
+    try {
+        const response = await fetch('/api/agent/list');
+        const data = await response.json();
+        const agents = data.agents_infos || [];
+        const select = document.getElementById('agentSelect');
+        select.innerHTML = '<option value="">请选择在线探针...</option>';
+        document.getElementById('agentCount').textContent = agents.length;
+        agents.forEach((agent) => {
+            const name = agent.name || agent.id;
+            select.innerHTML += `<option value="${escapeHtml(agent.id)}">${escapeHtml(name)}</option>`;
+        });
+    } catch (error) {
+        console.error('loadAgents failed', error);
+    }
+}
+
+function updateForm() {
+    const type = document.getElementById('accountType').value;
+    const portInput = document.getElementById('port');
+    const credentialFields = document.getElementById('credentialFields');
+    const credentialHint = document.getElementById('credentialHint');
+    const outputPathHint = document.getElementById('outputPathHint');
+
+    if (type === 'openvpn') {
+        portInput.value = '1194';
+        credentialFields.style.display = 'none';
+        credentialHint.textContent = 'OpenVPN 当前实现只需要地址和端口，用户名密码不会参与生成。';
+    } else {
+            portInput.value = '22';
+        credentialFields.style.display = 'grid';
+            credentialHint.textContent = '本地联调时请把 Xshell / FinalShell 指向 ssh-vpn 监听端口，默认是 22。';
+    }
+
+    outputPathHint.textContent = outputDirMap[type] || '请选择账户类型后查看默认软件目录';
+}
+
+function applyPreset(type) {
+    const preset = presets[type];
+    if (!preset) return;
+    document.getElementById('username').value = preset.username;
+    document.getElementById('password').value = preset.password;
+}
+
+function resetFormFields() {
+    document.getElementById('deployForm').reset();
+        document.getElementById('port').value = '22';
+    updateForm();
+}
+
+function renderResult(message, isError = false) {
+    const result = document.getElementById('lastResult');
+    result.style.color = isError ? 'var(--danger-color, #ef4444)' : 'var(--text-secondary)';
+    result.innerHTML = message;
+}
+
+document.getElementById('accountType').addEventListener('change', updateForm);
+
+document.getElementById('deployForm').addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    const agentId = document.getElementById('agentSelect').value.trim();
+    const accountType = document.getElementById('accountType').value.trim();
+    const host = document.getElementById('host').value.trim();
+    const port = document.getElementById('port').value.trim();
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+
+    if (!agentId || !accountType || !host || !port) {
+        alert('请先填写探针、类型、主机和端口。');
+        return;
+    }
+    const portNumber = Number(port);
+    if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
+        alert('端口必须是 1-65535 之间的整数。你刚才填写的端口无法被 SSH/VPN 服务监听。');
+        return;
+    }
+
+    let cmdData = '';
+    if (accountType === 'openvpn') {
+        cmdData = `openvpn:${host}:${port}`;
+    } else {
+        if (!username || !password) {
+            alert('Xshell / FinalShell 需要用户名和密码。');
+            return;
+        }
+        cmdData = `${accountType}:${host}:${port}:${username}:${password}`;
+    }
+
+    try {
+        const response = await fetch('/api/agent/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: agentId, cmd_type: 4, cmd_data: cmdData })
+        });
+        const result = await response.json();
+        if (result.code === 0) {
+            renderResult(`部署命令已进入队列。<br>agent_id: <code>${escapeHtml(agentId)}</code><br>cmd_id: <code>${result.data.cmd_id}</code><br>目标目录策略: <code>${escapeHtml(outputDirMap[accountType])}</code><br>payload: <code>${escapeHtml(cmdData)}</code>`);
+            alert('账户蜜点部署命令已发送，请到部署主机对应软件配置目录查看。');
+        } else {
+            renderResult(`部署失败：${escapeHtml(result.message)}`, true);
+            alert('部署失败: ' + result.message);
+        }
+    } catch (error) {
+        renderResult(`部署失败：${escapeHtml(error.message)}`, true);
+        alert('部署失败: ' + error.message);
+    }
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadAgents();
+    updateForm();
+});
+</script>
+{% endblock %}

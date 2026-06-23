@@ -180,7 +180,7 @@ class AutoDeployer:
                     "port": 8080
                 },
                 "ssh_vpn": {
-                    "ssh_port": 2222,
+                    "ssh_port": 22,
                     "vpn_port": 1194
                 }
             }

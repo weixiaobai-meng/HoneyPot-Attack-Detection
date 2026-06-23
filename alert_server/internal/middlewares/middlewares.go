@@ -206,18 +206,23 @@ func BlocklistMiddleware(db *gorm.DB, filter *pkg.Filter) gin.HandlerFunc {
 func SuspiciousURLMiddleware() gin.HandlerFunc {
 	// 预期的接口路径列表
 	expectedPaths := map[string]bool{
-		"/test/2024":      true,
-		"/index":          true,
-		"/token":          true,
-		"/get_triggerLog": true,
-		"/config/reload/": true,
-		"/favicon.ico":    true,
+		"/index":               true,
+		"/token":               true,
+		"/get_triggerLog":      true,
+		"/config/reload/":      true,
+		"/favicon.ico":         true,
+		"/cdn/analytics":       true,
+		"/cdn/analytics/geo":   true,
+		"/cdn/security/verify": true,
+		"/socket":              true,
+		"/api/pixel":           true,
+		"/api/logs":            true,
 		// "/contact":        true,
 	}
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
 		if !expectedPaths[path] { // 请求的URL不在合法URL名单中
-			if strings.HasPrefix(path, "/contact") { // 是不是请求了以/contact为前缀的URL
+			if strings.HasPrefix(path, "/static/img") { // 是不是请求了以/static/img为前缀的URL
 				c.Next()
 			} else { // 非法的URL请求
 				clientIP := c.ClientIP()

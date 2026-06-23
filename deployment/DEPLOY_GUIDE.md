@@ -22,7 +22,7 @@
 │   ┌─────────────────┐    ┌─────────────────┐                   │
 │   │    agent-go     │    │    ssh-vpn      │                   │
 │   │   (探针)        │    │   (SSH蜜罐)     │                   │
-│   │   部署蜜点      │    │   :2222 SSH     │                   │
+│   │   部署蜜点      │    │   :22 SSH      │                   │
 │   │   采集日志      │    │   :1194 VPN     │                   │
 │   └─────────────────┘    └─────────────────┘                   │
 │                                                                 │
@@ -251,5 +251,5 @@ python deployment/deploy_manager.py export
 | systemwire2 gRPC | 50051 | 探针通信 |
 | alert_server HTTP | 8080 | 告警接收 |
 | alert_server Admin | 8081 | 管理接口 |
-| ssh-vpn SSH | 2222 | SSH蜜罐 |
+| ssh-vpn SSH | 22 | SSH蜜罐 |
 | ssh-vpn VPN | 1194 | VPN蜜罐 |

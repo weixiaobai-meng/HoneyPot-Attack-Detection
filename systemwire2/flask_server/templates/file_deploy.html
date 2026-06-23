@@ -1,0 +1,45 @@
+﻿{% extends 'base.html' %}
+
+{% block content %}
+<div class="soc-table-page">
+    <section class="table-hero">
+        <div><div class="soc-eyebrow">File Deployment Inventory</div><h1>部署信息</h1><p>展示文件蜜点部署到主机或目录后的记录，用于核对诱饵文件、Agent、部署路径和状态。</p></div>
+        <a class="btn btn-primary" href="{{ url_for('api.manage_honeypot_file') }}"><i class="fas fa-rocket"></i> 部署文件蜜点</a>
+    </section>
+
+    <section class="table-container soc-deploy-table">
+        <table class="modern-table">
+            <thead>
+                <tr><th>ID</th><th>单位</th><th>文件名</th><th>文件 ID</th><th>主机名</th><th>主机 IP</th><th>部署路径</th><th>状态</th></tr>
+            </thead>
+            <tbody>
+                {% for dep in dep_infos %}
+                <tr>
+                    <td><span class="pill">#{{dep.id}}</span></td>
+                    <td>{{dep.company}}</td>
+                    <td><strong>{{dep.filename}}</strong></td>
+                    <td class="mono">{{dep.honeypoint_id}}</td>
+                    <td>{{dep.hostname}}</td>
+                    <td class="mono">{{dep.host_ip}}</td>
+                    <td class="mono">{{dep.path}}</td>
+                    <td><span class="badge badge-file">{{dep.status}}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8"><div class="empty-state"><i class="fas fa-folder-open"></i><h4>暂无部署记录</h4><p>请先在蜜点部署中下发文件蜜点。</p></div></td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+
+<style>
+.soc-table-page { padding: 16px; }
+.table-hero { display: flex; justify-content: space-between; gap: 18px; align-items: center; padding: 24px; margin-bottom: 14px; border: 1px solid var(--border-color); border-radius: 28px; background: var(--bg-card); box-shadow: var(--shadow-md); }
+.soc-eyebrow { color: var(--primary-color); font: 900 12px/1 var(--font-display); letter-spacing: .16em; text-transform: uppercase; }
+.table-hero h1 { margin: 10px 0 8px; font: 900 40px/1 var(--font-display); letter-spacing: -.05em; }
+.table-hero p { margin: 0; color: var(--text-secondary); line-height: 1.7; }
+.soc-deploy-table { overflow: auto; max-height: calc(100vh - 260px); }
+.pill { display: inline-flex; padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(107,168,255,.26); background: rgba(107,168,255,.12); color: #dbeafe; font-weight: 900; }
+@media (max-width: 760px) { .table-hero { flex-direction: column; align-items: stretch; } }
+</style>
+{% endblock %}

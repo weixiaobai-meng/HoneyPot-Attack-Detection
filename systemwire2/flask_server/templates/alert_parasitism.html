@@ -1,0 +1,443 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/soc-alert-pages.css') }}">
+
+<div class="soc-page parasitic-page">
+    <section class="soc-top">
+        <div class="soc-title-card">
+            <div class="soc-eyebrow">Parasitic JS Alert</div>
+            <h1>寄生蜜点告警</h1>
+            <p>保留原寄生告警台的动态内容：来源 IP、代理头/真实 IP、Bot 判定、目标 URL、同源分析和详情抽屉。样式统一为 SOC 告警台，数据来自 /api/parasitism/logs，且只展示 systemwire2 从 js/bot 拉取并正式入库的寄生告警。</p>
+        </div>
+
+        <div class="soc-action-card">
+            <div class="soc-note">接收链路：目标网页执行注入 JS -> 上报到 js/bot -> systemwire2 定时/手动拉取 -> 写入 UrlAlertInfo。只注入 JS 不等于正式告警，必须启动 js/bot 才会形成寄生蜜点正式告警。</div>
+            <div class="soc-form-row">
+                <button class="soc-btn primary" type="button" onclick="loadLogs(1)"><i class="fas fa-rotate"></i> 刷新</button>
+                <button class="soc-btn parasitic" type="button" onclick="pullParasiticAlerts()"><i class="fas fa-cloud-arrow-down"></i> 从 js/bot 拉取</button>
+                <button class="soc-btn parasitic" type="button" onclick="clearTargetFilter()"><i class="fas fa-layer-group"></i> 全部目标</button>
+            </div>
+            <div id="pullStatus" class="soc-status" style="display:none;"></div>
+        </div>
+    </section>
+
+    <section class="soc-panel parasitic-workspace">
+        <div class="soc-panel-header">
+            <div>
+                <h2><i class="fas fa-list"></i> 寄生蜜点访问与指纹记录</h2>
+                <p>重点看访问 URL、代理/真实 IP、浏览器指纹、UA、Bot 判定、session 与测试触发原因。</p>
+            </div>
+            <span id="totalRecordsInfo" class="soc-count">共 0 条告警</span>
+        </div>
+
+        <div class="soc-toolbar">
+            <div class="soc-toolbar-left">
+                <label class="soc-field">
+                    <span>每页显示</span>
+                    <select id="pageSizeSelect" class="soc-select">
+                        <option value="10">10</option>
+                        <option value="20">20</option>
+                        <option value="50">50</option>
+                    </select>
+                </label>
+                <span id="activeFilter" class="pill parasitic">目标：全部</span>
+            </div>
+            <div class="soc-toolbar-right">
+                <button id="prevBtn" disabled class="soc-btn" type="button">上一页</button>
+                <span id="pageInfo" class="mono">第 1 页 / 共 1 页</span>
+                <button id="nextBtn" disabled class="soc-btn" type="button">下一页</button>
+            </div>
+        </div>
+
+        <div class="parasitic-layout">
+            <div class="soc-table-wrap parasitic-table-wrap">
+                <table class="soc-table wide">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>来源 IP</th>
+                <th>代理 / 真实 IP</th>
+                            <th>Bot 判定</th>
+                            <th>目标 URL</th>
+                            <th>指纹 / Session</th>
+                            <th>浏览器 / 系统</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <tr>
+                            <td colspan="8">
+                                <div class="empty-row"><i class="fas fa-circle-notch fa-spin"></i><h3>正在初始化数据...</h3></div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <aside class="parasitic-side">
+                <div class="soc-panel-header mini">
+                    <div>
+                        <h2>来源渠道</h2>
+                        <p>点击目标 URL 过滤告警</p>
+                    </div>
+                </div>
+                <div id="targetStatsList" class="soc-side-list">
+                    <div class="empty-row"><p>等待数据...</p></div>
+                </div>
+            </aside>
+        </div>
+    </section>
+</div>
+
+<div id="logDrawer" class="detail-modal">
+    <div class="detail-backdrop" onclick="toggleDrawer(false)"></div>
+    <aside class="detail-panel">
+        <header class="detail-header">
+            <div>
+                <div class="soc-eyebrow">Fingerprint Detail</div>
+                <h3 class="soc-modal-title">详细指纹情报</h3>
+            </div>
+            <div class="soc-row-actions">
+                <button id="copyJsonBtn" class="soc-btn" type="button"><i class="fas fa-copy"></i> Copy</button>
+                <button class="soc-icon-btn" type="button" onclick="toggleDrawer(false)"><i class="fas fa-xmark"></i></button>
+            </div>
+        </header>
+        <div class="detail-body">
+            <div id="drawer-grid-container" class="soc-drawer-grid"></div>
+            <section class="soc-info-card">
+                <h4><i class="fas fa-code"></i> 原始数据 Raw JSON</h4>
+                <pre id="d-raw-json" class="json-box" style="max-width:none; max-height:260px;"></pre>
+            </section>
+        </div>
+    </aside>
+</div>
+
+<div id="traceModal" class="detail-modal">
+    <div class="detail-backdrop" onclick="toggleModal(false)"></div>
+    <aside class="detail-panel trace-panel">
+        <header class="detail-header">
+            <h3 id="traceTitle" class="soc-modal-title"><i class="fas fa-project-diagram"></i> 攻击链路溯源</h3>
+            <button class="soc-icon-btn" type="button" onclick="toggleModal(false)"><i class="fas fa-xmark"></i></button>
+        </header>
+        <div class="trace-body">
+            <div id="graph-container" class="soc-graph-box"></div>
+            <div id="trace-details" class="soc-info-card trace-details"><h4>节点情报</h4><div class="soc-field-list"><p class="cell-sub">点击图谱中的节点查看详情</p></div></div>
+        </div>
+    </aside>
+</div>
+
+<style>
+.parasitic-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 0; align-items: start; }
+.parasitic-table-wrap { border-right: 1px solid var(--soc-line); max-height: none; padding-bottom: 18px; scrollbar-gutter: stable; }
+.parasitic-side { min-height: 520px; background: rgba(255,255,255,.015); }
+.soc-panel-header.mini { padding: 14px; }
+.soc-panel-header.mini h2 { font-size: 16px; }
+.soc-side-list { padding: 12px 12px 18px; max-height: none; overflow: visible; scrollbar-gutter: stable; }
+.trace-panel { width: min(1080px, calc(100vw - 44px)); }
+.trace-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; padding: 18px 18px 24px; overflow: auto; scrollbar-gutter: stable both-edges; }
+.trace-details { min-height: 420px; }
+@media (max-width: 1180px) { .parasitic-layout, .trace-body { grid-template-columns: 1fr; } .parasitic-side { min-height: auto; } }
+</style>
+
+<script>
+const state = {
+    currentPage: 1,
+    pageSize: 10,
+    totalRecords: 0,
+    currentLogs: [],
+    filterTarget: ''
+};
+
+const elements = {};
+
+document.addEventListener('DOMContentLoaded', () => {
+    elements.tableBody = document.getElementById('logTableBody');
+    elements.prevBtn = document.getElementById('prevBtn');
+    elements.nextBtn = document.getElementById('nextBtn');
+    elements.pageInfo = document.getElementById('pageInfo');
+    elements.pageSizeSelect = document.getElementById('pageSizeSelect');
+    elements.totalRecordsInfo = document.getElementById('totalRecordsInfo');
+    elements.targetStatsList = document.getElementById('targetStatsList');
+    elements.activeFilter = document.getElementById('activeFilter');
+
+    elements.prevBtn.addEventListener('click', () => { if (state.currentPage > 1) loadLogs(state.currentPage - 1); });
+    elements.nextBtn.addEventListener('click', () => loadLogs(state.currentPage + 1));
+    elements.pageSizeSelect.addEventListener('change', (event) => {
+        state.pageSize = Number(event.target.value) || 10;
+        loadLogs(1);
+    });
+    loadLogs(1);
+});
+
+async function loadLogs(page = 1) {
+    state.currentPage = page;
+    elements.tableBody.innerHTML = '<tr><td colspan="8"><div class="empty-row"><i class="fas fa-circle-notch fa-spin"></i><h3>正在加载寄生蜜点告警...</h3></div></td></tr>';
+    try {
+        const params = new URLSearchParams({ page: String(page), size: String(state.pageSize) });
+        if (state.filterTarget) params.set('target', state.filterTarget);
+        const response = await fetch(`/api/parasitism/logs?${params.toString()}`);
+        const result = await response.json();
+        if (!response.ok || result.code === 1) throw new Error(result.message || `HTTP ${response.status}`);
+        const data = Array.isArray(result.data) ? result.data : [];
+        state.currentLogs = data.map(processLogData);
+        state.totalRecords = Number(result.total || data.length || 0);
+        renderTable(state.currentLogs);
+        updatePaginationControls();
+        updateTargetStats(state.currentLogs);
+    } catch (error) {
+        elements.tableBody.innerHTML = `<tr><td colspan="8"><div class="empty-row"><i class="fas fa-triangle-exclamation"></i><h3>加载失败</h3><p>${escapeHtml(error.message)}</p></div></td></tr>`;
+    }
+}
+
+async function pullParasiticAlerts() {
+    const status = document.getElementById('pullStatus');
+    status.className = 'soc-status';
+    status.style.display = 'block';
+    status.textContent = '正在从 js/bot 拉取寄生蜜点告警...';
+    try {
+        const response = await fetch('/parasitism/alert?days=30');
+        const data = await response.json();
+        if (!response.ok || data.code !== 0) {
+            throw new Error(data.message || `HTTP ${response.status}`);
+        }
+        status.className = 'soc-status ok';
+        status.textContent = `拉取完成：新增 ${data.data ? data.data.pulled : 0} 条寄生告警，正在刷新页面。`;
+        await loadLogs(1);
+    } catch (err) {
+        status.className = 'soc-status err';
+        status.textContent = `拉取失败：${err.message}`;
+    }
+}
+
+function processLogData(log) {
+    const details = parseFingerprint(log.FingerprintData || log.info || log.details);
+    const targetPath = details.path || details.Path || log.target || log.url || '-';
+    const ipList = Array.isArray(log.IPs) ? log.IPs : (log.IPs ? [log.IPs] : []);
+    const session = details.sessionToken || details.session_token || '-';
+    const proxyHeaders = details.proxy_headers || {};
+    const xff = cleanProxyValue(log.x_forwarded_for ?? details.x_forwarded_for ?? proxyHeaders.x_forwarded_for);
+    const forwarded = cleanProxyValue(log.forwarded ?? details.forwarded ?? proxyHeaders.forwarded);
+    const via = cleanProxyValue(log.via ?? details.via ?? proxyHeaders.via);
+    const possibleProxy = resolveProxyFlag(details.possible_proxy ?? log.possible_proxy, log.ProxyDetectResult, xff, forwarded, via);
+    return {
+        id: log.id || Math.floor(Math.random() * 10000),
+        time: formatTime(log.time || log.trigger_time),
+        src_ip: log.RemoteIP || log.src_ip || 'Unknown',
+        proxy_ip: ipList.length > 0 ? ipList[0] : (log.dst_ip || null),
+        ips_str: ipList.length ? ipList.join(', ') : '-',
+        is_proxy: possibleProxy,
+        x_forwarded_for: xff || '-',
+        forwarded: forwarded || '-',
+        via: via || '-',
+        proxy_note: details.proxy_note || '若代理未写入 X-Forwarded-For/Via/Forwarded，服务端只能看到代理出口 IP。',
+        is_bot: Boolean(log.isBot || log.is_bot),
+        score: Number(log.score || log.bot_score || 0),
+        target: targetPath,
+        reasons: log.reasons || [],
+        details,
+        fingerprint: log.fingerprint || details.fingerprint || '- ',
+        session,
+        browser: details.browser || details.Browser || details.browserName || '-',
+        os: details.os || details.OS || details.osName || '-',
+        platform: details.platform || details.navigatorPlatform || '-',
+        user_agent: details.userAgent || details.ua || '-',
+        reason: details.reason || details.source || '-',
+        group_id: log.group_id || log.id || '',
+        raw_obj: log
+    };
+}
+
+function renderTable(logs) {
+    if (!logs.length) {
+        elements.tableBody.innerHTML = '<tr><td colspan="8"><div class="empty-row"><i class="fas fa-inbox"></i><h3>暂无寄生蜜点告警</h3><p>请确认注入页面可以访问 js/bot 的 <code>/info</code>、<code>/ips</code>、<code>/bot-check</code> 接口，并且 systemwire2 已执行寄生告警拉取入库。</p></div></td></tr>';
+        return;
+    }
+    elements.tableBody.innerHTML = logs.map((item, index) => {
+        const botBadge = item.is_bot || item.score > 50
+            ? `<span class="soc-risk high">YES / ${item.score}</span>`
+            : `<span class="soc-risk ok">NO / ${item.score}</span>`;
+        return `<tr>
+            <td class="mono">${escapeHtml(item.time)}</td>
+            <td><span class="pill warn">${escapeHtml(item.src_ip)}</span></td>
+            <td>
+                <span class="pill ${item.is_proxy ? 'parasitic' : ''}">${item.is_proxy ? '可能代理' : '未见代理头'}</span>
+                <div class="cell-sub mono">WebRTC/真实: ${escapeHtml(item.ips_str)}</div>
+                <div class="cell-sub mono">XFF: ${escapeHtml(item.x_forwarded_for)}</div>
+            </td>
+            <td>${botBadge}</td>
+            <td><div class="cell-title">${escapeHtml(item.target)}</div><div class="cell-sub">reason: ${escapeHtml(item.reason)}</div></td>
+            <td><div class="cell-title mono">${escapeHtml(item.fingerprint)}</div><div class="cell-sub mono">session: ${escapeHtml(item.session)}</div></td>
+            <td><div class="cell-title">${escapeHtml(item.browser)}</div><div class="cell-sub">OS: ${escapeHtml(item.os)}</div><div class="cell-sub mono">navigator.platform: ${escapeHtml(item.platform)}</div><div class="cell-sub mono">UA: ${escapeHtml(item.user_agent)}</div></td>
+            <td><div class="soc-row-actions">
+                <button class="soc-btn parasitic" type="button" onclick="openLogDrawer(${index})"><i class="fas fa-table-list"></i> 查看</button>
+                <button class="soc-btn" type="button" onclick="openTraceModal(${index})"><i class="fas fa-network-wired"></i> 同源</button>
+            </div></td>
+        </tr>`;
+    }).join('');
+}
+
+function updateTargetStats(logs) {
+    elements.activeFilter.textContent = `目标：${state.filterTarget || '全部'}`;
+    if (!logs.length && !state.filterTarget) {
+        elements.targetStatsList.innerHTML = '<div class="empty-row"><p>无数据</p></div>';
+        return;
+    }
+    const stats = {};
+    logs.forEach(log => { stats[log.target || 'Unknown'] = (stats[log.target || 'Unknown'] || 0) + 1; });
+    const entries = Object.entries(stats).sort((a, b) => b[1] - a[1]);
+    const allItem = `<div class="soc-side-item ${state.filterTarget === '' ? 'active' : ''}" onclick="selectTarget('')"><span><i class="fas fa-th-large"></i> 全部显示</span><b>${state.totalRecords}</b></div>`;
+    elements.targetStatsList.innerHTML = allItem + entries.map(([target, count]) => `
+        <div class="soc-side-item ${state.filterTarget === target ? 'active' : ''}" onclick="selectTarget('${escapeJs(target)}')">
+            <span class="mono" title="${escapeHtml(target)}">${escapeHtml(target)}</span><b>${count}</b>
+        </div>`).join('');
+}
+
+function selectTarget(target) {
+    state.filterTarget = state.filterTarget === target ? '' : target;
+    loadLogs(1);
+}
+
+function clearTargetFilter() {
+    state.filterTarget = '';
+    loadLogs(1);
+}
+
+function updatePaginationControls() {
+    const totalPages = Math.max(Math.ceil(state.totalRecords / state.pageSize), 1);
+    elements.pageInfo.textContent = `第 ${state.currentPage} 页 / 共 ${totalPages} 页`;
+    elements.totalRecordsInfo.textContent = `共 ${state.totalRecords} 条告警`;
+    elements.prevBtn.disabled = state.currentPage <= 1;
+    elements.nextBtn.disabled = state.currentPage >= totalPages;
+}
+
+function openLogDrawer(index) {
+    const item = state.currentLogs[index];
+    if (!item) return;
+    const container = document.getElementById('drawer-grid-container');
+    container.innerHTML = '';
+    container.insertAdjacentHTML('beforeend', infoCard('BOT 检测分析', [
+        ['风险评分', String(item.score)],
+        ['判定结果', (item.is_bot || item.score > 50) ? '异常 Bot' : '正常 Human'],
+        ['判定依据', item.reasons.length ? item.reasons.join('\n') : '未检测到异常特征']
+    ]));
+    container.insertAdjacentHTML('beforeend', infoCard('基本信息', [
+        ['时间', item.time],
+        ['来源 IP', item.src_ip],
+        ['真实/WebRTC IP', item.ips_str],
+        ['目标 URL', item.target],
+        ['Session', item.session]
+    ]));
+    container.insertAdjacentHTML('beforeend', infoCard('代理链路', [
+        ['是否观察到代理头', item.is_proxy ? '是' : '否'],
+        ['X-Forwarded-For', item.x_forwarded_for],
+        ['Forwarded', item.forwarded],
+        ['Via', item.via],
+        ['说明', item.proxy_note]
+    ]));
+    container.insertAdjacentHTML('beforeend', infoCard('浏览器与系统', [
+        ['浏览器', item.browser],
+        ['操作系统', item.os],
+        ['浏览器平台 navigator.platform', item.platform],
+        ['User Agent', item.user_agent]
+    ]));
+    container.insertAdjacentHTML('beforeend', infoCard('指纹字段', [
+        ['fingerprint', item.fingerprint],
+        ['reason', item.reason],
+        ['language', item.details.language || '-'],
+        ['navigator.platform', item.details.platform || item.details.navigatorPlatform || '-'],
+        ['screen', item.details.screen || item.details.screenPrint || '-'],
+        ['timezone', item.details.timeZone || item.details.timezone || '-']
+    ]));
+    document.getElementById('d-raw-json').textContent = JSON.stringify(item.raw_obj, null, 2);
+    const copyBtn = document.getElementById('copyJsonBtn');
+    copyBtn.onclick = () => {
+        navigator.clipboard.writeText(JSON.stringify(item.raw_obj, null, 2));
+        copyBtn.innerHTML = '<i class="fas fa-check"></i> Copied';
+        setTimeout(() => { copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copy'; }, 1600);
+    };
+    toggleDrawer(true);
+}
+
+function infoCard(title, rows) {
+    return `<section class="soc-info-card"><h4>${escapeHtml(title)}</h4><div class="soc-field-list">${rows.map(([name, value]) => fieldHtml(name, value)).join('')}</div></section>`;
+}
+
+function fieldHtml(name, value) {
+    const text = formatValue(value);
+    const large = text.length > 100 || text.includes('\n') ? ' large' : '';
+    return `<div><div class="soc-field-name">${escapeHtml(name)}</div><div class="soc-field-value${large}">${escapeHtml(text)}</div></div>`;
+}
+
+function openTraceModal(index) {
+    const item = state.currentLogs[index];
+    if (!item) return;
+    document.getElementById('traceTitle').innerHTML = '<i class="fas fa-project-diagram"></i> 攻击链路溯源';
+    renderTraceGraph(item);
+    toggleModal(true);
+}
+
+function renderTraceGraph(item) {
+    const container = document.getElementById('graph-container');
+    const width = container.clientWidth || 760;
+    const height = container.clientHeight || 420;
+    const cy = height / 2;
+    const startX = width * 0.16;
+    const midX = width * 0.50;
+    const endX = width * 0.84;
+    const isProxy = item.proxy_ip && item.proxy_ip !== item.src_ip;
+    const botColor = item.is_bot || item.score > 50 ? '#ef4444' : '#7ddc8b';
+    container.innerHTML = `<svg width="100%" height="100%" viewBox="0 0 ${width} ${height}">
+        <defs><marker id="arrow" markerWidth="10" markerHeight="7" refX="28" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#7ddc8b" /></marker></defs>
+        <line x1="${startX}" y1="${cy}" x2="${midX}" y2="${cy}" stroke="#7ddc8b" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow)" />
+        <line x1="${midX}" y1="${cy}" x2="${endX}" y2="${cy}" stroke="#7ddc8b" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#arrow)" />
+        ${svgNode(startX, cy, '#ef4444', 'Attacker', item.src_ip)}
+        ${svgNode(midX, cy, isProxy ? '#6ba8ff' : botColor, isProxy ? 'Proxy/Bot' : 'Browser', isProxy ? item.proxy_ip : `score=${item.score}`)}
+        ${svgNode(endX, cy, '#5bd6d6', 'Target', item.target)}
+    </svg>`;
+    showNodeInfo('info', `来源 IP: ${item.src_ip}<br>目标: ${item.target}<br>Session: ${item.session}`);
+}
+
+function svgNode(x, y, color, label, desc) {
+    return `<g transform="translate(${x}, ${y})"><circle r="36" fill="rgba(0,0,0,.32)" stroke="${color}" stroke-width="3"/><text y="6" text-anchor="middle" fill="${color}" font-size="13" font-weight="800">${escapeSvg(label)}</text><text y="56" text-anchor="middle" fill="#b7c9c0" font-size="11">${escapeSvg(String(desc).slice(0, 34))}</text></g>`;
+}
+
+function showNodeInfo(type, desc) {
+    document.getElementById('trace-details').innerHTML = `<h4>节点情报</h4><div class="soc-field-list"><div class="soc-field-value large">${desc}</div></div>`;
+}
+
+function toggleDrawer(open) { document.getElementById('logDrawer').style.display = open ? 'block' : 'none'; }
+function toggleModal(open) { document.getElementById('traceModal').style.display = open ? 'block' : 'none'; }
+function parseFingerprint(value) { try { if (!value) return {}; if (typeof value === 'string') return JSON.parse(value); return value; } catch (_) { return {}; } }
+function cleanProxyValue(value) {
+    if (value === undefined || value === null) return '';
+    const text = String(value).trim();
+    if (!text) return '';
+    const lower = text.toLowerCase();
+    if (['-', 'none', 'null', '<nil>', '<none>', 'undefined'].includes(lower)) return '';
+    return text;
+}
+function coerceBoolean(value) {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value !== 0;
+    const text = cleanProxyValue(value).toLowerCase();
+    if (!text) return null;
+    if (['true', '1', 'yes', 'y', 'on'].includes(text)) return true;
+    if (['false', '0', 'no', 'n', 'off'].includes(text)) return false;
+    return true;
+}
+function resolveProxyFlag(storedValue, proxyDetectResult, xff, forwarded, via) {
+    const stored = coerceBoolean(storedValue);
+    if (stored !== null) return stored;
+    const detect = coerceBoolean(proxyDetectResult);
+    if (detect !== null) return detect;
+    return Boolean(cleanProxyValue(xff) || cleanProxyValue(forwarded) || cleanProxyValue(via));
+}
+function formatTime(value) { if (!value) return '-'; const d = new Date(value); return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('zh-CN', { hour12: false }); }
+function formatValue(value) { if (value === undefined || value === null || value === '') return '-'; if (Array.isArray(value)) return value.join(', ') || '-'; if (typeof value === 'object') return JSON.stringify(value, null, 2); return String(value); }
+function escapeHtml(text) { return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+function escapeJs(text) { return String(text).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n'); }
+function escapeSvg(text) { return escapeHtml(text); }
+</script>
+{% endblock %}

@@ -30,11 +30,27 @@ class AccountHoneypotAdapter(BaseAdapter):
                 attacker_ip=raw_data.get("src"),
                 target_host=raw_data.get("dst"),
                 action="vpn_connect",
+                source_type="network",
+                source_id=f"network:{raw_data.get('src')}" if raw_data.get("src") else "network:unknown",
+                source_label=raw_data.get("src") or "unknown vpn source",
+                object_type="service",
+                object_id=f"service:openvpn@{raw_data.get('dst')}" if raw_data.get("dst") else "service:openvpn",
+                object_label=raw_data.get("dst") or "OpenVPN service",
+                stage="initial_access",
+                tactic="Initial Access",
+                technique="External Remote Services",
+                severity="high",
+                confidence=0.9,
                 details={
                     "protocol": "OpenVPN",
                     "raw_data": raw_data.get("raw_data"),
                     "src_port": raw_data.get("spt")
-                }
+                },
+                evidence={
+                    "protocol": "OpenVPN",
+                    "src_port": raw_data.get("spt"),
+                    "dst": raw_data.get("dst"),
+                },
             )
         else:
             alert = UnifiedAlert(
@@ -45,6 +61,17 @@ class AccountHoneypotAdapter(BaseAdapter):
                 attacker_info=raw_data.get("client_version"),
                 target_host=raw_data.get("dst"),
                 action="ssh_login",
+                source_type="network",
+                source_id=f"network:{raw_data.get('src')}" if raw_data.get("src") else "network:unknown",
+                source_label=raw_data.get("src") or "unknown ssh source",
+                object_type="service",
+                object_id=f"service:ssh@{raw_data.get('dst')}" if raw_data.get("dst") else "service:ssh",
+                object_label=raw_data.get("dst") or "SSH service",
+                stage="initial_access",
+                tactic="Initial Access",
+                technique="External Remote Services",
+                severity="high",
+                confidence=0.95,
                 details={
                     "username": raw_data.get("duser"),
                     "password": raw_data.get("password"),
@@ -52,7 +79,13 @@ class AccountHoneypotAdapter(BaseAdapter):
                     "dst_port": raw_data.get("dpt"),
                     "client_version": raw_data.get("client_version"),
                     "server_version": raw_data.get("server_version")
-                }
+                },
+                evidence={
+                    "username": raw_data.get("duser"),
+                    "password": raw_data.get("password"),
+                    "client_version": raw_data.get("client_version"),
+                    "server_version": raw_data.get("server_version"),
+                },
             )
         
         return [alert]

@@ -1,12 +1,15 @@
-# 独立 Git 仓库（原 submodule）
-/agent-go/
-/ssh-vpn/
-/systemwire2/
+# 独立 Git 仓库（原 submodule）- 已改为统一管理
+# /agent-go/
+# /ssh-vpn/
+# /systemwire2/
 
 # Go 编译后的二进制文件
 *.exe
 /js/latest/bot/bot
 /js/latest/catchpacp/rtt_server
+alert_server/alert_server
+ssh-vpn/ssh-vpn
+agent-go/agent-go
 
 # 日志文件
 *.log
@@ -39,3 +42,68 @@ __pycache__/
 
 # 根目录的临时脚本
 /tmp_*
+
+# 配置文件中的敏感信息
+config/config.py
+config/config.ini
+*/config/config.py
+*/config/config.ini
+*.local.ini
+*.local.py
+
+# 实例数据
+systemwire2/instance/
+alert_server/alerts.db
+ssh-vpn/ssh_auth_log.json
+
+# IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 部署输出
+deployment/output/*.json
+deployment/output/*.log
+
+# Deployment cleanup: runtime artifacts, caches, local configs
+**/.gocache/
+**/tmp/go-build-cache/
+
+agent-go/go_build_main_go
+agent-go/agent-go
+agent-go/cmd/logPath
+agent-go/runtime_artifacts/
+agent-go/tmp_output/
+agent-go/ssl/
+agent-go/config/audit_monitor_state.json
+
+ssh-vpn/ssh
+ssh-vpn/ssh_vpn
+ssh-vpn/ssh-vpn
+ssh-vpn/git
+ssh-vpn/ssh_passwords_only.json
+
+alert_server/data/
+alert_server/config/config.ini
+alert_server/pkg/db.go.*
+
+systemwire2/config.ini_
+systemwire2/Honeyfiles/deploy/
+systemwire2/log/
+systemwire2/temp/
+systemwire2/data/.ssh/
+systemwire2/grpc_server.lock
+systemwire2/agent_server/ssl/
+systemwire2/agent_server/agents/hyclient
+
+deployment/alerts/
+deployment/output/
+step1_data_collection/output/
+step2_causal_graph/output/
+step3_dqn_pruning/output/
+step4_graph_to_text/output/
+
+experiment_report.json
+tmp_ppt_text_extract.json
+tmp_test_write.json

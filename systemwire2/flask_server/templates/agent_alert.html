@@ -1,0 +1,21 @@
+﻿{% extends 'base.html' %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/soc-alert-pages.css') }}">
+<div class="soc-page">
+    <section class="soc-top">
+        <div class="soc-title-card"><div class="soc-eyebrow">Agent File Audit</div><h1>文件监控告警</h1><p>这里展示 agent-go 主机文件监控记录，用来辅助排查文件是否被本机打开。它不再混入统一告警中心的文件蜜点告警。</p></div>
+        <div class="soc-action-card"><div class="soc-note">文件蜜点真正告警请看“告警中心 / 文件告警”；本页只表示探针主机侧文件访问审计。</div><button class="soc-btn primary" onclick="location.reload()"><i class="fas fa-rotate"></i> 刷新</button></div>
+    </section>
+    <section class="soc-panel">
+        <div class="soc-panel-header"><div><h2><i class="fas fa-list"></i> 主机文件访问记录</h2><p>重点看 Agent、IP、进程信息和监控路径。</p></div><span class="soc-count">共 {{ infos|length }} 条</span></div>
+        <div class="soc-table-wrap"><table class="soc-table wide"><thead><tr><th>记录 ID</th><th>Agent ID</th><th>IP</th><th>触发时间</th><th>进程信息</th><th>监控路径</th></tr></thead><tbody>
+            {% for item in infos %}
+            <tr><td><span class="pill file">#{{ item.id }}</span></td><td class="mono">{{ item.client_id }}</td><td><span class="pill warn">{{ item.ip or '-' }}</span></td><td class="mono">{{ item.trigger_time }}</td><td><pre class="json-box">{{ item.proctitle_json or item.proctitle }}</pre></td><td><pre class="json-box">{{ item.path_json or item.path }}</pre></td></tr>
+            {% else %}
+            <tr><td colspan="6"><div class="empty-row"><i class="fas fa-file-shield"></i><h3>暂无文件监控记录</h3><p>需要 agent-go 上报主机文件访问事件后才会出现。</p></div></td></tr>
+            {% endfor %}
+        </tbody></table></div>
+    </section>
+</div>
+{% endblock %}

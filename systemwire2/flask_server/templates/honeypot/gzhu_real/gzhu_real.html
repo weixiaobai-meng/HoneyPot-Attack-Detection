@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta http-equiv="X-UA-Compatible" content="IE=9">
+<meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="renderer" content="webkit">
+<title>评奖评优-广州大学学生工作部</title>
+<meta name="pageType" content="2">
+<meta name="pageTitle" content="评奖评优">
+<META Name="keywords" Content="广州大学学生工作部,评奖评优" />
+
+<link rel="stylesheet" type="text/css" href="./css/layout.css" />
+<link rel="stylesheet" type="text/css" href="./css/list.vsb.css" />
+<style type="text/css">
+/* 分页样式 */
+.headStyle5eid1lo2jl, .headStyle5eid1lo2jl td, .headStyle5eid1lo2jl div {font-size: 12px;font-family:宋体; color: #000000; margin-left: auto; margin-right: auto; line-height:14px;}
+.headStyle5eid1lo2jl .PrevDisabled {font-size: 12px;font-family:宋体; display:inline-block;height:14px; margin-right: 3px; padding: 2px 4px; background: #fff;color:#ccc;border: solid 1px #AFD5F5; line-height:14px;}
+.headStyle5eid1lo2jl .NextDisabled { font-size: 12px;font-family:宋体;display:inline-block; height:14px; margin-left: 2px; padding: 2px 4px;background: #fff;color:#ccc;border: solid 1px #AFD5F5; line-height:14px;}
+</style>
+</head>
+<body>
+
+<div class="head">
+    <div class="w1200">
+        <div class="top">
+            <div class="fl hy"><p>广州大学学生处欢迎您！</p></div>
+            <div class="fr">
+                <a href="http://www.gzhu.edu.cn/" title="学校首页" class="icon1">学校首页</a>
+                <a href="http://xsc.gzhu.edu.cn/index.htm" title="网站首页" class="icon3">网站首页</a>
+            </div>
+        </div>
+        <h1 class="fl">
+            <a href="http://xsc.gzhu.edu.cn/index.htm" title="学生处"><img src="./images/logo.png" alt="">学生处（学生工作部）</a>
+        </h1>
+        <div class="fr search mt50">
+            <LINK href="/system/resource/vue/static/element/index.css" type="text/css" rel="stylesheet">
+            <style>
+                #appu3 .qwss{height: 31px;font-size: 12px;min-width: 190px;max-width: 600px;width: 60%;margin-top: -15px;outline: none;padding-left: 10px;border-radius: 2px;border: 1px solid #e4e7ed;}
+                #appu3 .tj{padding-left: 6px;letter-spacing: 5px;color: white;min-width: 53px;max-width: 150px;height: 32px;border: 0;border-radius: 2px;background-color: #1890FF;position: relative;top: 1px;width: 20%;margin-top: -15px;}
+            </style>
+            <div id="divu3"></div>
+            <script type="text/html" id="htmlu3">
+                <div id="appu3">
+                    <div v-if="!isError">
+                        <input type="text" class="input fl" placeholder="请输入搜索内容"  autocomplete=off v-model=query.keyWord>
+                        <input name="search-btn" type="image" class="submit fr" src="./images/search.png"/>
+                    </div>
+                    <div v-if="isError" style="color: #b30216; font-size:18px;text-align: center;padding:20px;">
+                        应用维护中！
+                    </div>
+                </div>
+            </script>
+        </div>
+    </div>
+</div>
+
+<div class="navbar">
+    <ul class="nav w1200">
+        <li id="m1" class="m"><h3><a href="http://xsc.gzhu.edu.cn/index.htm" title="首页">首页</a></h3></li>
+        <li id="m1" class="m">
+            <h3><a href="http://xsc.gzhu.edu.cn/bmgk/bmgk.htm" title="部门概况">部门概况</a></h3>
+            <ul class="sub">
+                <li><a href="http://xsc.gzhu.edu.cn/bmgk/bmgk.htm">部门概况</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/bmgk/bmsz.htm">部门设置</a></li>
+            </ul>
+        </li>
+        <li id="m1" class="m">
+            <h3><a href="http://xsc.gzhu.edu.cn/sxjy/gztz.htm" title="思想教育">思想教育</a></h3>
+            <ul class="sub">
+                <li><a href="http://xsc.gzhu.edu.cn/sxjy/gztz.htm">工作通知</a></li>
+                <li><a href="https://www.yiban.cn/">广大易班</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/sxjy/xfjs.htm">学风建设</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/sxjy/szqy.htm">思政前沿</a></li>
+            </ul>
+        </li>
+        <li id="m1" class="m">
+            <h3><a href="http://xsc.gzhu.edu.cn/xssw/zhcp.htm" title="学生事务">学生事务</a></h3>
+            <ul class="sub">
+                <li><a href="http://xsc.gzhu.edu.cn/zhcp.htm">综合测评</a></li>
+                <li class="active"><a href="pjpy.htm" title="评奖评优">评奖评优</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/cdwz.htm">场地物资</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/sswh.htm">宿舍文化</a></li>
+            </ul>
+        </li>
+        <li id="m1" class="m">
+            <h3><a href="http://xsc.gzhu.edu.cn/xszz/zzdt.htm" title="学生资助">学生资助</a></h3>
+            <ul class="sub">
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/zzdt.htm">资助动态</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/zzzc.htm">资助政策</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/jzxj.htm">奖助学金</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/zxdk.htm">助学贷款</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/qgzx.htm">勤工助学</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/qtzz.htm">其他资助</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/zzyr.htm">资助育人</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xszz/bgxz.htm">表格下载</a></li>
+            </ul>
+        </li>
+        <li id="m1" class="m">
+            <h3><a href="http://xsc.gzhu.edu.cn/xljk/zxxw.htm" title="心理健康">心理健康</a></h3>
+            <ul class="sub">
+                <li><a href="http://xsc.gzhu.edu.cn/xljk/zxxw.htm">中心新闻</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xljk/zxyy.htm">咨询预约</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xljk/xlfw.htm">心理服务</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xljk/jxky.htm">教学科研</a></li>
+                <li><a href="http://xsc.gzhu.edu.cn/xljk/pbhz.htm">朋辈互助</a></li>
+            </ul>
+        </li>
+    </ul>
+</div>
+
+<div class="w1200 list-content">
+    <div class="list-left">
+        <h1>学生事务</h1>
+        <ul>
+            <li><a href="http://xsc.gzhu.edu.cn/xssw/zhcp.htm" title="综合测评" style="background: #d6deee;border-bottom: 1px solid #fff;border-left: 10px solid #d6deee;">综合测评</a></li>
+            <li class="active"><a href="pjpy.htm" title="评奖评优" style="background: #d6deee;border-bottom: 1px solid #fff;">评奖评优</a></li>
+            <li><a href="http://xsc.gzhu.edu.cn/xssw/zhcp.htm" title="场地物资" style="background: #d6deee;border-bottom: 1px solid #fff;border-left: 10px solid #d6deee;">场地物资</a></li>
+            <li><a href="http://xsc.gzhu.edu.cn/xssw/sswh.htm" title="宿舍文化" style="background: #d6deee;border-bottom: 1px solid #fff;border-left: 10px solid #d6deee;">宿舍文化</a>
+                <li class="rjdh"><a href="http://xsc.gzhu.edu.cn/xssw/sswh/wsyzjj.htm">五室一站简介</a></li>
+                <li class="rjdh"><a href="http://xsc.gzhu.edu.cn/xssw/sswh/xgyjcg.htm">相关研究成果</a></li>
+                <li class="rjdh"><a href="http://xsc.gzhu.edu.cn/xssw/sswh/xytshd.htm">学院特色活动</a></li>
+            </li>
+        </ul>
+    </div>
+
+    <div class="list-right">
+        <div class="list-title">
+            <h2>评奖评优</h2>
+            <div class="dang">
+                当前位置: 
+                <a href="http://xsc.gzhu.edu.cn/index.htm">首页</a>
+                >>
+                <a href="http://xsc.gzhu.edu.cn/zhcp.htm">学生事务</a>
+                >>
+                <a href="pjpy.htm">评奖评优</a>
+            </div>
+        </div>
+
+        <div>
+            <ul>
+            {% for file in files %}
+               <li id="line_u9_{{ loop.index0 }}"><a href="{{ file.url }}" title="{{ file.name }}" target="_blank"><span class="disc"></span><h3>{{ file.name }}</h3><span class="time">{{ file.date }}</span></a></li>
+            {% else %}
+               <li id="line_u9_0"><a href="#" title="暂无文件"><span class="disc"></span><h3>暂无可供下载的文件</h3><span class="time">{{ current_time }}</span></a></li>
+            {% endfor %}
+            </ul>
+            <div class="c-page" style="margin-left:35%;width:100%;">
+                <table cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                        <td colspan="0">
+                            <table cellspacing="0" class="headStyle5eid1lo2jl" width="100%" cellpadding="1">
+                                <tr valign="middle">
+                                    <td nowrap align="left" width="1%" id="fanye204840">
+                                        共{{ files|length }}条&nbsp;&nbsp;1/1&nbsp;
+                                    </td>
+                                    <td nowrap align="left">
+                                        <div>
+                                            <span class="PrevDisabled">首页</span>
+                                            <span class="PrevDisabled">上页</span>
+                                            <span class="NextDisabled">下页</span>
+                                            <span class="NextDisabled">尾页</span>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="clear"></div>
+</div>
+
+<div class="footer mt50 te-align">
+    <p>通讯地址：广州市大学城外环西路230号 &nbsp; &nbsp; &nbsp; 邮编：510006 &nbsp; &nbsp; &nbsp; 邮箱：webmaster@gzhu.edu.cn</p>
+    <p>广州大学版权所有 &nbsp;COPYRIGHT©1999-2016, &nbsp; GUANGZHOU &nbsp;UNIVERSITY &nbsp; -联系我们-网站地图 &nbsp;粤ICP备 05008855号</p>
+</div>
+
+</body>
+</html>

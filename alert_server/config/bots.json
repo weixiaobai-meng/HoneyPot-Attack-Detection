@@ -1,0 +1,32 @@
+[
+  {
+    "regex": "googlebot",
+    "name": "Googlebot",
+    "category": 1,
+    "url": "https://developers.google.com/search/docs/crawling-indexing/google-common-crawlers",
+    "producer": {
+      "name": "Google",
+      "url": "https://www.google.com/"
+    }
+  },
+  {
+    "regex": "bingbot",
+    "name": "Bingbot",
+    "category": 1,
+    "url": "https://www.bing.com/webmasters/help/which-crawlers-does-bing-use-8c184ec0",
+    "producer": {
+      "name": "Microsoft",
+      "url": "https://www.microsoft.com/"
+    }
+  },
+  {
+    "regex": "curl|wget|python|requests|scrapy|headless|phantomjs|selenium|playwright|puppeteer|ahrefs|semrush|crawler|spider|scanner",
+    "name": "Generic automation or crawler",
+    "category": 2,
+    "url": "builtin",
+    "producer": {
+      "name": "SystemWire builtin",
+      "url": ""
+    }
+  }
+]

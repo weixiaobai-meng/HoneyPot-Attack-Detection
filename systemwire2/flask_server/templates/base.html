@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>蜜点管理系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/manage.css') }}">
+</head>
+<body>
+    <div id="container">
+        <div id="top-nav">
+            <div class="nav-brand">
+                <div class="brand-icon">
+                    <i class="fas fa-crosshairs"></i>
+                </div>
+                <h2>蜜点管理系统</h2>
+            </div>
+
+            <div class="nav-menu">
+                <a href="{{ url_for('api.index') }}" class="nav-item {% if request.path == '/manage/' %}active{% endif %}">
+                    <i class="fas fa-home"></i>
+                    <span>首页</span>
+                </a>
+                <a href="{{ url_for('api.manage_file_list') }}" class="nav-item {% if '/file/' in request.path %}active{% endif %}">
+                    <i class="fas fa-folder"></i>
+                    <span>文件管理</span>
+                </a>
+                <a href="{{ url_for('api.manage_agent_list') }}" class="nav-item {% if '/agent/' in request.path %}active{% endif %}">
+                    <i class="fas fa-satellite-dish"></i>
+                    <span>探针管理</span>
+                </a>
+                <a href="{{ url_for('api.manage_honeypot_file') }}" class="nav-item {% if '/honeypot/' in request.path %}active{% endif %}">
+                    <i class="fas fa-crosshairs"></i>
+                    <span>蜜点部署</span>
+                </a>
+                <a href="{{ url_for('api.manage_alert_unified') }}" class="nav-item {% if '/alert/' in request.path %}active{% endif %}">
+                    <i class="fas fa-bell"></i>
+                    <span>告警中心</span>
+                </a>
+            </div>
+
+            <div class="nav-user">
+                {% if current_user.is_authenticated %}
+                <span><i class="fas fa-user"></i> {{ current_user.username }}</span>
+                <a href="{{ url_for('api.logout') }}">退出</a>
+                {% else %}
+                <a href="{{ url_for('api.login') }}">登录</a>
+                {% endif %}
+            </div>
+        </div>
+
+        <div id="main-container">
+            <div id="sider">
+                <div id="sider-header">
+                    <h3>导航菜单</h3>
+                </div>
+                <div id="sidebar-menu"></div>
+            </div>
+
+            <div id="main-content">
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const currentPath = window.location.pathname;
+        const sidebarMenu = document.getElementById('sidebar-menu');
+
+        const menuConfigs = {
+            '/file/': {
+                icon: 'fas fa-folder',
+                title: '文件管理',
+                items: [
+                    { href: '{{ url_for("api.manage_file_create") }}', icon: 'fas fa-plus', text: '新增文件' },
+                    { href: '{{ url_for("api.manage_file_list") }}', icon: 'fas fa-list', text: '文件仓库' },
+                    { href: '{{ url_for("api.manage_file_deploy") }}', icon: 'fas fa-rocket', text: '部署信息' },
+                    { href: '{{ url_for("api.manage_honeypot_generator") }}', icon: 'fas fa-magic', text: '网页生成' }
+                ]
+            },
+            '/agent/': {
+                icon: 'fas fa-satellite-dish',
+                title: '探针管理',
+                items: [
+                    { href: '{{ url_for("api.manage_agent_list") }}', icon: 'fas fa-list', text: '探针列表' },
+                    { href: '{{ url_for("api.manage_agent_command_list") }}', icon: 'fas fa-terminal', text: '命令记录' },
+                    { href: '{{ url_for("api.manage_agent_alert") }}', icon: 'fas fa-bell', text: '文件监控告警' }
+                ]
+            },
+            '/honeypot/': {
+                icon: 'fas fa-crosshairs',
+                title: '蜜点部署',
+                items: [
+                    { href: '{{ url_for("api.manage_honeypot_file") }}', icon: 'fas fa-file-medical', text: '文件蜜点' },
+                    { href: '{{ url_for("api.manage_honeypot_account") }}', icon: 'fas fa-user-secret', text: '账户蜜点' },
+                    { href: '{{ url_for("api.manage_honeypot_parasitic") }}', icon: 'fas fa-spider', text: '寄生蜜点' },
+                    { href: '{{ url_for("api.manage_honeypot_generator") }}', icon: 'fas fa-magic', text: '网页生成' }
+                ]
+            },
+            '/alert/': {
+                icon: 'fas fa-bell',
+                title: '告警信息',
+                items: [
+                    { href: '{{ url_for("api.manage_alert_unified") }}', icon: 'fas fa-tachometer-alt', text: '告警中心' },
+                    { href: '/manage/alert/analysis/live', icon: 'fas fa-diagram-project', text: '实时分析' },
+                    { href: '{{ url_for("api.manage_alert_file") }}', icon: 'fas fa-file-alt', text: '文件告警' },
+                    { href: '{{ url_for("api.manage_alert_account") }}', icon: 'fas fa-user-secret', text: '账户告警' },
+                    { href: '{{ url_for("api.manage_alert_parasitism") }}', icon: 'fas fa-spider', text: '寄生告警' }
+                ]
+            }
+        };
+
+        let activeMenu = null;
+        for (const [path, config] of Object.entries(menuConfigs)) {
+            if (currentPath.includes(path)) {
+                activeMenu = config;
+                break;
+            }
+        }
+        if (!activeMenu && currentPath.includes('/manage/')) {
+            activeMenu = menuConfigs['/file/'];
+        }
+
+        if (activeMenu) {
+            let html = `
+                <div class="menu-item">
+                    <div>
+                        <i class="${activeMenu.icon}"></i>
+                        <span>${activeMenu.title}</span>
+                    </div>
+                    <div class="submenu">
+            `;
+
+            activeMenu.items.forEach(item => {
+                const isActive = currentPath === item.href || (item.href.includes(currentPath) && currentPath !== '/manage/');
+                html += `
+                    <a href="${item.href}" class="submenu-item ${isActive ? 'active' : ''}">
+                        <i class="${item.icon}"></i> ${item.text}
+                    </a>
+                `;
+            });
+
+            html += '</div></div>';
+            sidebarMenu.innerHTML = html;
+        }
+    });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

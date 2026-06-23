@@ -1,0 +1,22 @@
+{
+  "files.gzhu.edu.cn": {
+    "deployment_id": "gzhu_20250924_234148",
+    "main_file": "downloads.html",
+    "description": "广州大学文件下载（仿真版）"
+  },
+  "119.28.137.174": {
+    "deployment_id": "gzhu_real_20250926_154929",
+    "main_file": "downloads.html",
+    "description": "服务器IP:119.28.137.174访问 - 广州大学真实仿真版"
+  },
+  "127.0.0.1": {
+    "deployment_id": "test_site",
+    "main_file": "downloads.html",
+    "description": "本地测试"
+  },
+  "localhost": {
+    "deployment_id": "test_site",
+    "main_file": "downloads.html",
+    "description": "本地测试"
+  }
+}

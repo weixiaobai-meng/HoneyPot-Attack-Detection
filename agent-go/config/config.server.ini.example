@@ -1,0 +1,23 @@
+# agent-go server example
+# Must-change items for Internet deployment:
+# - ServerAddress: public/private gRPC endpoint of systemwire2
+# - Token: token issued by systemwire2 for this host
+# - ServerName: certificate CN/SAN presented by systemwire2
+[AGENT]
+AgentMode = online
+ServerAddress = 10.10.10.10:50051
+Token = REPLACE_WITH_AGENT_TOKEN
+ReportInterval = 5
+RealTimeUpdate = true
+MonitorType = audit
+MonitorListConfigPath = config/paths.list
+LogPath = log/agent.log
+
+[TLS]
+Enable = true
+AuthType = 2
+ServerCertPath = ssl/server.crt
+ClientCertPath = ssl/client.crt
+ClientKeyPath = ssl/client.key
+CACertPath = ssl/ca.crt
+ServerName = *.cfly.top

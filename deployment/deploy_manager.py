@@ -29,27 +29,48 @@ import sys
 import json
 import glob
 import sqlite3
+import requests
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import urljoin
 
 
 class DeploymentManager:
     """部署管理器"""
-    
+
     def __init__(self, base_dir=None):
         self.base_dir = base_dir or Path(__file__).parent.parent
         self.deployment_dir = Path(__file__).parent
         self.output_dir = self.deployment_dir / "output"
         self.alerts_dir = self.deployment_dir / "alerts"
         self.config_dir = self.deployment_dir / "config"
-        
+
         # 确保目录存在
         self.output_dir.mkdir(exist_ok=True)
         self.alerts_dir.mkdir(exist_ok=True)
         self.config_dir.mkdir(exist_ok=True)
-        
+
         # 加载组件配置
         self.components = self._load_components()
+        self.deploy_config = self._load_deployment_config()
+
+    def _load_deployment_config(self):
+        """加载部署配置"""
+        config_path = self.config_dir / "deployment.json"
+        if config_path.exists():
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}
+
+    def _get_alert_server_url(self):
+        """获取alert_server的API基地址"""
+        try:
+            alert_cfg = self.deploy_config.get("components", {}).get("alert_server", {})
+            host = alert_cfg.get("host", "127.0.0.1")
+            port = alert_cfg.get("port", "8080")
+            return f"http://{host}:{port}"
+        except:
+            return "http://127.0.0.1:9090"
     
     def _load_components(self):
         """加载组件配置"""
@@ -125,108 +146,174 @@ class DeploymentManager:
         return alerts
     
     def collect_account_alerts(self):
-        """收集账户蜜点告警 (从ssh-vpn)"""
+        """收集账户蜜点告警 (首选从alert_server API拉取，回退到ssh-vpn日志)"""
         print("\n  收集账户蜜点告警...")
-        
+
         alerts = []
-        max_lines = 1000  # 限制读取行数
-        
-        # 从ssh-vpn的日志文件读取
-        log_path = self.base_dir / "ssh-vpn" / "ssh_auth_log.json"
-        if log_path.exists():
-            try:
-                # 检查文件大小
-                file_size = log_path.stat().st_size
-                if file_size > 10 * 1024 * 1024:  # 大于10MB
-                    print(f"    文件较大 ({file_size / 1024 / 1024:.1f}MB)，只读取最近{max_lines}行")
-                
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    for i, line in enumerate(f):
-                        if i >= max_lines:
-                            break
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            data = json.loads(line)
-                            alerts.append({
-                                "alert_id": f"account_{len(alerts)+1}",
-                                "alert_type": "account",
-                                "timestamp": data.get("time", datetime.now().isoformat()),
-                                "attacker_ip": data.get("src"),
-                                "target_host": data.get("dst"),
-                                "action": "ssh_login",
-                                "details": {
-                                    "username": data.get("duser"),
-                                    "password": data.get("password"),
-                                    "client_version": data.get("client_version"),
-                                    "src_port": data.get("spt"),
-                                    "dst_port": data.get("dpt")
-                                }
-                            })
-                        except json.JSONDecodeError:
-                            continue
-                print(f"    从日志文件读取 {len(alerts)} 条告警")
-            except Exception as e:
-                print(f"    日志文件读取失败: {e}")
-        
+
+        # 方式1：从alert_server API拉取（整合后端）
+        try:
+            base_url = self._get_alert_server_url()
+            api_url = urljoin(base_url.rstrip("/") + "/", "api/account-alerts")
+            resp = requests.get(api_url, params={"page": 1, "size": 500}, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                records = data.get("data", [])
+                for i, rec in enumerate(records):
+                    alerts.append({
+                        "alert_id": f"account_{i + 1}",
+                        "alert_type": "account",
+                        "timestamp": rec.get("trigger_time", datetime.now().isoformat()),
+                        "attacker_ip": rec.get("src_ip", ""),
+                        "target_host": rec.get("dst_ip", ""),
+                        "action": f"{rec.get('protocol', 'ssh')}_login",
+                        "details": {
+                            "username": rec.get("username", ""),
+                            "password": rec.get("password", ""),
+                            "client_version": rec.get("client_version", ""),
+                            "src_port": rec.get("src_port", ""),
+                            "dst_port": rec.get("dst_port", ""),
+                            "message": rec.get("message", ""),
+                        }
+                    })
+                print(f"    从alert_server API读取 {len(alerts)} 条告警")
+            else:
+                print(f"    API请求失败 (HTTP {resp.status_code})，尝试从文件读取...")
+        except Exception as e:
+            print(f"    API拉取失败 ({e})，尝试从文件读取...")
+
+        # 方式2：回退到从ssh-vpn日志文件读取
+        if not alerts:
+            max_lines = 1000
+            log_path = self.base_dir / "ssh-vpn" / "ssh_auth_log.json"
+            if log_path.exists():
+                try:
+                    file_size = log_path.stat().st_size
+                    if file_size > 10 * 1024 * 1024:
+                        print(f"    文件较大 ({file_size / 1024 / 1024:.1f}MB)，只读取最近{max_lines}行")
+
+                    with open(log_path, 'r', encoding='utf-8') as f:
+                        for i, line in enumerate(f):
+                            if i >= max_lines:
+                                break
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                data = json.loads(line)
+                                alerts.append({
+                                    "alert_id": f"account_{len(alerts)+1}",
+                                    "alert_type": "account",
+                                    "timestamp": data.get("time", datetime.now().isoformat()),
+                                    "attacker_ip": data.get("src"),
+                                    "target_host": data.get("dst"),
+                                    "action": "ssh_login",
+                                    "details": {
+                                        "username": data.get("duser"),
+                                        "password": data.get("password"),
+                                        "client_version": data.get("client_version"),
+                                        "src_port": data.get("spt"),
+                                        "dst_port": data.get("dpt")
+                                    }
+                                })
+                            except json.JSONDecodeError:
+                                continue
+                    print(f"    从日志文件读取 {len(alerts)} 条告警")
+                except Exception as e:
+                    print(f"    日志文件读取失败: {e}")
+
         # 保存
         output_path = self.alerts_dir / "account_alerts.json"
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(alerts, f, ensure_ascii=False, indent=2)
-        
+
         return alerts
     
     def collect_parasitic_alerts(self):
-        """收集寄生蜜点告警 (从agent-go)"""
+        """收集寄生蜜点告警 (首选从alert_server API，回退到agent-go日志文件)"""
         print("\n  收集寄生蜜点告警...")
-        
+
         alerts = []
-        
-        # 从agent-go的日志文件读取
-        log_path = self.base_dir / "agent-go" / "log" / "url_alert.json"
-        if log_path.exists():
-            try:
-                with open(log_path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content:
-                        if content.startswith('['):
-                            data_list = json.loads(content)
-                        else:
-                            data_list = []
-                            for line in content.split('\n'):
-                                if line.strip():
-                                    try:
-                                        data_list.append(json.loads(line))
-                                    except:
-                                        continue
-                        
-                        for data in data_list:
-                            timestamp = data.get("time")
-                            if isinstance(timestamp, (int, float)):
-                                timestamp = datetime.fromtimestamp(timestamp).isoformat()
-                            
-                            alerts.append({
-                                "alert_id": f"parasitic_{len(alerts)+1}",
-                                "alert_type": "parasitic",
-                                "timestamp": timestamp,
-                                "attacker_ip": data.get("ip"),
-                                "action": "url_access",
-                                "details": {
-                                    "fingerprint": data.get("fingerprint"),
-                                    "url": data.get("details", {}).get("path"),
-                                    "info": data.get("details")
-                                }
-                            })
-                print(f"    从日志文件读取 {len(alerts)} 条告警")
-            except Exception as e:
-                print(f"    日志文件读取失败: {e}")
-        
+
+        # 方式1：从alert_server API拉取（整合后端）
+        try:
+            base_url = self._get_alert_server_url()
+            api_url = urljoin(base_url.rstrip("/") + "/", "api/logs")
+            resp = requests.get(api_url, params={"page": 1, "size": 500}, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                records = data.get("data", [])
+                for i, rec in enumerate(records):
+                    # 统一格式化为 deployment 标准输出
+                    ts = rec.get("time", datetime.now().isoformat())
+                    alerts.append({
+                        "alert_id": f"parasitic_{i + 1}",
+                        "alert_type": "parasitic",
+                        "timestamp": ts,
+                        "attacker_ip": rec.get("remote_ip", ""),
+                        "action": "url_access",
+                        "details": {
+                            "fingerprint": rec.get("fingerprint", ""),
+                            "url": rec.get("target", ""),
+                            "score": rec.get("score", 0),
+                            "is_bot": rec.get("is_bot", False),
+                            "reasons": rec.get("reasons", []),
+                            "proxy_detect_result": rec.get("proxy_detect_result", ""),
+                            "ips": rec.get("ips", []),
+                            "fingerprint_data": rec.get("fingerprint_data", ""),
+                        }
+                    })
+                print(f"    从alert_server API读取 {len(alerts)} 条告警")
+            else:
+                print(f"    API请求失败 (HTTP {resp.status_code})，尝试从文件读取...")
+        except Exception as e:
+            print(f"    API拉取失败 ({e})，尝试从文件读取...")
+
+        # 方式2：回退到从agent-go日志文件读取（旧路径）
+        if not alerts:
+            log_path = self.base_dir / "agent-go" / "log" / "url_alert.json"
+            if log_path.exists():
+                try:
+                    with open(log_path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content:
+                            if content.startswith('['):
+                                data_list = json.loads(content)
+                            else:
+                                data_list = []
+                                for line in content.split('\n'):
+                                    if line.strip():
+                                        try:
+                                            data_list.append(json.loads(line))
+                                        except:
+                                            continue
+
+                            for data in data_list:
+                                timestamp = data.get("time")
+                                if isinstance(timestamp, (int, float)):
+                                    timestamp = datetime.fromtimestamp(timestamp).isoformat()
+
+                                alerts.append({
+                                    "alert_id": f"parasitic_{len(alerts)+1}",
+                                    "alert_type": "parasitic",
+                                    "timestamp": timestamp,
+                                    "attacker_ip": data.get("ip"),
+                                    "action": "url_access",
+                                    "details": {
+                                        "fingerprint": data.get("fingerprint"),
+                                        "url": data.get("details", {}).get("path"),
+                                        "info": data.get("details")
+                                    }
+                                })
+                    print(f"    从日志文件读取 {len(alerts)} 条告警")
+                except Exception as e:
+                    print(f"    日志文件读取失败: {e}")
+
         # 保存
         output_path = self.alerts_dir / "parasitic_alerts.json"
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(alerts, f, ensure_ascii=False, indent=2)
-        
+
         return alerts
     
     def collect_audit_alerts(self):

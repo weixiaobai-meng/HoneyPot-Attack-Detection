@@ -399,16 +399,16 @@ def run_step3_dqn_pruning(graph_path):
     
     # 加载图
     data = load_graph_from_file(graph_path)
-    data = generate_synthetic_labels(data, core_ratio=0.35)
+    data = generate_synthetic_labels(data, core_ratio=0.25, seed=42)
     
     print(f"    节点数: {data.x.size(0)}")
     print(f"    边数: {data.edge_index.size(1)}")
     print(f"    核心边比例: {data.y.sum().item() / data.y.size(0) * 100:.1f}%")
     
     print("\n  [2] 生成训练数据...")
-    train_graphs = load_graphs_for_training(graph_path, num_graphs=200, augment=True)
-    val_graphs = load_graphs_for_training(graph_path, num_graphs=40, augment=True)
-    test_graphs = load_graphs_for_training(graph_path, num_graphs=60, augment=False)
+    train_graphs = load_graphs_for_training(graph_path, num_graphs=200, augment=True, base_seed=42)
+    val_graphs = load_graphs_for_training(graph_path, num_graphs=40, augment=True, base_seed=1042)
+    test_graphs = load_graphs_for_training(graph_path, num_graphs=60, augment=False, base_seed=2042)
     
     print(f"    训练集: {len(train_graphs)} 图")
     print(f"    验证集: {len(val_graphs)} 图")

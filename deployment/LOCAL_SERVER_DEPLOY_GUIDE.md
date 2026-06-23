@@ -152,10 +152,10 @@ Backend payload equivalent:
 #### Local test example
 
 - Agent: `localprobe01`
-- Target directory: `tmp_output/parasitic_webroot`
-- JS source: URL mode
-- JS URL: `tmp_output/parasitic_webroot/inject.js`
-- Inject mode: `script_tag`
+- Target directory: `D:\研究生毕设\generated_runs\parasitic_js_test_site`
+- JS source: builtin mode
+- JS URL: not required
+- Inject mode: `inline`
 - Backup: checked
 
 Backend payload equivalent:
@@ -164,7 +164,7 @@ Backend payload equivalent:
 {
   "agent_id": "localprobe01",
   "cmd_type": 7,
-  "cmd_data": "{\"target_dir\":\"tmp_output/parasitic_webroot\",\"js_url\":\"tmp_output/parasitic_webroot/inject.js\",\"js_content\":\"\",\"inject_mode\":\"script_tag\",\"backup\":true}"
+  "cmd_data": "{\"target_dir\":\"D:\\\\研究生毕设\\\\generated_runs\\\\parasitic_js_test_site\",\"js_url\":\"\",\"js_content\":\"\",\"js_bundle\":\"builtin_root_js\",\"inject_mode\":\"inline\",\"backup\":true}"
 }
 ```
 
@@ -206,4 +206,3 @@ Connectivity:
   - `xshell`, `finalshell`, `openvpn`
 - Parasitic deployment is filesystem-based (directory injection), not direct URL rewrite.
 - Avoid Chinese filesystem paths in deploy parameters for Windows probe local tests.
-

@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block content %}
+    <h1>Protected Page</h1>
+    <p>Welcome, {{ current_user.username }}! Only logged-in users can see this page.</p>
+{% endblock %}

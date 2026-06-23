@@ -42,7 +42,7 @@
       "type": "honeypot",
       "description": "SSH蜜罐 - 记录登录尝试 (Go)",
       "ports": {
-        "ssh": 2222,
+        "ssh": 22,
         "vpn": 1194
       },
       "start_command": "go run main.go",

@@ -17,11 +17,11 @@ class AttackGraphEnv:
     - 终止: 所有边都已决策
     """
     
-    # 奖励配置
-    REWARD_KEEP_CORE = 5.0       # 正确保留核心边
-    REWARD_PRUNE_REDUNDANT = 1.0 # 正确裁剪冗余边
-    PENALTY_PRUNE_CORE = -10.0   # 错误裁剪核心边
-    PENALTY_KEEP_REDUNDANT = -1.0 # 错误保留冗余边
+    # 奖励配置（对称设计，避免模型偏向"全部保留"）
+    REWARD_KEEP_CORE = 3.0         # 正确保留核心边
+    REWARD_PRUNE_REDUNDANT = 3.0   # 正确裁剪冗余边
+    PENALTY_PRUNE_CORE = -5.0      # 错误裁剪核心边
+    PENALTY_KEEP_REDUNDANT = -2.0  # 错误保留冗余边
 
     def __init__(self, data):
         """

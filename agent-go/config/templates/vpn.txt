@@ -1,0 +1,12 @@
+client
+dev tun
+proto udp
+remote {{.RemoteIP}} 1194
+ca ca.crt
+cert client.crt
+key client.key
+user nobody
+group nogroup
+persist-key
+persist-tun
+verb 3

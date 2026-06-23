@@ -3,9 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/gin-contrib/pprof"
 	"net"
 	"net/http"
+	"server/internal/handlers"
 	"server/internal/routes"
 	"server/pkg"
 
@@ -104,22 +104,24 @@ func main() {
 
 	// 加载数据库
 	logrus.Info("[2] 正在加载数据库...")
-	_, err = pkg.InitDB()
+	db, err := pkg.InitDB()
 	if err != nil {
 		logrus.Error("数据库初始化失败")
 		return
 	}
+
+	// 初始化寄生蜜点处理器
+	logrus.Info("[2.5] 正在初始化寄生蜜点处理器...")
+	handlers.InitParasiticHandlers(db)
 
 	// 注册路由和中间件
 	logrus.Info("[3] 正在注册路由和中间件...")
 	adminRouter := gin.New()
 	alertRouter := gin.New()
 
-	// 性能分析工具
-	pprof.Register(adminRouter, "/debug/pprof")
-
 	routes.AdminRoutes(adminRouter)
 	routes.BusinessRoutes(alertRouter)
+	routes.ParasiticRoutes(alertRouter) // 寄生蜜点路由
 
 	// 加载模板
 	logrus.Info("[4] 正在加载模板...")

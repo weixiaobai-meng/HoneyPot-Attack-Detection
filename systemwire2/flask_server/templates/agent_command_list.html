@@ -1,0 +1,21 @@
+﻿{% extends 'base.html' %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/soc-alert-pages.css') }}">
+<div class="soc-page">
+    <section class="soc-top">
+        <div class="soc-title-card"><div class="soc-eyebrow">Agent Command Ledger</div><h1>探针命令记录</h1><p>记录 systemwire2 下发给 agent-go 的命令队列、执行结果和耗时。三类蜜点命令分别对应 cmd_type 6/4/7。</p></div>
+        <div class="soc-action-card"><div class="soc-note">如果这里显示失败，请结合 agent-go 日志中的 Received command result 定位 payload 或路径问题。</div><button class="soc-btn primary" onclick="location.reload()"><i class="fas fa-rotate"></i> 刷新</button></div>
+    </section>
+    <section class="soc-panel">
+        <div class="soc-panel-header"><div><h2><i class="fas fa-terminal"></i> 命令执行流水</h2><p>重点看操作类型、细节 payload、成功状态和 agent 返回结果。</p></div><span class="soc-count">共 {{ commands_infos|length }} 条</span></div>
+        <div class="soc-table-wrap"><table class="soc-table wide"><thead><tr><th>记录 ID</th><th>Agent ID</th><th>操作类型</th><th>操作 ID</th><th>细节信息</th><th>状态</th><th>结果</th><th>操作时间</th><th>完成时间</th><th>耗时</th></tr></thead><tbody>
+            {% for command in commands_infos %}
+            <tr><td><span class="pill">#{{ command.id }}</span></td><td class="mono">{{ command.client_id }}</td><td><span class="pill account">{{ command.operate_type }}</span></td><td class="mono">{{ command.operate_id }}</td><td><pre class="json-box">{{ command.detail }}</pre></td><td>{% if command.success is none %}<span class="pill warn">等待结果</span>{% elif command.success %}<span class="pill">成功</span>{% else %}<span class="pill warn">失败</span>{% endif %}</td><td><div class="cell-sub mono">{{ command.result or '-' }}</div></td><td class="mono">{{ command.created_at }}</td><td class="mono">{{ command.finish_at or '-' }}</td><td class="mono">{{ command.delay or '-' }}</td></tr>
+            {% else %}
+            <tr><td colspan="10"><div class="empty-row"><i class="fas fa-terminal"></i><h3>暂无命令记录</h3><p>部署蜜点或从探针管理发布命令后会在这里出现。</p></div></td></tr>
+            {% endfor %}
+        </tbody></table></div>
+    </section>
+</div>
+{% endblock %}

@@ -1,0 +1,944 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <div id="header">
+        <h2>
+            <i class="fas fa-satellite-dish"></i>
+            Agent 管理
+        </h2>
+    </div>
+
+    <div id="mid">
+        <!-- 统计卡片 -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon online">
+                    <i class="fas fa-circle"></i>
+                </div>
+                <div class="stat-info">
+                    <h3>{{ agents_infos|selectattr('status', 'equalto', 'online')|list|length }}</h3>
+                    <p>在线 Agent</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon offline">
+                    <i class="fas fa-circle"></i>
+                </div>
+                <div class="stat-info">
+                    <h3>{{ agents_infos|selectattr('status', 'equalto', 'offline')|list|length }}</h3>
+                    <p>离线 Agent</p>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon total">
+                    <i class="fas fa-server"></i>
+                </div>
+                <div class="stat-info">
+                    <h3>{{ agents_infos|length }}</h3>
+                    <p>总数</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Agent 列表 -->
+        <div class="table-container">
+            <div class="table-header">
+                <h3>
+                    <i class="fas fa-list"></i>
+                    Agent 列表
+                </h3>
+                <div class="header-actions">
+                    <button type="button" class="btn btn-primary" onclick="openAddAgentModal()">
+                        <i class="fas fa-plus"></i>
+                        新建 Agent
+                    </button>
+                </div>
+            </div>
+            
+            <div class="table-wrapper">
+                <table class="modern-table" id="agentTable">
+                    <thead>
+                        <tr>
+                            <th>
+                                <i class="fas fa-hashtag"></i>
+                                Agent ID
+                            </th>
+                            <th>
+                                <i class="fas fa-tag"></i>
+                                Agent 名称
+                            </th>
+                            <th>
+                                <i class="fas fa-desktop"></i>
+                                操作系统
+                            </th>
+                            <th>
+                                <i class="fas fa-network-wired"></i>
+                                IP 地址
+                            </th>
+                            <th>
+                                <i class="fas fa-signal"></i>
+                                状态
+                            </th>
+                            <th>
+                                <i class="fas fa-key"></i>
+                                Token
+                            </th>
+                            <th>
+                                <i class="fas fa-cogs"></i>
+                                操作
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="agentTableBody">
+                        {% for agent in agents_infos %}
+                        <tr>
+                            <td>
+                                <span class="agent-id">{{ agent.client_id }}</span>
+                            </td>
+                            <td>
+                                <div class="agent-info">
+                                    <div class="agent-icon">
+                                        <i class="fas fa-satellite-dish"></i>
+                                    </div>
+                                    <span class="agent-name">{{ agent.client_name }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="os-info">
+                                    {% if agent.ope_sys == 'Windows' %}
+                                        <i class="fab fa-windows"></i>
+                                    {% elif agent.ope_sys == 'Linux' %}
+                                        <i class="fab fa-linux"></i>
+                                    {% else %}
+                                        <i class="fas fa-desktop"></i>
+                                    {% endif %}
+                                    <span>{{ agent.ope_sys }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="ip-info">
+                                    <i class="fas fa-globe"></i>
+                                    <span>{{ agent.ip or '未知' }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                {% if agent.status == 'online' %}
+                                    <span class="status-badge online">
+                                        <i class="fas fa-circle"></i>
+                                        在线
+                                    </span>
+                                {% else %}
+                                    <span class="status-badge offline">
+                                        <i class="fas fa-circle"></i>
+                                        离线
+                                    </span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="token-info">
+                                    <code class="token-display">{{ (agent.token or '')[:8] }}...</code>
+                                </div>
+                            </td>
+                            <td>
+                                {% if agent.status == 'online' %}
+                                    <button type="button" 
+                                            class="btn btn-sm btn-primary" 
+                                            onclick="openCommandModal('{{ agent.client_id }}', '{{ agent.client_name }}')"
+                                            title="发布命令">
+                                        <i class="fas fa-terminal"></i>
+                                        发布命令
+                                    </button>
+                                {% else %}
+                                    <button type="button" class="btn btn-sm btn-secondary" disabled title="离线探针不能发布命令">
+                                        <i class="fas fa-plug-circle-xmark"></i>
+                                        离线
+                                    </button>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="empty-state">
+                                <div class="empty-content">
+                                    <i class="fas fa-satellite-dish"></i>
+                                    <h4>暂无 Agent</h4>
+                                    <p>还没有任何 Agent 探针，请先创建一个。</p>
+                                    <button type="button" class="btn btn-primary" onclick="openAddAgentModal()">
+                                        <i class="fas fa-plus"></i>
+                                        创建 Agent
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加 Agent 模态框 -->
+    <div id="addAgentModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>
+                    <i class="fas fa-plus-circle"></i>
+                    添加 Agent
+                </h3>
+                <button class="close" onclick="closeAddAgentModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="addAgentForm">
+                    <div class="form-group">
+                        <label for="client_name">
+                            <i class="fas fa-tag"></i>
+                            Agent 名称:
+                        </label>
+                        <input type="text" id="client_name" name="client_name" class="form-input" placeholder="输入 Agent 名称" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ope_sys">
+                            <i class="fas fa-desktop"></i>
+                            操作系统:
+                        </label>
+                        <select id="ope_sys" name="ope_sys" class="form-select">
+                            <option value="Linux">Linux</option>
+                            <option value="Windows">Windows</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="ip">
+                            <i class="fas fa-network-wired"></i>
+                            IP 地址:
+                        </label>
+                        <input type="text" id="ip" name="ip" class="form-input" placeholder="输入 IP 地址">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeAddAgentModal()">
+                    <i class="fas fa-times"></i>
+                    取消
+                </button>
+                <button type="button" class="btn btn-primary" onclick="submitAddAgent()">
+                    <i class="fas fa-plus"></i>
+                    添加
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 发布命令模态框 -->
+    <div id="commandModal" class="modal">
+        <div class="modal-content modal-lg">
+            <div class="modal-header">
+                <h3>
+                    <i class="fas fa-terminal"></i>
+                    发布命令
+                </h3>
+                <button class="close" onclick="closeCommandModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="commandForm">
+                    <div class="form-group">
+                        <label for="command_agent_id">
+                            <i class="fas fa-satellite-dish"></i>
+                            Agent ID:
+                        </label>
+                        <input type="text" id="command_agent_id" name="command_agent_id" class="form-input" readonly>
+                    </div>
+            
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="honey_type">
+                                <i class="fas fa-shield-alt"></i>
+                                蜜点类型:
+                            </label>
+                            <select id="honey_type" name="honey_type" class="form-select" onchange="updateCommandType()">
+                                <option value="file">文件蜜点部署</option>
+                                <option value="account">账户蜜点配置</option>
+                                <option value="parasitic">寄生蜜点注入</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="command_type">
+                                <i class="fas fa-cog"></i>
+                                命令类型:
+                            </label>
+                            <select id="command_type" name="command_type" class="form-select" disabled>
+                                <option value="6">6 - deploy_file_honeypot</option>
+                                <option value="4">4 - add_account</option>
+                                <option value="7">7 - deploy_parasitic</option>
+                            </select>
+                        </div>
+                    </div>
+            
+                    <!-- 文件蜜点部署参数 -->
+                    <div id="fileFields" class="form-group">
+                        <label for="file_payload">
+                            <i class="fas fa-code"></i>
+                            文件蜜点 JSON 参数:
+                        </label>
+                        <textarea id="file_payload" name="file_payload" class="form-input" rows="7">{
+  "file_ids": [],
+  "deploy_paths": ["C:\\Users\\Public\\Documents"],
+  "monitor": true
+}</textarea>
+                        <small class="help-text">格式与“蜜点部署 -> 文件蜜点”一致：cmd_type=6，必须提供 file_ids/files 和 deploy_paths。</small>
+                    </div>
+            
+                    <!-- 账户类型相关字段 -->
+                    <div id="accountFields" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="account_type">
+                                    <i class="fas fa-user-shield"></i>
+                                    账户类型:
+                                </label>
+                                <select id="account_type" name="account_type" class="form-select">
+                                    <option value="xshell">Xshell 配置文件</option>
+                                    <option value="finalshell">FinalShell 配置文件</option>
+                                    <option value="openvpn">OpenVPN 配置文件</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="account_ip">
+                                    <i class="fas fa-globe"></i>
+                                    IP:
+                                </label>
+                                <input type="text" id="account_ip" name="account_ip" class="form-input" placeholder="输入关联蜜点IP" required>
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="account_port">
+                                    <i class="fas fa-plug"></i>
+                                    端口:
+                                </label>
+                                <input type="text" id="account_port" name="account_port" class="form-input" placeholder="输入端口" required>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="account_username">
+                                    <i class="fas fa-user"></i>
+                                    账号:
+                                </label>
+                                <input type="text" id="account_username" name="account_username" class="form-input" placeholder="输入账号" required>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="account_password">
+                                <i class="fas fa-lock"></i>
+                                密码:
+                            </label>
+                            <input type="password" id="account_password" name="account_password" class="form-input" placeholder="输入密码" required>
+                        </div>
+                    </div>
+            
+                    <!-- 寄生蜜点相关字段 -->
+                    <div id="jsField" style="display: none;">
+                        <div class="form-group">
+                            <label for="target_dir">
+                                <i class="fas fa-folder"></i>
+                                目标网站目录:
+                            </label>
+                            <input type="text" id="target_dir" name="target_dir" class="form-input" placeholder="例如 D:\研究生毕设\generated_runs\parasitic_js_test_site">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="js_bundle">
+                                    <i class="fas fa-code-branch"></i>
+                                    JS 脚本来源:
+                                </label>
+                                <select id="js_bundle" name="js_bundle" class="form-select">
+                                    <option value="builtin_root_js">内置五个 JS 一键注入</option>
+                                    <option value="">自定义 JS URL</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="inject_mode">
+                                    <i class="fas fa-code"></i>
+                                    注入模式:
+                                </label>
+                                <select id="inject_mode" name="inject_mode" class="form-select">
+                                    <option value="inline">inline</option>
+                                    <option value="script_tag">script_tag</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="js_url">
+                                <i class="fas fa-link"></i>
+                                自定义 JS URL:
+                            </label>
+                            <input type="text" id="js_url" name="js_url" class="form-input" placeholder="选择自定义 JS URL 时填写">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline" onclick="closeCommandModal()">
+                    <i class="fas fa-times"></i>
+                    取消
+                </button>
+                <button type="button" class="btn btn-primary" onclick="submitCommand()">
+                    <i class="fas fa-paper-plane"></i>
+                    发送命令
+                </button>
+            </div>
+        </div>
+    </div>
+
+<style>
+/* Agent 管理页面专用样式 */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.stat-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: var(--shadow-sm);
+    transition: var(--transition);
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.stat-icon {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    color: white;
+}
+
+.stat-icon.online {
+    background: var(--success-color);
+}
+
+.stat-icon.offline {
+    background: var(--error-color);
+}
+
+.stat-icon.total {
+    background: var(--primary-color);
+}
+
+.stat-info h3 {
+    font-size: 2.25rem;
+    font-weight: 900;
+    color: var(--text-primary);
+    margin: 0 0 0.375rem 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.05em;
+}
+
+.stat-info p {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin: 0;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* 表格容器样式 */
+.table-container {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+}
+
+.table-header {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.table-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    text-transform: uppercase;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    letter-spacing: -0.025em;
+    background: linear-gradient(135deg, var(--primary-color) 0%, #3b82f6 50%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.header-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+/* 表格包装器 - 支持滚动 */
+.table-wrapper {
+    max-height: calc(100vh - 450px);
+    overflow-y: auto;
+    overflow-x: auto;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+}
+
+/* 表格滚动条样式 */
+.table-wrapper::-webkit-scrollbar {
+    width: 8px;
+}
+
+.table-wrapper::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+}
+
+.table-wrapper::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    border-radius: 4px;
+    transition: var(--transition);
+}
+
+.table-wrapper::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, var(--primary-dark) 0%, var(--primary-color) 100%);
+}
+
+.modern-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-secondary);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.modern-table thead {
+    background: var(--bg-tertiary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.modern-table th {
+    padding: 1.25rem 1.75rem;
+    text-align: left;
+    border-bottom: 2px solid var(--border-color);
+    font-weight: 800;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.075em;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.modern-table th i {
+    margin-right: 0.625rem;
+    color: var(--primary-color);
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+
+.modern-table tbody tr {
+    transition: var(--transition);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.modern-table tbody tr:hover {
+    background: var(--bg-primary);
+    transform: translateX(2px);
+}
+
+.modern-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.modern-table td {
+    padding: 1.25rem 1.75rem;
+    vertical-align: middle;
+    font-size: 0.9375rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+/* Agent 信息样式 */
+.agent-info {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.agent-icon {
+    width: 2rem;
+    height: 2rem;
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-light) 100%);
+    border-radius: var(--radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-size: 0.875rem;
+}
+
+.agent-name {
+    font-weight: 700;
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.agent-id {
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    background: var(--bg-tertiary);
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+}
+
+.os-info, .ip-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+}
+
+.os-info i, .ip-info i {
+    color: var(--text-tertiary);
+    font-size: 0.875rem;
+}
+
+/* 状态徽章 */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 9999px;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.status-badge.online {
+    background: rgba(34, 197, 94, 0.1);
+    color: var(--success-color);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.status-badge.offline {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error-color);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.status-badge i {
+    font-size: 0.5rem;
+}
+
+/* Token 信息 */
+.token-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.token-display {
+    background: var(--bg-code);
+    padding: 0.375rem 0.75rem;
+    border-radius: var(--radius-md);
+    font-size: 0.8125rem;
+    color: var(--text-code);
+    font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+    border: 1px solid var(--border-color);
+    font-weight: 700;
+    letter-spacing: 0.025em;
+}
+
+/* 模态框样式 */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.65);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.modal-content {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-xl);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25), 0 0 0 1px rgba(255, 255, 255, 0.1);
+    max-width: 520px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    position: relative;
+    animation: modalSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    margin: auto;
+    transform: translate(0, 0);
+}
+
+.modal-lg .modal-content {
+    max-width: 680px;
+    width: 100%;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translate(0, -50px) scale(0.85);
+        filter: blur(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translate(0, 0) scale(1);
+        filter: blur(0);
+    }
+}
+
+.modal-header {
+    padding: 2rem 2.5rem 1.25rem;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: linear-gradient(135deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-transform: uppercase;
+    font-family: 'Inter', var(--font-family);
+    letter-spacing: -0.025em;
+    background: linear-gradient(135deg, var(--primary-color) 0%, #3b82f6 50%, #8b5cf6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.modal-body {
+    padding: 2rem 2.5rem;
+    font-size: 0.9375rem;
+}
+
+.modal-footer {
+    padding: 1.25rem 2.5rem 2rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    gap: 1rem;
+    justify-content: flex-end;
+    background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+    border-radius: 0 0 var(--radius-xl) var(--radius-xl);
+}
+
+.close {
+    background: none;
+    border: none;
+    font-size: 1.375rem;
+    cursor: pointer;
+    color: var(--text-secondary);
+    padding: 0.75rem;
+    border-radius: var(--radius-md);
+    transition: var(--transition);
+    width: 2.75rem;
+    height: 2.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.close:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--error-color);
+    transform: scale(1.1);
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+.form-group {
+    margin-bottom: 1.75rem;
+}
+
+.form-group label {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin-bottom: 0.75rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-size: 0.9375rem;
+    text-transform: uppercase;
+    font-family: 'Inter', var(--font-family);
+    letter-spacing: 0.025em;
+}
+
+.form-input, .form-select {
+    width: 100%;
+    padding: 0.875rem 1.25rem;
+    border: 2px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 0.9375rem;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    transition: var(--transition);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.01em;
+}
+
+.form-input:focus, .form-select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+    background: var(--bg-primary);
+}
+
+.btn-sm {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+/* 空状态 */
+.empty-state {
+    text-align: center;
+    padding: 3.5rem 2rem;
+}
+
+.empty-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.empty-content i {
+    font-size: 3.5rem;
+    color: var(--text-light);
+}
+
+.empty-content h4 {
+    font-size: 1.375rem;
+    color: var(--text-secondary);
+    margin: 0;
+    font-family: 'Inter', var(--font-family);
+    text-transform: uppercase;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+}
+
+.empty-content p {
+    color: var(--text-light);
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 500;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .table-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 1rem;
+    }
+    
+    .modern-table {
+        font-size: 0.8125rem;
+    }
+    
+    .modern-table th,
+    .modern-table td {
+        padding: 0.75rem 1rem;
+    }
+    
+    .table-wrapper {
+        max-height: calc(100vh - 350px);
+        overflow-x: auto;
+    }
+    
+    .modal {
+        padding: 10px;
+    }
+    
+    .modal-content {
+        max-height: 95vh;
+        width: 100%;
+    }
+    
+    .modal-lg .modal-content {
+        width: 100%;
+    }
+}
+</style>
+
+    <script src="{{ url_for('static', filename='js/agent_management.js') }}"></script>
+{% endblock %}

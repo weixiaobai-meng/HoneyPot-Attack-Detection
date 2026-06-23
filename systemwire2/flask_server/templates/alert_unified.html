@@ -1,0 +1,1266 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="soc-alert-page">
+    <section class="soc-hero">
+        <div class="hero-copy">
+            <div class="eyebrow"><span class="live-dot"></span> Unified Honey Alert Console</div>
+            <h1>统一告警中心</h1>
+            <p>统一展示文件蜜点、账户蜜点、寄生蜜点三类正式告警。当前页面只消费已经进入 systemwire2 数据库的标准化告警，不再混入 agent 本地文件监控等辅助记录，便于论文实验和现场演示。</p>
+        </div>
+        <div class="hero-pipeline">
+            <div class="pipeline-node file">
+                <i class="fas fa-file-shield"></i>
+                <span>文件蜜点</span>
+                <small>alert_server 拉取入库</small>
+            </div>
+            <div class="pipeline-arrow"></div>
+            <div class="pipeline-node account">
+                <i class="fas fa-key"></i>
+                <span>账户蜜点</span>
+                <small>ssh-vpn -> alert_server</small>
+            </div>
+            <div class="pipeline-arrow"></div>
+            <div class="pipeline-node parasitic">
+                <i class="fas fa-code"></i>
+                <span>寄生蜜点</span>
+                <small>JS -> js/bot -> systemwire2</small>
+            </div>
+        </div>
+    </section>
+
+    <section class="metric-grid">
+        <article class="metric-card total">
+            <span class="metric-kicker">Deduplicated</span>
+            <strong id="totalAlerts">0</strong>
+            <span>去重后的告警总数</span>
+        </article>
+        <article class="metric-card file">
+            <i class="fas fa-file-lines"></i>
+            <strong id="fileAlerts">0</strong>
+            <span>文件蜜点</span>
+            <small>文件名、Token、诱饵名称、触发来源</small>
+        </article>
+        <article class="metric-card account">
+            <i class="fas fa-user-lock"></i>
+            <strong id="accountAlerts">0</strong>
+            <span>账户蜜点</span>
+            <small>协议、账号口令、客户端、源/目标地址</small>
+        </article>
+        <article class="metric-card parasitic">
+            <i class="fas fa-fingerprint"></i>
+            <strong id="parasiticAlerts">0</strong>
+            <span>寄生蜜点</span>
+            <small>URL、指纹、真实 IP、UA、Bot 判定</small>
+        </article>
+    </section>
+
+    <section class="control-surface">
+        <div class="control-left">
+            <label>
+                <span>时间范围</span>
+                <select id="timeRange" class="soc-select" onchange="loadAlerts()">
+                    <option value="1">最近 1 小时</option>
+                    <option value="6">最近 6 小时</option>
+                    <option value="24" selected>最近 24 小时</option>
+                    <option value="72">最近 3 天</option>
+                    <option value="168">最近 7 天</option>
+                    <option value="720">最近 30 天</option>
+                    <option value="0">全部时间</option>
+                </select>
+            </label>
+            <label>
+                <span>告警类型</span>
+                <select id="alertType" class="soc-select" onchange="filterAlerts()">
+                    <option value="all">全部蜜点</option>
+                    <option value="file">文件蜜点</option>
+                    <option value="account">账户蜜点</option>
+                    <option value="parasitic">寄生蜜点</option>
+                </select>
+            </label>
+            <label class="search-box">
+                <span>关键字检索</span>
+                <input id="keywordFilter" class="soc-input" placeholder="IP / token / URL / 用户名 / 文件名" oninput="filterAlerts()">
+            </label>
+        </div>
+        <div class="control-actions">
+            <button class="soc-btn secondary" onclick="syncAllAlerts()"><i class="fas fa-satellite-dish"></i> 同步三类告警</button>
+            <button class="soc-btn secondary" onclick="pullFileAlerts()"><i class="fas fa-cloud-arrow-down"></i> 拉取文件告警</button>
+            <button class="soc-btn secondary" onclick="pullAccountAlerts()"><i class="fas fa-key"></i> 拉取账户告警</button>
+            <button class="soc-btn secondary" onclick="pullParasiticAlerts()"><i class="fas fa-code"></i> 拉取寄生告警</button>
+            <button class="soc-btn secondary" onclick="runLiveAnalysis()"><i class="fas fa-project-diagram"></i> 运行后续分析</button>
+            <button class="soc-btn ghost" onclick="loadAlerts()"><i class="fas fa-rotate"></i> 刷新</button>
+            <button class="soc-btn primary" onclick="exportAlerts()"><i class="fas fa-download"></i> 导出 JSON</button>
+        </div>
+    </section>
+
+    <section class="intel-strip">
+        <div>
+            <b>文件蜜点重点</b>
+            <span>确认哪一个诱饵文件被打开、命中的 Token、攻击源 IP 和 User-Agent，以及文件部署位置。</span>
+        </div>
+        <div>
+            <b>账户蜜点重点</b>
+            <span>确认 SSH/VPN 连接探测、密码认证尝试、使用的客户端版本、来源端口和目标端口。</span>
+        </div>
+        <div>
+            <b>寄生蜜点重点</b>
+            <span>确认访问 URL、浏览器指纹、WebRTC/真实 IP、Session、Bot 判定和代理线索。</span>
+        </div>
+    </section>
+
+    <section class="alert-workbench">
+        <div class="workbench-title">
+            <div>
+                <h2>统一告警列表</h2>
+                <p id="alertSummary">正在读取统一告警数据...</p>
+            </div>
+            <span class="dedupe-pill" id="dedupeInfo">已启用前端语义去重</span>
+        </div>
+
+        <div id="pullStatus" class="status-banner" style="display:none;"></div>
+        <div id="errorBox" class="status-banner error" style="display:none;"></div>
+
+        <div class="soc-table-wrap">
+            <table class="soc-table">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>类型 / 等级</th>
+                        <th>攻击来源</th>
+                        <th>诱饵 / 目标</th>
+                        <th>关键证据</th>
+                        <th>环境画像</th>
+                        <th>详情</th>
+                    </tr>
+                </thead>
+                <tbody id="alertList">
+                    <tr><td colspan="7"><div class="soc-loading"><span></span>正在加载...</div></td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pager-row">
+            <span id="pageInfo">共 0 条，第 1 / 1 页</span>
+            <div class="pager-buttons">
+                <button id="prevPage" class="soc-icon-btn" onclick="changePage(-1)" disabled><i class="fas fa-chevron-left"></i></button>
+                <button id="nextPage" class="soc-icon-btn" onclick="changePage(1)" disabled><i class="fas fa-chevron-right"></i></button>
+            </div>
+        </div>
+    </section>
+</div>
+
+<div id="detailModal" class="detail-modal" style="display:none;">
+    <div class="detail-backdrop" onclick="closeDetails()"></div>
+    <aside class="detail-panel" role="dialog" aria-modal="true">
+        <header class="detail-header">
+            <div>
+                <span id="detailType" class="detail-type">告警详情</span>
+                <h3 id="detailTitle">完整字段</h3>
+            </div>
+            <div class="detail-actions">
+                <button class="soc-btn ghost" onclick="copyCurrentAlert()"><i class="fas fa-copy"></i> 复制 JSON</button>
+                <button class="soc-icon-btn" onclick="closeDetails()"><i class="fas fa-xmark"></i></button>
+            </div>
+        </header>
+        <div id="detailBody" class="detail-body"></div>
+    </aside>
+</div>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+
+html,
+body,
+#container,
+#main-container,
+#main-content {
+    min-height: 0;
+}
+
+#main-container,
+#main-content {
+    min-width: 0;
+}
+
+#main-content {
+    background: #07100f;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+#main-content > .soc-alert-page {
+    flex: 0 0 auto;
+    min-height: 100%;
+}
+
+#mid { padding: 0; }
+.soc-alert-page {
+    --soc-line: rgba(148, 163, 184, 0.18);
+    --soc-line-strong: rgba(177, 197, 179, 0.28);
+    --soc-text: #eef7ee;
+    --soc-muted: #94a79f;
+    --soc-faint: #62736d;
+    --soc-green: #7ddc8b;
+    --soc-file: #6ba8ff;
+    --soc-account: #f5b45b;
+    --soc-parasitic: #5bd6d6;
+    height: auto;
+    min-height: 100%;
+    min-width: 0;
+    overflow: visible;
+    padding: 14px 16px 28px;
+    scrollbar-gutter: stable both-edges;
+    background:
+        radial-gradient(circle at 8% 4%, rgba(125, 220, 139, 0.16), transparent 32%),
+        radial-gradient(circle at 86% 8%, rgba(91, 214, 214, 0.14), transparent 35%),
+        linear-gradient(135deg, #06100f 0%, #0a1514 46%, #10140c 100%);
+    color: var(--soc-text);
+    font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+.soc-alert-page * { box-sizing: border-box; }
+.soc-hero { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(420px, .88fr); gap: 12px; margin-bottom: 10px; }
+.hero-copy, .hero-pipeline, .metric-card, .control-surface, .intel-strip, .alert-workbench, .detail-panel {
+    border: 1px solid var(--soc-line);
+    background: linear-gradient(145deg, rgba(13, 27, 26, .92), rgba(8, 18, 17, .82));
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .28);
+    backdrop-filter: blur(14px);
+}
+.hero-copy { position: relative; overflow: hidden; padding: 18px 22px; border-radius: 24px; }
+.hero-copy::after {
+    content: '';
+    position: absolute;
+    right: -70px;
+    top: -90px;
+    width: 260px;
+    height: 260px;
+    border-radius: 50%;
+    border: 1px solid rgba(125, 220, 139, .22);
+    background: radial-gradient(circle, rgba(125, 220, 139, .12), transparent 68%);
+}
+.eyebrow { display: inline-flex; align-items: center; gap: 10px; color: var(--soc-green); font: 700 12px/1 'Space Grotesk', sans-serif; letter-spacing: .16em; text-transform: uppercase; }
+.live-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--soc-green); box-shadow: 0 0 0 7px rgba(125, 220, 139, .12), 0 0 22px rgba(125, 220, 139, .7); }
+.hero-copy h1 { margin: 10px 0 8px; font: 800 clamp(28px, 3.4vw, 46px)/.96 'Space Grotesk', 'Noto Sans SC', sans-serif; letter-spacing: -.04em; }
+.hero-copy p { position: relative; z-index: 1; max-width: 820px; margin: 0; color: var(--soc-muted); font-size: 14px; line-height: 1.62; }
+.hero-pipeline { display: grid; grid-template-columns: 1fr 20px 1fr 20px 1fr; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 24px; }
+.pipeline-node { min-height: 86px; padding: 12px; border: 1px solid var(--soc-line); border-radius: 18px; background: rgba(255,255,255,.035); display: flex; flex-direction: column; justify-content: center; gap: 6px; }
+.pipeline-node i { font-size: 26px; }
+.pipeline-node span { font-size: 16px; font-weight: 900; }
+.pipeline-node small { color: var(--soc-muted); font-family: 'Space Grotesk', sans-serif; }
+.pipeline-node.file i { color: var(--soc-file); }
+.pipeline-node.account i { color: var(--soc-account); }
+.pipeline-node.parasitic i { color: var(--soc-parasitic); }
+.pipeline-arrow { height: 2px; background: linear-gradient(90deg, transparent, rgba(238,247,238,.6), transparent); position: relative; }
+.pipeline-arrow::after { content: ''; position: absolute; right: 0; top: -4px; border-left: 8px solid rgba(238,247,238,.68); border-top: 5px solid transparent; border-bottom: 5px solid transparent; }
+.metric-grid { display: grid; grid-template-columns: 1.1fr repeat(3, 1fr); gap: 10px; margin-bottom: 10px; }
+.metric-card { min-height: 88px; border-radius: 20px; padding: 13px 15px; position: relative; overflow: hidden; }
+.metric-card::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,.05), transparent 48%); pointer-events: none; }
+.metric-card i { position: absolute; right: 20px; top: 18px; font-size: 28px; opacity: .72; }
+.metric-card strong { display: block; margin-top: 10px; font: 800 30px/1 'Space Grotesk', sans-serif; letter-spacing: -.04em; }
+.metric-card span { display: block; margin-top: 6px; font-weight: 900; }
+.metric-card small { display: block; margin-top: 5px; color: var(--soc-muted); line-height: 1.35; font-size: 12px; }
+.metric-kicker { color: var(--soc-green); font: 700 12px/1 'Space Grotesk', sans-serif; letter-spacing: .12em; text-transform: uppercase; }
+.metric-card.total { border-color: rgba(125,220,139,.26); }
+.metric-card.file { border-color: rgba(107,168,255,.30); }
+.metric-card.file i, .metric-card.file strong { color: var(--soc-file); }
+.metric-card.account { border-color: rgba(245,180,91,.30); }
+.metric-card.account i, .metric-card.account strong { color: var(--soc-account); }
+.metric-card.parasitic { border-color: rgba(91,214,214,.30); }
+.metric-card.parasitic i, .metric-card.parasitic strong { color: var(--soc-parasitic); }
+.control-surface { border-radius: 22px; padding: 10px 12px; display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.control-left { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.control-left label { display: grid; gap: 7px; color: var(--soc-muted); font-size: 12px; font-weight: 800; letter-spacing: .03em; }
+.search-box { min-width: min(380px, 52vw); }
+.soc-select, .soc-input {
+    min-height: 42px;
+    border-radius: 14px;
+    border: 1px solid var(--soc-line-strong);
+    background: rgba(4,11,10,.88);
+    color: var(--soc-text);
+    padding: 0 14px;
+    font: 700 14px/1 'Noto Sans SC', sans-serif;
+    outline: none;
+}
+.soc-input { width: 100%; }
+.soc-select:focus, .soc-input:focus { border-color: rgba(125,220,139,.7); box-shadow: 0 0 0 4px rgba(125,220,139,.1); }
+.control-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }
+.soc-btn, .soc-icon-btn {
+    border: 1px solid var(--soc-line-strong);
+    border-radius: 14px;
+    min-height: 42px;
+    color: var(--soc-text);
+    background: rgba(255,255,255,.035);
+    cursor: pointer;
+    transition: transform .18s ease, border-color .18s ease, background .18s ease;
+    font: 800 13px/1 'Noto Sans SC', sans-serif;
+}
+.soc-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; }
+.soc-icon-btn { width: 42px; display: inline-grid; place-items: center; }
+.soc-btn:hover, .soc-icon-btn:hover { transform: translateY(-1px); border-color: rgba(125,220,139,.55); background: rgba(125,220,139,.08); }
+.soc-btn.primary { background: linear-gradient(135deg, rgba(125,220,139,.95), rgba(91,214,214,.85)); color: #031210; border-color: transparent; }
+.soc-btn.secondary { border-color: rgba(107,168,255,.34); color: #dbeafe; }
+.soc-btn.ghost { color: var(--soc-muted); }
+.soc-icon-btn:disabled { opacity: .38; cursor: not-allowed; transform: none; }
+.intel-strip { border-radius: 22px; padding: 8px 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.intel-strip div { padding: 9px 12px; border-radius: 16px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.055); }
+.intel-strip b { display: block; margin-bottom: 5px; color: var(--soc-text); }
+.intel-strip span { color: var(--soc-muted); line-height: 1.45; font-size: 12px; }
+.alert-workbench { border-radius: 28px; overflow: hidden; }
+.workbench-title { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; padding: 13px 18px; border-bottom: 1px solid var(--soc-line); }
+.workbench-title h2 { margin: 0 0 6px; font: 800 22px/1 'Space Grotesk', 'Noto Sans SC', sans-serif; }
+.workbench-title p { margin: 0; color: var(--soc-muted); font-size: 13px; }
+.dedupe-pill { white-space: nowrap; border-radius: 999px; border: 1px solid rgba(125,220,139,.28); color: var(--soc-green); background: rgba(125,220,139,.08); padding: 8px 12px; font: 800 12px/1 'Space Grotesk', sans-serif; }
+.status-banner { margin: 14px 22px 0; border-radius: 16px; padding: 12px 14px; border: 1px solid rgba(91,214,214,.28); background: rgba(91,214,214,.08); color: #c7ffff; line-height: 1.6; }
+.status-banner.ok { border-color: rgba(125,220,139,.32); background: rgba(125,220,139,.08); color: #d9ffe0; }
+.status-banner.error { border-color: rgba(255,107,95,.34); background: rgba(255,107,95,.08); color: #ffd7d2; }
+.soc-table-wrap { overflow-x: auto; overflow-y: visible; max-height: none; min-height: clamp(320px, 56vh, 640px); max-width: 100%; min-width: 0; padding-bottom: 18px; scrollbar-gutter: stable; }
+.soc-table { width: 100%; min-width: 1320px; border-collapse: collapse; }
+.soc-table thead { position: sticky; top: 0; z-index: 2; background: rgba(8,18,17,.98); }
+.soc-table th { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--soc-line); color: #b7c9c0; font: 900 12px/1 'Noto Sans SC', sans-serif; letter-spacing: .08em; }
+.soc-table td { padding: 14px; border-bottom: 1px solid rgba(148,163,184,.11); vertical-align: top; line-height: 1.55; }
+.soc-table tbody tr { background: rgba(255,255,255,.008); }
+.soc-table tbody tr:hover { background: rgba(125,220,139,.045); }
+.time-cell { min-width: 154px; font: 700 12px/1.5 'JetBrains Mono', 'Cascadia Code', monospace; color: #cfe5dc; }
+.type-stack { display: grid; gap: 8px; }
+.type-badge, .severity-badge, .tag {
+    display: inline-flex;
+    width: fit-content;
+    align-items: center;
+    gap: 7px;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 900;
+    border: 1px solid transparent;
+}
+.type-badge.file { color: #dbeafe; background: rgba(107,168,255,.12); border-color: rgba(107,168,255,.25); }
+.type-badge.account { color: #fff2d7; background: rgba(245,180,91,.12); border-color: rgba(245,180,91,.27); }
+.type-badge.parasitic { color: #d5ffff; background: rgba(91,214,214,.12); border-color: rgba(91,214,214,.27); }
+.severity-badge { color: #07100f; background: #e8f5e9; font-family: 'Space Grotesk', sans-serif; }
+.severity-badge.high { background: #ffb4a9; }
+.severity-badge.medium { background: #ffd89a; }
+.severity-badge.low { background: #bdebd0; }
+.cell-block { display: grid; gap: 6px; }
+.cell-title { font-weight: 900; color: var(--soc-text); word-break: break-word; }
+.cell-sub { color: var(--soc-muted); font-size: 12px; }
+.mono { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; }
+.evidence-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.08); color: #dfe9e3; max-width: 100%; }
+.tag.file { border-color: rgba(107,168,255,.20); }
+.tag.account { border-color: rgba(245,180,91,.22); }
+.tag.parasitic { border-color: rgba(91,214,214,.22); }
+.tag.strong { border-color: rgba(125,220,139,.24); color: var(--soc-green); }
+.pager-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px 18px; border-top: 1px solid var(--soc-line); color: var(--soc-muted); }
+.pager-buttons { display: flex; gap: 8px; }
+.empty-state, .soc-loading { display: grid; place-items: center; text-align: center; min-height: 220px; color: var(--soc-muted); gap: 10px; padding: 36px 18px; }
+.soc-loading span { width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(125,220,139,.18); border-top-color: var(--soc-green); animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.detail-modal { position: fixed; inset: 0; z-index: 999; }
+.detail-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); backdrop-filter: blur(4px); }
+.detail-panel {
+    position: absolute;
+    right: 16px;
+    top: 16px;
+    bottom: 16px;
+    width: min(920px, calc(100vw - 32px));
+    border-radius: 28px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: calc(100dvh - 32px);
+}
+.detail-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; padding: 18px 20px; border-bottom: 1px solid var(--soc-line); }
+.detail-type { color: var(--soc-green); font: 800 12px/1 'Space Grotesk', sans-serif; letter-spacing: .14em; text-transform: uppercase; }
+.detail-header h3 { margin: 8px 0 0; font: 800 26px/1 'Space Grotesk', 'Noto Sans SC', sans-serif; }
+.detail-actions { display: flex; gap: 10px; }
+.detail-body { overflow: auto; padding: 18px 20px 24px; display: grid; gap: 16px; flex: 1 1 auto; min-height: 0; scrollbar-gutter: stable both-edges; overscroll-behavior: contain; }
+.detail-section { border: 1px solid rgba(255,255,255,.08); border-radius: 20px; background: rgba(255,255,255,.03); overflow: hidden; }
+.detail-section h4 { margin: 0; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 16px; }
+.field-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.field-name, .field-value { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.05); }
+.field-name { color: var(--soc-muted); font-weight: 800; min-width: 0; }
+.field-value { word-break: break-word; min-width: 0; }
+.json-box { margin: 0; display: block; width: 100%; max-width: none; max-height: min(52vh, 560px); overflow: auto; padding: 16px; white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere; scrollbar-gutter: stable both-edges; overscroll-behavior: contain; resize: vertical; font: 13px/1.6 'JetBrains Mono', 'Cascadia Code', monospace; color: #d8f3e4; }
+.empty { color: var(--soc-faint); font-style: italic; }
+.soc-drawer-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.soc-info-card { border: 1px solid rgba(255,255,255,.08); border-radius: 20px; background: rgba(255,255,255,.03); overflow: hidden; min-width: 0; }
+.soc-info-card.full-span { grid-column: 1 / -1; }
+.soc-info-card h4 { margin: 0; padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 16px; color: var(--soc-text); }
+.soc-info-card.full-span .json-box { margin: 14px; }
+.soc-field-list { display: grid; gap: 10px; padding: 12px 14px; }
+.soc-field-name { color: var(--soc-muted); font-size: 11px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.soc-field-value { margin-top: 5px; min-height: 34px; padding: 9px 10px; border: 1px solid rgba(148,163,184,.12); border-radius: 12px; background: rgba(0,0,0,.22); color: var(--soc-text); font-size: 13px; line-height: 1.5; word-break: break-word; overflow-wrap: anywhere; white-space: pre-wrap; }
+.soc-field-value.large { max-height: min(44vh, 280px); overflow: auto; scrollbar-gutter: stable both-edges; }
+@media (max-width: 1180px) {
+    .soc-hero { grid-template-columns: 1fr; }
+    .hero-pipeline { grid-template-columns: 1fr; }
+    .pipeline-arrow { display: none; }
+    .metric-grid { grid-template-columns: 1fr; }
+    .control-left, .control-actions { width: 100%; }
+    .control-left label, .search-box, .soc-btn { width: 100%; }
+    .workbench-title, .pager-row, .detail-header { flex-direction: column; align-items: stretch; }
+    .field-grid { grid-template-columns: 1fr; }
+    .detail-panel { left: 16px; width: auto; }
+    .soc-drawer-grid { grid-template-columns: 1fr; }
+    .intel-strip { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+    .soc-alert-page { padding: 12px 12px 24px; }
+    .detail-panel { top: 12px; right: 12px; bottom: 12px; left: 12px; width: auto; max-height: calc(100dvh - 24px); }
+    .detail-body { padding: 16px 14px 20px; }
+}
+</style>
+
+<script>
+const TYPE_META = {
+    file: { name: '文件蜜点', icon: 'fa-file-lines', severity: 'high', severityText: 'High' },
+    account: { name: '账户蜜点', icon: 'fa-user-lock', severity: 'high', severityText: 'High' },
+    parasitic: { name: '寄生蜜点', icon: 'fa-fingerprint', severity: 'medium', severityText: 'Medium' }
+};
+
+const PAGE_SIZE = 18;
+let allAlerts = [];
+let visibleAlerts = [];
+let currentPage = 1;
+let currentAlertForCopy = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadAlerts();
+});
+
+async function loadAlerts() {
+    const hours = document.getElementById('timeRange').value;
+    const tbody = document.getElementById('alertList');
+    hideError();
+    tbody.innerHTML = '<tr><td colspan="7"><div class="soc-loading"><span></span>正在加载...</div></td></tr>';
+    setSummary('正在从 /api/alerts/unified 读取统一告警数据...');
+
+    try {
+        const response = await fetch(`/api/alerts/unified?hours=${encodeURIComponent(hours)}`);
+        const result = await response.json();
+        if (!response.ok || result.code !== 0) {
+            throw new Error(result.message || `HTTP ${response.status}`);
+        }
+
+        const sourceAlerts = Array.isArray(result.data && result.data.alerts) ? result.data.alerts : [];
+        const deduped = dedupeAlerts(sourceAlerts);
+        allAlerts = deduped.items.sort((a, b) => {
+            const ta = new Date(a.timestamp || 0).getTime();
+            const tb = new Date(b.timestamp || 0).getTime();
+            return tb - ta;
+        });
+        currentPage = 1;
+        updateStats(sourceAlerts.length, deduped.removed);
+        renderAlerts();
+    } catch (error) {
+        allAlerts = [];
+        updateStats(0, 0);
+        tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><i class="fas fa-triangle-exclamation"></i><h4>统一告警加载失败</h4><p>${escapeHtml(error.message)}</p></div></td></tr>`;
+        showError(`统一告警接口返回异常：${error.message}`);
+        setSummary('加载失败，请确认 systemwire2 已正常启动，并且数据库初始化完成。');
+    }
+}
+
+function dedupeAlerts(alerts) {
+    const map = new Map();
+    let removed = 0;
+
+    alerts.forEach((item) => {
+        const alert = JSON.parse(JSON.stringify(item || {}));
+        const key = semanticKey(alert);
+        const exists = map.get(key);
+        if (!exists) {
+            alert._duplicateCount = 1;
+            alert._mergedAlertIds = [alert.alert_id];
+            alert._mergedAlertTimes = [alert.timestamp];
+            map.set(key, alert);
+            return;
+        }
+
+        exists._duplicateCount += 1;
+        exists._mergedAlertIds.push(alert.alert_id);
+        exists._mergedAlertTimes.push(alert.timestamp);
+        removed += 1;
+
+        if ((alert.timestamp || '') > (exists.timestamp || '')) {
+            exists.timestamp = alert.timestamp;
+        }
+
+        if (exists.alert_type === 'file') {
+            const currentCount = Number(exists.details && exists.details.request_count || 1);
+            const nextCount = Number(alert.details && alert.details.request_count || 1);
+            exists.details.request_count = currentCount + nextCount;
+
+            const rawA = Array.isArray(exists.details.raw_alert_ids) ? exists.details.raw_alert_ids : [];
+            const rawB = Array.isArray(alert.details && alert.details.raw_alert_ids) ? alert.details.raw_alert_ids : [];
+            exists.details.raw_alert_ids = Array.from(new Set(rawA.concat(rawB)));
+
+            const firstA = exists.details.first_trigger_time || exists.timestamp;
+            const firstB = alert.details && alert.details.first_trigger_time || alert.timestamp;
+            const lastA = exists.details.last_trigger_time || exists.timestamp;
+            const lastB = alert.details && alert.details.last_trigger_time || alert.timestamp;
+            exists.details.first_trigger_time = [firstA, firstB].filter(Boolean).sort()[0] || exists.details.first_trigger_time;
+            exists.details.last_trigger_time = [lastA, lastB].filter(Boolean).sort().slice(-1)[0] || exists.details.last_trigger_time;
+        }
+    });
+
+    return { items: Array.from(map.values()), removed };
+}
+
+function semanticKey(alert) {
+    const details = alert.details || {};
+    const type = alert.alert_type || 'unknown';
+    if (type === 'file') {
+        return [
+            'file',
+            normalizeTimeBucket(alert.timestamp, 60),
+            alert.attacker_ip || '',
+            details.token_raw || details.token_url || alert.target_path || '',
+            details.message || ''
+        ].join('|');
+    }
+    if (type === 'account') {
+        return [
+            'account',
+            normalizeTimeBucket(alert.timestamp, 10),
+            details.protocol || '',
+            details.src_endpoint || alert.attacker_ip || '',
+            details.dst_endpoint || alert.target_path || '',
+            details.username || '',
+            details.password || '',
+            details.client_version || '',
+            details.message || ''
+        ].join('|');
+    }
+    if (type === 'parasitic') {
+        return [
+            'parasitic',
+            normalizeTimeBucket(alert.timestamp, 30),
+            alert.attacker_ip || '',
+            alert.target_path || '',
+            details.fingerprint || '',
+            details.session_token || ''
+        ].join('|');
+    }
+    return [type, normalizeTime(alert.timestamp), stableString(alert)].join('|');
+}
+
+function updateStats(rawCount, removed) {
+    document.getElementById('totalAlerts').textContent = allAlerts.length;
+    document.getElementById('fileAlerts').textContent = allAlerts.filter(item => item.alert_type === 'file').length;
+    document.getElementById('accountAlerts').textContent = allAlerts.filter(item => item.alert_type === 'account').length;
+    document.getElementById('parasiticAlerts').textContent = allAlerts.filter(item => item.alert_type === 'parasitic').length;
+
+    const mergedCount = allAlerts.reduce((sum, item) => sum + Math.max(Number(item._duplicateCount || 1) - 1, 0), 0) + (removed || 0);
+    document.getElementById('dedupeInfo').textContent = `已合并 ${mergedCount} 条重复告警`;
+    setSummary(`接口返回 ${rawCount || 0} 条告警，语义去重后保留 ${allAlerts.length} 条。`);
+}
+
+function filterAlerts() {
+    currentPage = 1;
+    renderAlerts();
+}
+
+function renderAlerts() {
+    const typeFilter = document.getElementById('alertType').value;
+    const keyword = document.getElementById('keywordFilter').value.trim().toLowerCase();
+
+    visibleAlerts = allAlerts.filter((alert) => {
+        if (typeFilter !== 'all' && alert.alert_type !== typeFilter) {
+            return false;
+        }
+        if (!keyword) {
+            return true;
+        }
+        return stableString(alert).toLowerCase().includes(keyword);
+    });
+
+    const totalPages = Math.max(Math.ceil(visibleAlerts.length / PAGE_SIZE), 1);
+    currentPage = Math.min(Math.max(currentPage, 1), totalPages);
+
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const pageItems = visibleAlerts.slice(start, start + PAGE_SIZE);
+    const tbody = document.getElementById('alertList');
+
+    if (pageItems.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="fas fa-bell-slash"></i><h4>暂无告警数据</h4><p>可以切换到“全部时间”，或先拉取三类正式告警后再刷新。</p></div></td></tr>';
+    } else {
+        tbody.innerHTML = pageItems.map((alert, index) => renderAlertRow(alert, start + index)).join('');
+    }
+
+    document.getElementById('pageInfo').textContent = `共 ${visibleAlerts.length} 条，第 ${currentPage} / ${totalPages} 页`;
+    document.getElementById('prevPage').disabled = currentPage <= 1;
+    document.getElementById('nextPage').disabled = currentPage >= totalPages;
+}
+
+function renderAlertRow(alert, visibleIndex) {
+    const meta = TYPE_META[alert.alert_type] || { name: alert.alert_type || '未知', icon: 'fa-circle-question', severity: 'low', severityText: 'Info' };
+    const view = buildAlertView(alert);
+    const duplicateBadge = Number(alert._duplicateCount || 1) > 1 ? `<span class="tag strong">合并 ${alert._duplicateCount} 条</span>` : '';
+
+    return `
+        <tr>
+            <td class="time-cell">${escapeHtml(formatTime(alert.timestamp))}</td>
+            <td>
+                <div class="type-stack">
+                    <span class="type-badge ${escapeHtml(alert.alert_type || '')}"><i class="fas ${meta.icon}"></i>${meta.name}</span>
+                    <span class="severity-badge ${meta.severity}">${meta.severityText}</span>
+                    ${duplicateBadge}
+                </div>
+            </td>
+            <td>${view.source}</td>
+            <td>${view.subject}</td>
+            <td>${view.evidence}</td>
+            <td>${view.environment}</td>
+            <td><button class="soc-icon-btn" title="查看完整字段" onclick="showDetails(${visibleIndex})"><i class="fas fa-table-list"></i></button></td>
+        </tr>
+    `;
+}
+
+function buildAlertView(alert) {
+    const details = alert.details || {};
+    if (alert.alert_type === 'file') {
+        const spanText = joinParts([
+            details.honeypoint_name || '',
+            details.deployment_summary || ''
+        ]);
+        return {
+            source: block(alert.attacker_ip || '-', details.report_agent || '-'),
+            subject: block(details.filename || details.filename_tag || '-', spanText || details.token_raw || '-'),
+            evidence: tags([
+                ['token', details.token_raw || details.token_url || alert.target_path || '-', 'file'],
+                ['message', details.message || '-', 'file'],
+                ['requests', details.request_count || 1, 'file']
+            ]),
+            environment: block(details.source || 'alert_server', details.token_url || alert.target_path || '-')
+        };
+    }
+
+    if (alert.alert_type === 'account') {
+        return {
+            source: block(details.src_endpoint || alert.attacker_ip || '-', `目标 ${details.dst_endpoint || alert.target_path || '-'}`),
+            subject: block(details.username || '-', `password: ${details.password || '-'}`),
+            evidence: tags([
+                ['attack', details.attack_type || alert.action || '-', 'account'],
+                ['protocol', details.protocol || '-', 'account'],
+                ['message', details.message || '-', 'account']
+            ]),
+            environment: block(details.client_family || '-', details.client_version || '-')
+        };
+    }
+
+    if (alert.alert_type === 'parasitic') {
+        const realIps = Array.isArray(details.real_ips) && details.real_ips.length
+            ? details.real_ips.join(', ')
+            : (details.dst_ip || '-');
+        const proxyText = details.possible_proxy ? '存在代理线索' : '未见代理头';
+        return {
+            source: block(alert.attacker_ip || '-', `真实/WebRTC IP: ${realIps}`),
+            subject: block(alert.target_path || '-', `fingerprint: ${details.fingerprint || '-'}`),
+            evidence: tags([
+                ['session', details.session_token || '-', 'parasitic'],
+                ['bot', Number(details.bot_score || 0), 'parasitic'],
+                ['proxy', proxyText, 'parasitic'],
+                ['reason', details.info && details.info.reason || '-', 'parasitic']
+            ]),
+            environment: block(details.browser || '-', joinParts([`OS: ${details.os || '-'}`, `UA: ${details.user_agent || '-'}`]))
+        };
+    }
+
+    return {
+        source: block(alert.attacker_ip || '-', '-'),
+        subject: block(alert.target_path || '-', alert.action || '-'),
+        evidence: tags([['type', alert.alert_type || '-', '']]),
+        environment: block('未知类型', '-')
+    };
+}
+
+function showDetails(index) {
+    const alert = visibleAlerts[index];
+    if (!alert) {
+        return;
+    }
+
+    currentAlertForCopy = alert;
+    const meta = TYPE_META[alert.alert_type] || { name: alert.alert_type || '未知' };
+    document.getElementById('detailType').textContent = meta.name;
+    document.getElementById('detailTitle').textContent = alert.alert_type === 'parasitic'
+        ? `${alert.alert_id || '告警'} 指纹情报`
+        : `${alert.alert_id || '告警'} 完整字段`;
+    document.getElementById('detailBody').innerHTML = buildDetailBody(alert);
+    document.getElementById('detailModal').style.display = 'block';
+}
+
+function closeDetails() {
+    document.getElementById('detailModal').style.display = 'none';
+}
+
+function buildDetailBody(alert) {
+    const details = alert.details || {};
+    const mergedIds = Array.isArray(alert._mergedAlertIds) ? alert._mergedAlertIds.join(', ') : '-';
+    const mergedTimes = Array.isArray(alert._mergedAlertTimes) ? alert._mergedAlertTimes.map(formatTime).join('\n') : '-';
+
+    if (alert.alert_type === 'parasitic') {
+        return buildParasiticDetailBody(alert, mergedIds, mergedTimes);
+    }
+
+    const commonRows = [
+        ['alert_id', alert.alert_id],
+        ['alert_type', alert.alert_type],
+        ['timestamp', formatTime(alert.timestamp)],
+        ['attacker_ip', alert.attacker_ip],
+        ['target_path', alert.target_path],
+        ['action', alert.action],
+        ['duplicate_count', alert._duplicateCount || 1],
+        ['merged_alert_ids', mergedIds],
+        ['merged_alert_times', mergedTimes]
+    ];
+
+    let extraRows = [];
+    if (alert.alert_type === 'file') {
+        extraRows = [
+            ['filename', details.filename],
+            ['filename_tag', details.filename_tag],
+            ['honeypoint_name', details.honeypoint_name],
+            ['message', details.message],
+            ['token_raw', details.token_raw],
+            ['token_url', details.token_url],
+            ['report_agent', details.report_agent],
+            ['request_count', details.request_count],
+            ['raw_alert_ids', JSON.stringify(details.raw_alert_ids || [], null, 2)],
+            ['first_trigger_time', details.first_trigger_time ? formatTime(details.first_trigger_time) : '-'],
+            ['last_trigger_time', details.last_trigger_time ? formatTime(details.last_trigger_time) : '-'],
+            ['deployment_summary', details.deployment_summary]
+        ];
+    } else if (alert.alert_type === 'account') {
+        extraRows = [
+            ['attack_type', details.attack_type],
+            ['protocol', details.protocol],
+            ['src_endpoint', details.src_endpoint],
+            ['dst_endpoint', details.dst_endpoint],
+            ['username', details.username],
+            ['password', details.password],
+            ['client_family', details.client_family],
+            ['client_version', details.client_version],
+            ['message', details.message],
+            ['raw_event', JSON.stringify(details.raw_event || {}, null, 2)]
+        ];
+    } else if (alert.alert_type === 'parasitic') {
+        extraRows = [
+            ['fingerprint', details.fingerprint],
+            ['session_token', details.session_token],
+            ['real_ips', JSON.stringify(details.real_ips || [], null, 2)],
+            ['browser', details.browser],
+            ['os', details.os],
+            ['browser_platform', details.browser_platform],
+            ['user_agent', details.user_agent],
+            ['bot_score', details.bot_score],
+            ['possible_proxy', details.possible_proxy ? 'true' : 'false'],
+            ['proxy_note', details.proxy_note],
+            ['proxy_headers', JSON.stringify(details.proxy_headers || {}, null, 2)],
+            ['info', JSON.stringify(details.info || {}, null, 2)]
+        ];
+    }
+
+    return `
+        ${renderSection('通用字段', commonRows)}
+        ${renderSection('重点字段', extraRows)}
+        ${renderSection('原始 JSON', [['payload', JSON.stringify(alert, null, 2)]], true)}
+    `;
+}
+
+function buildParasiticDetailBody(alert, mergedIds, mergedTimes) {
+    const details = alert.details || {};
+    const info = isPlainObject(details.info) ? details.info : {};
+    const proxyHeaders = isPlainObject(details.proxy_headers) ? details.proxy_headers : {};
+    const realIps = extractRealIps(details);
+    const botScore = Number(details.bot_score ?? info.bot_score ?? info.score ?? 0) || 0;
+    const reasons = normalizeReasonList(info.bot_reasons || info.reasons || (info.reason ? [info.reason] : []));
+    const isBot = Boolean(info.is_bot || info.IsBot || botScore > 50);
+    const reasonText = extractParasiticReason(details);
+    const platform = details.browser_platform || info.platform || info.navigatorPlatform || '-';
+    const userAgent = details.user_agent || info.userAgent || info.ua || '-';
+    const xff = details.x_forwarded_for || proxyHeaders.x_forwarded_for || '-';
+    const forwarded = details.forwarded || proxyHeaders.forwarded || '-';
+    const via = details.via || proxyHeaders.via || '-';
+    const proxyNote = details.proxy_note || info.proxy_note || '若代理未写入 X-Forwarded-For/Via/Forwarded，服务端只能看到代理出口 IP。';
+
+    return `
+        <div class="soc-drawer-grid">
+            ${renderSocInfoCard('BOT 检测分析', [
+                ['风险评分', String(botScore)],
+                ['判定结果', isBot ? '异常 Bot' : '正常 Human'],
+                ['判定依据', reasons.length ? reasons.join('\n') : (reasonText || '未检测到异常特征')]
+            ])}
+            ${renderSocInfoCard('基本信息', [
+                ['时间', formatTime(alert.timestamp)],
+                ['来源 IP', alert.attacker_ip || '-'],
+                ['真实/WebRTC IP', realIps.length ? realIps.join(', ') : (details.dst_ip || '-')],
+                ['目标 URL', alert.target_path || info.path || '-'],
+                ['Session', details.session_token || '-']
+            ])}
+            ${renderSocInfoCard('代理链路', [
+                ['是否观察到代理头', details.possible_proxy ? '是' : '否'],
+                ['X-Forwarded-For', xff],
+                ['Forwarded', forwarded],
+                ['Via', via],
+                ['说明', proxyNote]
+            ])}
+            ${renderSocInfoCard('浏览器与系统', [
+                ['浏览器', details.browser || '-'],
+                ['操作系统', details.os || '-'],
+                ['浏览器平台 navigator.platform', platform],
+                ['User Agent', userAgent]
+            ])}
+            ${renderSocInfoCard('指纹字段', [
+                ['fingerprint', details.fingerprint || '-'],
+                ['reason', reasonText || '-'],
+                ['language', info.language || '-'],
+                ['navigator.platform', info.platform || info.navigatorPlatform || '-'],
+                ['screen', info.screen || info.screenPrint || '-'],
+                ['timezone', info.timeZone || info.timezone || '-']
+            ])}
+            ${renderSocInfoCard('同步与合并', [
+                ['告警编号', alert.alert_id || '-'],
+                ['动作', alert.action || '-'],
+                ['合并数量', String(alert._duplicateCount || 1)],
+                ['合并告警 ID', mergedIds],
+                ['合并时间点', mergedTimes]
+            ])}
+            ${renderRawSocInfoCard('原始 JSON', JSON.stringify(alert, null, 2))}
+        </div>
+    `;
+}
+
+function renderSocInfoCard(title, rows) {
+    return `
+        <section class="soc-info-card">
+            <h4>${escapeHtml(title)}</h4>
+            <div class="soc-field-list">
+                ${rows.map(([name, value]) => renderSocField(name, value)).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderRawSocInfoCard(title, value) {
+    return `
+        <section class="soc-info-card full-span">
+            <h4>${escapeHtml(title)}</h4>
+            <pre class="json-box">${escapeHtml(String(value || ''))}</pre>
+        </section>
+    `;
+}
+
+function renderSocField(name, value) {
+    const text = formatValue(value);
+    const large = text.length > 100 || text.includes('\n') ? ' large' : '';
+    return `
+        <div>
+            <div class="soc-field-name">${escapeHtml(name)}</div>
+            <div class="soc-field-value${large}">${escapeHtml(text)}</div>
+        </div>
+    `;
+}
+
+function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeReasonList(value) {
+    if (!value) {
+        return [];
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item || '').trim()).filter(Boolean);
+    }
+    const text = String(value).trim();
+    return text ? [text] : [];
+}
+
+function extractRealIps(details) {
+    if (Array.isArray(details.real_ips) && details.real_ips.length) {
+        return details.real_ips.filter(Boolean).map((item) => String(item));
+    }
+    if (details.dst_ip) {
+        return [String(details.dst_ip)];
+    }
+    return [];
+}
+
+function extractParasiticReason(details) {
+    const info = isPlainObject(details.info) ? details.info : {};
+    return info.reason || details.reason || info.source || details.test_info || '';
+}
+
+function renderSection(title, rows, preformatted = false) {
+    const items = rows.filter((row) => row[1] !== undefined && row[1] !== null && row[1] !== '');
+    if (!items.length) {
+        return '';
+    }
+
+    if (preformatted) {
+        return `
+            <section class="detail-section">
+                <h4>${escapeHtml(title)}</h4>
+                <pre class="json-box">${escapeHtml(String(items[0][1]))}</pre>
+            </section>
+        `;
+    }
+
+    return `
+        <section class="detail-section">
+            <h4>${escapeHtml(title)}</h4>
+            <div class="field-grid">
+                ${items.map(([key, value]) => `
+                    <div class="field-name">${escapeHtml(fieldLabel(key))}</div>
+                    <div class="field-value">${renderFieldValue(value)}</div>
+                `).join('')}
+            </div>
+        </section>
+    `;
+}
+
+function renderFieldValue(value) {
+    if (value === undefined || value === null || value === '') {
+        return '<span class="empty">未采集</span>';
+    }
+    const text = String(value);
+    if (text.includes('\n') || text.length > 140) {
+        return `<pre class="json-box">${escapeHtml(text)}</pre>`;
+    }
+    return escapeHtml(text);
+}
+
+function fieldLabel(key) {
+    const labels = {
+        alert_id: '告警编号',
+        alert_type: '告警类型',
+        timestamp: '触发时间',
+        attacker_ip: '攻击源 IP',
+        target_path: '目标路径/URL',
+        action: '动作',
+        duplicate_count: '合并数量',
+        merged_alert_ids: '合并的告警 ID',
+        merged_alert_times: '合并的时间点',
+        filename: '文件名',
+        filename_tag: '带标签文件名',
+        honeypoint_name: '蜜点名称',
+        message: '告警消息',
+        token_raw: '原始 Token',
+        token_url: '触发 URL',
+        report_agent: '触发 User-Agent',
+        request_count: '请求次数',
+        raw_alert_ids: '原始记录 ID',
+        first_trigger_time: '首次触发时间',
+        last_trigger_time: '最后触发时间',
+        deployment_summary: '部署摘要',
+        attack_type: '攻击方式',
+        protocol: '协议',
+        src_endpoint: '来源地址',
+        dst_endpoint: '目标地址',
+        username: '账号',
+        password: '密码',
+        client_family: '客户端归类',
+        client_version: '客户端版本',
+        raw_event: '原始事件',
+        fingerprint: '指纹',
+        session_token: 'Session Token',
+        real_ips: '真实/WebRTC IP',
+        browser: '浏览器',
+        os: '操作系统',
+        browser_platform: '平台',
+        user_agent: 'User-Agent',
+        bot_score: 'Bot 分数',
+        possible_proxy: '疑似代理',
+        proxy_note: '代理说明',
+        proxy_headers: '代理头',
+        info: '寄生详细信息',
+        payload: '原始 JSON'
+    };
+    return labels[key] || key;
+}
+
+async function copyCurrentAlert() {
+    if (!currentAlertForCopy) {
+        return;
+    }
+
+    try {
+        await navigator.clipboard.writeText(JSON.stringify(currentAlertForCopy, null, 2));
+        showStatus('当前告警 JSON 已复制。', 'ok');
+    } catch (error) {
+        showStatus(`复制失败：${error.message}`, 'error');
+    }
+}
+
+async function pullFileAlerts() {
+    await callPull('/file/alert', '文件');
+}
+
+async function pullAccountAlerts() {
+    await callPull('/account/alert/pull', '账户');
+}
+
+async function pullParasiticAlerts() {
+    await callPull('/parasitism/alert?days=30', '寄生');
+}
+
+function extractPullCount(result) {
+    const pulled = result && result.data && typeof result.data.pulled !== 'undefined'
+        ? Number(result.data.pulled)
+        : 0;
+    return Number.isFinite(pulled) ? pulled : 0;
+}
+
+function buildCurrentWindowText() {
+    const counts = {
+        file: allAlerts.filter((item) => item.alert_type === 'file').length,
+        account: allAlerts.filter((item) => item.alert_type === 'account').length,
+        parasitic: allAlerts.filter((item) => item.alert_type === 'parasitic').length
+    };
+    return `当前筛选窗口：文件 ${counts.file}、账户 ${counts.account}、寄生 ${counts.parasitic}，共 ${allAlerts.length} 条。`;
+}
+
+function buildPullStatusText(name, result) {
+    const data = result && result.data ? result.data : {};
+    const pulled = extractPullCount(result);
+    const sinceText = data.last_query_time ? formatTime(data.last_query_time) : '';
+    const syncText = data.query_time ? formatTime(data.query_time) : '';
+
+    if (pulled > 0) {
+        return `${name}蜜点告警拉取完成：新增 ${pulled} 条${sinceText ? `，查询起点 ${sinceText}` : ''}${syncText ? `，同步时间 ${syncText}` : ''}。`;
+    }
+
+    return `${name}蜜点告警拉取完成：新增 0 条${sinceText ? `，表示自 ${sinceText} 以来没有新的正式告警` : '，表示本次没有新记录写入'}。`;
+}
+
+function buildSyncStatusText(results) {
+    const summary = results.map((item) => `${item.name}+${item.pulled}`).join('、');
+    let text = `三类告警同步完成：${summary}。`;
+    if (results.length && results.every((item) => item.pulled === 0)) {
+        text += ' 这里的 0 表示本次无新增，不代表数据库里没有历史告警。';
+    }
+    return text;
+}
+
+async function callPull(url, name) {
+    showStatus(`正在拉取${name}蜜点告警...`);
+    hideError();
+
+    try {
+        const response = await fetch(url);
+        const result = await response.json();
+        if (!response.ok || result.code !== 0) {
+            throw new Error(result.message || `HTTP ${response.status}`);
+        }
+
+        await loadAlerts();
+        showStatus(`${buildPullStatusText(name, result)} ${buildCurrentWindowText()}`, 'ok');
+    } catch (error) {
+        showStatus(`${name}蜜点告警拉取失败：${error.message}`, 'error');
+    }
+}
+
+async function syncAllAlerts() {
+    showStatus('正在顺序同步文件、账户、寄生三类告警...');
+    hideError();
+
+    try {
+        const steps = [
+            { name: '文件', url: '/file/alert' },
+            { name: '账户', url: '/account/alert/pull' },
+            { name: '寄生', url: '/parasitism/alert?days=30' }
+        ];
+        const summary = [];
+
+        for (const step of steps) {
+            const response = await fetch(step.url);
+            const result = await response.json();
+            if (!response.ok || result.code !== 0) {
+                throw new Error(`${step.name}告警同步失败：${result.message || `HTTP ${response.status}`}`);
+            }
+            summary.push({
+                name: step.name,
+                pulled: extractPullCount(result)
+            });
+        }
+
+        await loadAlerts();
+        showStatus(`${buildSyncStatusText(summary)} ${buildCurrentWindowText()}`, 'ok');
+    } catch (error) {
+        showStatus(`三类告警同步失败：${error.message}`, 'error');
+    }
+}
+
+async function runLiveAnalysis() {
+    const hours = Number(document.getElementById('timeRange').value || 24);
+    showStatus(`正在基于当前时间窗口运行后续分析...`);
+    hideError();
+
+    try {
+        const response = await fetch('/api/analysis/live', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hours })
+        });
+        const result = await response.json();
+        if (!response.ok || result.code !== 0) {
+            throw new Error(result.message || `HTTP ${response.status}`);
+        }
+
+        const data = result.data || {};
+        const graph = data.graph || {};
+        const pruning = data.pruning_stats || {};
+        const outputs = data.outputs || {};
+        const windowText = hours === 0 ? '全部时间' : `最近 ${hours} 小时`;
+        const lines = [
+            `后续分析完成，分析窗口：${windowText}`,
+            `处理告警：${data.total_alerts || 0} 条`,
+            `图节点/边：${graph.nodes || 0} / ${graph.edges || 0}`,
+            `标准三元组：${graph.triples || 0} 条`,
+            `裁剪模式：${pruning.mode || '-'}`,
+            `因果图文件：${outputs.step2_causal_graph || '-'}`,
+            `三元组文件：${outputs.step2_standard_triples || '-'}`,
+            `事件序列文件：${outputs.step2_event_sequence || '-'}`,
+            `文本结果：${outputs.step4_intent_analysis || '-'}`
+        ];
+        showStatus(lines.join(' | '), 'ok');
+        setSummary(`后续分析已完成，当前窗口为 ${windowText}。`);
+    } catch (error) {
+        showStatus(`后续分析运行失败：${error.message}`, 'error');
+    }
+}
+
+function exportAlerts() {
+    const payload = {
+        exported_at: new Date().toISOString(),
+        total: visibleAlerts.length,
+        alerts: visibleAlerts
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `unified-alerts-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showStatus('已导出当前筛选结果。', 'ok');
+}
+
+function changePage(offset) {
+    currentPage += offset;
+    renderAlerts();
+}
+
+function block(title, sub) {
+    return `
+        <div class="cell-block">
+            <div class="cell-title">${escapeHtml(formatValue(title))}</div>
+            <div class="cell-sub mono">${escapeHtml(formatValue(sub || '-'))}</div>
+        </div>
+    `;
+}
+
+function tags(items) {
+    const html = items
+        .filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== '')
+        .map((item) => `<span class="tag ${item[2] || ''}">${escapeHtml(item[0])}: ${escapeHtml(formatValue(item[1]))}</span>`)
+        .join('');
+    return `<div class="evidence-list">${html || '<span class="tag">暂无关键证据</span>'}</div>`;
+}
+
+function setSummary(text) {
+    document.getElementById('alertSummary').textContent = text;
+}
+
+function showStatus(text, type = '') {
+    const status = document.getElementById('pullStatus');
+    status.style.display = 'block';
+    status.className = `status-banner${type ? ` ${type}` : ''}`;
+    status.textContent = text;
+}
+
+function showError(text) {
+    const box = document.getElementById('errorBox');
+    box.style.display = 'block';
+    box.textContent = text;
+}
+
+function hideError() {
+    const box = document.getElementById('errorBox');
+    box.style.display = 'none';
+    box.textContent = '';
+}
+
+function formatTime(value) {
+    if (!value) {
+        return '-';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function normalizeTime(value) {
+    if (!value) {
+        return '';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value).slice(0, 19);
+    }
+    return date.toISOString().slice(0, 19);
+}
+
+function normalizeTimeBucket(value, seconds) {
+    if (!value) {
+        return '';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return String(value).slice(0, 16);
+    }
+    return Math.floor(date.getTime() / 1000 / seconds);
+}
+
+function formatValue(value) {
+    if (value === undefined || value === null || value === '') {
+        return '-';
+    }
+    if (Array.isArray(value)) {
+        return value.join(', ');
+    }
+    if (typeof value === 'object') {
+        return JSON.stringify(value);
+    }
+    return String(value);
+}
+
+function joinParts(parts) {
+    return (parts || []).filter(Boolean).join(' | ');
+}
+
+function stableString(value) {
+    try {
+        return JSON.stringify(value, Object.keys(value || {}).sort());
+    } catch (error) {
+        return String(value);
+    }
+}
+
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+</script>
+{% endblock %}

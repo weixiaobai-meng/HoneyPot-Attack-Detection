@@ -1,0 +1,136 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/soc-alert-pages.css') }}">
+
+<div class="soc-page file-page">
+    <section class="soc-top">
+        <div class="soc-title-card">
+            <div class="soc-eyebrow">File Honey Alert</div>
+            <h1>文件蜜点告警</h1>
+            <p>这里展示已经从 alert_server 拉取并写入 systemwire2 的文件蜜点正式告警。对于同一次打开动作产生的多次 Office/WPS 底层资源请求，页面会按照逻辑告警维度进行聚合展示，便于实验分析。</p>
+        </div>
+
+        <div class="soc-action-card">
+            <form action="{{ url_for('api.manage_alert_file') }}" onsubmit="return validateForm();">
+                <div class="soc-form-row">
+                    <label class="soc-field">
+                        <span>查询天数</span>
+                        <input type="text" id="days" name="days" class="soc-input" placeholder="默认 7，最多 30" value="{{ last_days }}">
+                    </label>
+                    <button type="submit" class="soc-btn primary"><i class="fas fa-search"></i> 查询</button>
+                    <button type="button" class="soc-btn file" onclick="pullFileAlerts()"><i class="fas fa-cloud-arrow-down"></i> 从 alert_server 拉取</button>
+                </div>
+            </form>
+            <div class="soc-note">接收链路：诱饵文件被打开 -> 请求 <code>/static/img/logo-&lt;token&gt;.png</code>（兼容旧的 <code>/contact/&lt;token&gt;</code>）-> alert_server 记录触发 -> systemwire2 调用 <code>/file/alert</code> 拉取入库。如果这里为空，优先确认 alert_server 已收到真实回连。</div>
+            <div id="pullStatus" class="soc-status" style="display:none;"></div>
+        </div>
+    </section>
+
+    <section class="soc-panel">
+        <div class="soc-panel-header">
+            <div>
+                <h2><i class="fas fa-list"></i> 文件蜜点触发记录</h2>
+                <p>重点看文件名、Token、告警消息、攻击源 IP、User-Agent，以及该文件的诱饵名称和部署摘要。</p>
+            </div>
+            <span class="soc-count">逻辑告警 {{ alert_infos|length }} 条 / 底层请求 {{ raw_alert_total|default(alert_infos|length) }} 次</span>
+        </div>
+
+        <div class="soc-table-wrap">
+            <table class="soc-table compact">
+                <thead>
+                    <tr>
+                        <th>逻辑告警</th>
+                        <th>触发时间</th>
+                        <th>底层请求数</th>
+                        <th>告警消息</th>
+                        <th>攻击源 IP</th>
+                        <th>User-Agent</th>
+                        <th>诱饵文件上下文</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for alert in alert_infos %}
+                    <tr>
+                        <td>
+                            <span class="pill file">#{{ alert.id }}</span>
+                            <div class="cell-sub mono">raw: {{ alert.raw_ids_text or alert.id }}</div>
+                        </td>
+                        <td>
+                            <div class="mono">{{ alert.alert_time }}</div>
+                            {% if alert.request_count and alert.request_count > 1 %}
+                            <div class="cell-sub mono">{{ alert.first_alert_time }} - {{ alert.last_alert_time }}</div>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="pill account">{{ alert.request_count or 1 }} 次</span>
+                            <div class="cell-sub">同一逻辑打开窗口内聚合</div>
+                        </td>
+                        <td>
+                            <div class="cell-title">{{ alert.alert_message or '-' }}</div>
+                            <div class="cell-sub mono">token: {{ alert.token_raw or alert.token or '-' }}</div>
+                        </td>
+                        <td><span class="pill warn">{{ alert.reportIp or '-' }}</span></td>
+                        <td><div class="cell-sub mono">{{ alert.reportAgent or '-' }}</div></td>
+                        <td>
+                            <div class="cell-title">{{ alert.filename or alert.filename_tag or '-' }}</div>
+                            <div class="cell-sub">{{ alert.honeypoint_name or '-' }}</div>
+                            <div class="cell-sub">{{ alert.deployment_summary or '-' }}</div>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="7">
+                            <div class="empty-row">
+                                <i class="fas fa-shield-alt"></i>
+                                <h3>暂无文件蜜点告警</h3>
+                                <p>请先确认 alert_server 已启动，并且诱饵文件打开后已经命中 <code>http://127.0.0.1:9090/static/img/logo-&lt;token&gt;.png</code>，然后再点击“从 alert_server 拉取”。</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<script>
+function validateForm() {
+    const value = document.getElementById('days').value.trim();
+    if (!value) {
+        return true;
+    }
+    const num = Number(value);
+    if (!Number.isInteger(num) || num < 1 || num > 30) {
+        alert('查询天数必须是 1-30 的整数');
+        return false;
+    }
+    return true;
+}
+
+async function pullFileAlerts() {
+    const status = document.getElementById('pullStatus');
+    const days = document.getElementById('days').value.trim() || '30';
+    status.className = 'soc-status';
+    status.style.display = 'block';
+    status.textContent = `正在从 alert_server 拉取最近 ${days} 天文件告警...`;
+
+    try {
+        const response = await fetch(`/file/alert?days=${encodeURIComponent(days)}`);
+        const data = await response.json();
+        if (data.code === 0) {
+            status.className = 'soc-status ok';
+            status.textContent = `拉取完成：新增 ${data.data.pulled} 条逻辑告警，页面即将刷新。`;
+            setTimeout(() => window.location.reload(), 900);
+        } else {
+            status.className = 'soc-status err';
+            status.textContent = data.message || '文件告警拉取失败';
+        }
+    } catch (err) {
+        status.className = 'soc-status err';
+        status.textContent = `拉取失败：${err.message}`;
+    }
+}
+</script>
+{% endblock %}

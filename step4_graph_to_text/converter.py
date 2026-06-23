@@ -1,305 +1,314 @@
 """
-第四步：Graph-to-Text转换器
-将因果图转换为叙述性文本
+Step 4: convert provenance graph into thesis-oriented textual narrative.
 """
 
-import json
 import os
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 from collections import defaultdict
 
 from .prompts import PromptTemplates
 
 
 class GraphToTextConverter:
-    """因果图转文本引擎"""
-    
+    """Generate structured natural-language views for LLM reasoning."""
+
     ACTION_DESCRIPTIONS = {
-        "ssh_login": "尝试SSH登录",
-        "file_access": "访问文件",
-        "url_access": "访问URL链接",
-        "openat": "打开文件",
-        "read": "读取文件",
-        "write": "写入文件",
-        "execve": "执行程序",
-        "fork": "创建子进程",
-        "connect": "建立网络连接",
-        "unlink": "删除文件",
-        "rename": "重命名文件",
-        "chmod": "修改文件权限",
-        "vpn_connect": "尝试VPN连接"
+        "ssh_login": "attempted SSH access",
+        "vpn_connect": "attempted VPN access",
+        "file_access": "accessed honey file",
+        "url_access": "accessed parasitic honey page",
+        "openat": "opened file",
+        "read": "read file",
+        "write": "wrote file",
+        "execve": "executed process",
+        "fork": "spawned process",
+        "connect": "established network connection",
+        "unlink": "deleted file",
+        "rename": "renamed file",
+        "chmod": "modified file permission",
+        "mkdir": "created directory",
     }
-    
+
     NODE_TYPE_DESCRIPTIONS = {
-        "network": "网络地址",
-        "file": "文件",
-        "process": "进程"
+        "network": "network entity",
+        "browser": "browser entity",
+        "file": "file entity",
+        "process": "process entity",
+        "service": "service entity",
+        "url": "URL entity",
+        "unknown": "unknown entity",
     }
-    
-    ATTACK_PHASE_MAP = {
-        "ssh_login": "初始访问",
-        "vpn_connect": "初始访问",
-        "file_access": "侦察/发现",
-        "url_access": "侦察/发现",
-        "openat": "执行/访问",
-        "read": "数据收集",
-        "write": "数据篡改/持久化",
-        "execve": "执行",
-        "fork": "权限提升/横向移动",
-        "connect": "命令控制/数据外泄",
-        "unlink": "防御规避",
-        "rename": "防御规避",
-        "chmod": "权限提升"
-    }
-    
+
+    STAGE_ORDER = [
+        "reconnaissance",
+        "initial_access",
+        "execution",
+        "persistence",
+        "privilege_escalation",
+        "defense_evasion",
+        "collection",
+        "command_and_control",
+        "exfiltration",
+    ]
+
     def __init__(self):
-        self.node_cache = {}
-    
+        self.node_cache: Dict[str, str] = {}
+
     def convert(self, graph_data: Dict, include_timestamps: bool = True) -> str:
-        """将因果图转换为叙述性文本"""
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
-        pruning_stats = graph_data.get("pruning_stats", {})
-        
+        triples = graph_data.get("triples", [])
+        meta = graph_data.get("graph_meta", {})
+        attack_paths = graph_data.get("attack_paths", [])
+        attacker_groups = graph_data.get("attacker_groups", [])
         node_map = {node["id"]: node for node in nodes}
         sorted_edges = sorted(edges, key=lambda e: e.get("timestamp", ""))
-        
-        sections = []
-        sections.append(self._generate_summary(nodes, edges, pruning_stats))
-        sections.append(self._generate_timeline(sorted_edges, node_map, include_timestamps))
-        sections.append(self._generate_phase_analysis(sorted_edges, node_map))
-        sections.append(self._generate_key_paths(graph_data, node_map))
-        sections.append(self._generate_technical_details(sorted_edges, node_map))
-        
-        return "\n\n".join(sections)
-    
+
+        sections = [
+            self._generate_summary(meta, nodes, edges, triples),
+            self._generate_attackers(attacker_groups),
+            self._generate_attack_paths(attack_paths, node_map),
+            self._generate_stage_view(sorted_edges, node_map),
+            self._generate_timeline(sorted_edges, node_map, include_timestamps),
+            self._generate_key_paths(sorted_edges, node_map),
+            self._generate_triple_summary(triples),
+            self._generate_iocs(sorted_edges, node_map),
+        ]
+        return "\n\n".join(section for section in sections if section.strip())
+
     def convert_to_llm_prompt(self, graph_data: Dict, task: str = "intent_analysis") -> str:
-        """转换为LLM提示词"""
         narrative = self.convert(graph_data, include_timestamps=True)
-        
+
         if task == "intent_analysis":
             return PromptTemplates.INTENT_ANALYSIS.format(narrative=narrative)
-        elif task == "ttp_mapping":
+        if task == "ttp_mapping":
             return PromptTemplates.TTP_MAPPING.format(narrative=narrative)
-        elif task == "report":
+        if task == "report":
             return PromptTemplates.REPORT_GENERATION.format(narrative=narrative)
-        else:
-            return narrative
-    
-    def _generate_summary(self, nodes: List, edges: List, pruning_stats: Dict) -> str:
-        """生成概述"""
-        lines = ["## 一、攻击事件概述"]
+        return narrative
+
+    def _generate_summary(self, meta: Dict, nodes: List[Dict], edges: List[Dict], triples: List[Dict]) -> str:
+        lines = ["## 1. Event Summary", ""]
+        lines.append(
+            f"This provenance graph contains {meta.get('node_count', len(nodes))} nodes, "
+            f"{meta.get('edge_count', len(edges))} edges, and {meta.get('triple_count', len(triples))} standard triples."
+        )
         lines.append("")
-        
-        node_types = defaultdict(int)
+
+        type_counter = defaultdict(int)
         for node in nodes:
-            node_types[node.get("type", "unknown")] += 1
-        
-        edge_actions = defaultdict(int)
-        for edge in edges:
-            edge_actions[edge.get("action", "unknown")] += 1
-        
-        lines.append(f"本次攻击事件涉及 {len(nodes)} 个实体节点和 {len(edges)} 个攻击行为。")
-        lines.append("")
-        
-        lines.append("**涉及实体：**")
-        for ntype, count in node_types.items():
-            type_desc = self.NODE_TYPE_DESCRIPTIONS.get(ntype, ntype)
-            lines.append(f"- {type_desc}: {count} 个")
-        lines.append("")
-        
-        lines.append("**攻击行为：**")
-        for action, count in edge_actions.items():
-            action_desc = self.ACTION_DESCRIPTIONS.get(action, action)
-            lines.append(f"- {action_desc}: {count} 次")
-        
-        if pruning_stats:
+            type_counter[node.get("type", "unknown")] += 1
+
+        lines.append("Entity distribution:")
+        for node_type, count in sorted(type_counter.items()):
+            lines.append(f"- {self.NODE_TYPE_DESCRIPTIONS.get(node_type, node_type)}: {count}")
+
+        if "event_edge_count" in meta or "correlation_edge_count" in meta:
             lines.append("")
-            lines.append(f"**图谱压缩率：** {pruning_stats.get('compression_ratio', 'N/A')} "
-                        f"(原始 {pruning_stats.get('original_edges', 'N/A')} 条边，"
-                        f"保留 {pruning_stats.get('kept_edges', 'N/A')} 条)")
-        
+            lines.append(
+                f"Edge breakdown: event edges={meta.get('event_edge_count', 0)}, "
+                f"correlation edges={meta.get('correlation_edge_count', 0)}, "
+                f"attackers={meta.get('attacker_count', 0)}, "
+                f"attack paths={meta.get('path_count', 0)}"
+            )
+
         return "\n".join(lines)
-    
-    def _generate_timeline(self, edges: List, node_map: Dict, include_timestamps: bool) -> str:
-        """生成攻击时间线"""
-        lines = ["## 二、攻击时间线"]
-        lines.append("")
-        
-        for i, edge in enumerate(edges, 1):
-            source_id = edge.get("source")
-            target_id = edge.get("target")
-            action = edge.get("action", "unknown")
-            timestamp = edge.get("timestamp")
-            
-            source_desc = self._get_node_description(source_id, node_map)
-            target_desc = self._get_node_description(target_id, node_map)
-            action_desc = self.ACTION_DESCRIPTIONS.get(action, action)
-            
-            time_str = ""
-            if include_timestamps and timestamp:
-                try:
-                    dt = datetime.fromisoformat(timestamp)
-                    time_str = f"[{dt.strftime('%H:%M:%S')}] "
-                except:
-                    time_str = ""
-            
-            lines.append(f"{time_str}**步骤{i}：** {source_desc} {action_desc} {target_desc}")
-        
+
+    def _generate_attackers(self, attacker_groups: List[Dict]) -> str:
+        lines = ["## 2. Attacker Clusters", ""]
+        if not attacker_groups:
+            lines.append("- No attacker clusters were reconstructed.")
+            return "\n".join(lines)
+
+        for item in attacker_groups[:10]:
+            attacker_id = item.get("attacker_id") or "unknown_attacker"
+            event_count = item.get("event_count", len(item.get("event_ids", [])))
+            path_ids = item.get("path_ids", [])
+            anchors = item.get("anchors", [])
+            event_types = item.get("event_types", [])
+            start_time = item.get("start_time") or "-"
+            end_time = item.get("end_time") or "-"
+            lines.append(
+                f"- {attacker_id}: events={event_count}, "
+                f"paths={', '.join(path_ids) if path_ids else 'none'}, "
+                f"types={', '.join(event_types) if event_types else 'unknown'}, "
+                f"time={start_time} -> {end_time}, "
+                f"anchors={', '.join(anchors) if anchors else 'none'}"
+            )
+        if len(attacker_groups) > 10:
+            lines.append(f"- ... {len(attacker_groups) - 10} more attacker clusters omitted.")
         return "\n".join(lines)
-    
-    def _generate_phase_analysis(self, edges: List, node_map: Dict) -> str:
-        """生成攻击阶段分析"""
-        lines = ["## 三、攻击阶段分析"]
-        lines.append("")
-        
+
+    def _generate_attack_paths(self, attack_paths: List[Dict], node_map: Dict) -> str:
+        lines = ["## 3. Attack Path Groups", ""]
+        if not attack_paths:
+            lines.append("- No grouped attack paths were reconstructed.")
+            return "\n".join(lines)
+
+        for item in attack_paths[:10]:
+            path_id = item.get("path_id") or "unknown_path"
+            event_count = item.get("event_count", len(item.get("event_ids", [])))
+            anchors = item.get("anchors", [])
+            event_types = item.get("event_types", [])
+            start_time = item.get("start_time") or "-"
+            end_time = item.get("end_time") or "-"
+
+            lines.append(
+                f"- {path_id}: events={event_count}, "
+                f"types={', '.join(event_types) if event_types else 'unknown'}, "
+                f"time={start_time} -> {end_time}, "
+                f"anchors={', '.join(anchors) if anchors else 'none'}"
+            )
+        if len(attack_paths) > 10:
+            lines.append(f"- ... {len(attack_paths) - 10} more path groups omitted.")
+        return "\n".join(lines)
+
+    def _generate_stage_view(self, edges: List[Dict], node_map: Dict) -> str:
         phase_groups = defaultdict(list)
         for edge in edges:
-            action = edge.get("action", "unknown")
-            phase = self.ATTACK_PHASE_MAP.get(action, "其他")
-            phase_groups[phase].append(edge)
-        
-        phase_order = [
-            "初始访问", "执行", "持久化", "权限提升", 
-            "防御规避", "侦察/发现", "横向移动", 
-            "收集", "命令控制", "数据外泄"
-        ]
-        
-        for phase in phase_order:
-            if phase in phase_groups:
-                phase_edges = phase_groups[phase]
-                lines.append(f"### {phase}")
-                lines.append("")
-                
-                for edge in phase_edges:
-                    source_id = edge.get("source")
-                    target_id = edge.get("target")
-                    action = edge.get("action", "unknown")
-                    
-                    source_desc = self._get_node_description(source_id, node_map)
-                    target_desc = self._get_node_description(target_id, node_map)
-                    action_desc = self.ACTION_DESCRIPTIONS.get(action, action)
-                    
-                    lines.append(f"- {source_desc} → {action_desc} → {target_desc}")
-                
-                lines.append("")
-        
+            if edge.get("edge_kind") != "event":
+                continue
+            phase_groups[edge.get("stage") or "unknown"].append(edge)
+
+        lines = ["## 4. Attack Stage View", ""]
+        for stage in self.STAGE_ORDER + ["unknown"]:
+            if stage not in phase_groups:
+                continue
+            lines.append(f"### {stage}")
+            lines.append("")
+            for edge in phase_groups[stage]:
+                lines.append(
+                    f"- {self._get_node_description(edge.get('source'), node_map)} "
+                    f"{self.ACTION_DESCRIPTIONS.get(edge.get('action'), edge.get('action'))} "
+                    f"{self._get_node_description(edge.get('target'), node_map)} "
+                    f"(tactic={edge.get('tactic')}, technique={edge.get('technique')}, severity={edge.get('severity')})"
+                )
+            lines.append("")
         return "\n".join(lines)
-    
-    def _generate_key_paths(self, graph_data: Dict, node_map: Dict) -> str:
-        """生成关键攻击路径"""
-        lines = ["## 四、关键攻击路径"]
-        lines.append("")
-        
-        edges = graph_data.get("edges", [])
-        
-        adj = defaultdict(list)
+
+    def _generate_timeline(self, edges: List[Dict], node_map: Dict, include_timestamps: bool) -> str:
+        lines = ["## 5. Event Timeline", ""]
+        event_edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
+        for idx, edge in enumerate(event_edges, 1):
+            prefix = ""
+            if include_timestamps and edge.get("timestamp"):
+                try:
+                    ts = datetime.fromisoformat(edge["timestamp"])
+                    prefix = f"[{ts.strftime('%H:%M:%S')}] "
+                except ValueError:
+                    prefix = f"[{edge['timestamp']}] "
+
+            lines.append(
+                f"{prefix}Step {idx}: "
+                f"{self._get_node_description(edge.get('source'), node_map)} "
+                f"{self.ACTION_DESCRIPTIONS.get(edge.get('action'), edge.get('action'))} "
+                f"{self._get_node_description(edge.get('target'), node_map)}."
+            )
+        return "\n".join(lines)
+
+    def _generate_key_paths(self, edges: List[Dict], node_map: Dict) -> str:
+        edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
+        adjacency = defaultdict(list)
+        indegree = defaultdict(int)
         for edge in edges:
-            adj[edge.get("source")].append(edge.get("target"))
-        
-        targets = set(e.get("target") for e in edges)
-        sources = set(e.get("source") for e in edges)
-        entry_nodes = sources - targets
-        
+            adjacency[edge.get("source")].append(edge)
+            indegree[edge.get("target")] += 1
+            indegree.setdefault(edge.get("source"), indegree.get(edge.get("source"), 0))
+
+        entry_nodes = [node_id for node_id, degree in indegree.items() if degree == 0]
         paths = []
-        for entry in list(entry_nodes)[:3]:
-            path = self._find_path(adj, entry, max_depth=5)
+        for entry in entry_nodes[:5]:
+            path = self._trace_linear_path(entry, adjacency)
             if path:
                 paths.append(path)
-        
-        for i, path in enumerate(paths[:5], 1):
-            lines.append(f"**路径 {i}：**")
-            path_desc = []
-            for node in path:
-                path_desc.append(self._get_node_description(node, node_map))
-            lines.append(" → ".join(path_desc))
+
+        lines = ["## 6. Candidate Attack Paths", ""]
+        if not paths:
+            lines.append("- No attack path could be reconstructed from current edges.")
+            return "\n".join(lines)
+
+        for idx, path in enumerate(paths, 1):
+            lines.append(f"Path {idx}:")
+            lines.append(" -> ".join(self._get_node_description(node_id, node_map) for node_id in path))
             lines.append("")
-        
         return "\n".join(lines)
-    
-    def _find_path(self, adj: Dict, start: str, max_depth: int = 5) -> List[str]:
-        """查找路径"""
+
+    def _generate_triple_summary(self, triples: List[Dict]) -> str:
+        lines = ["## 7. Standard Triple Samples", ""]
+        if not triples:
+            lines.append("- No triples were generated.")
+            return "\n".join(lines)
+
+        for triple in triples[:10]:
+            if isinstance(triple, (list, tuple)) and len(triple) == 3:
+                lines.append(f"- ({triple[0]}, {triple[1]}, {triple[2]}) [legacy-triple-format]")
+                continue
+            lines.append(
+                f"- ({triple['subject']['id']}, {triple['predicate']}, {triple['object']['id']}) "
+                f"[stage={triple.get('stage')}, confidence={triple.get('confidence')}]"
+            )
+        if len(triples) > 10:
+            lines.append(f"- ... {len(triples) - 10} more triples omitted for brevity.")
+        return "\n".join(lines)
+
+    def _generate_iocs(self, edges: List[Dict], node_map: Dict) -> str:
+        edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
+        ips = set()
+        files = set()
+        processes = set()
+        urls = set()
+
+        for node_id, node in node_map.items():
+            node_type = node.get("type")
+            label = node.get("label") or node_id
+            if node_type == "network":
+                ips.add(label)
+            elif node_type == "file":
+                files.add(label)
+            elif node_type == "process":
+                processes.add(label)
+            elif node_type == "url":
+                urls.add(label)
+
+        lines = ["## 8. Extracted IoCs", ""]
+        lines.append(f"- IPs: {', '.join(sorted(ips)) if ips else 'None'}")
+        lines.append(f"- Files: {', '.join(sorted(files)) if files else 'None'}")
+        lines.append(f"- Processes: {', '.join(sorted(processes)) if processes else 'None'}")
+        lines.append(f"- URLs: {', '.join(sorted(urls)) if urls else 'None'}")
+        return "\n".join(lines)
+
+    def _trace_linear_path(self, start: str, adjacency: Dict[str, List[Dict]], max_depth: int = 8) -> List[str]:
         path = [start]
         current = start
-        
+        visited = {start}
         for _ in range(max_depth):
-            next_nodes = adj.get(current, [])
-            if not next_nodes:
+            next_edges = adjacency.get(current, [])
+            if not next_edges:
                 break
-            next_node = next_nodes[0]
-            if next_node in path:
+            next_edge = next_edges[0]
+            next_node = next_edge.get("target")
+            if not next_node or next_node in visited:
                 break
             path.append(next_node)
+            visited.add(next_node)
             current = next_node
-        
         return path
-    
-    def _generate_technical_details(self, edges: List, node_map: Dict) -> str:
-        """生成技术细节"""
-        lines = ["## 五、技术细节"]
-        lines.append("")
-        lines.append("### 涉及的系统调用/操作")
-        lines.append("")
-        
-        syscall_map = {
-            "openat": "文件打开 (openat)",
-            "read": "文件读取 (read)",
-            "write": "文件写入 (write)",
-            "execve": "程序执行 (execve)",
-            "fork": "进程创建 (fork/clone)",
-            "connect": "网络连接 (connect)",
-            "unlink": "文件删除 (unlink)",
-            "chmod": "权限修改 (chmod)"
-        }
-        
-        syscalls = defaultdict(int)
-        for edge in edges:
-            action = edge.get("action", "unknown")
-            if action in syscall_map:
-                syscalls[action] += 1
-        
-        if syscalls:
-            for syscall, count in syscalls.items():
-                desc = syscall_map[syscall]
-                lines.append(f"- {desc}: {count} 次")
-        else:
-            lines.append("- 无底层系统调用记录")
-        
-        return "\n".join(lines)
-    
-    def _get_node_description(self, node_id: str, node_map: Dict) -> str:
-        """获取节点的可读描述"""
+
+    def _get_node_description(self, node_id: str, node_map: Dict[str, Dict]) -> str:
         if node_id in self.node_cache:
             return self.node_cache[node_id]
-        
+
         node = node_map.get(node_id, {})
         node_type = node.get("type", "unknown")
-        
-        if node_type == "network":
-            ip = node.get("ip", node_id)
-            desc = f"网络地址 {ip}"
-        elif node_type == "file":
-            path = node.get("path", node_id)
-            if len(path) > 30:
-                path = "..." + path[-27:]
-            desc = f"文件 {path}"
-        elif node_type == "process":
-            exe = node.get("exe", "")
-            if exe:
-                desc = f"进程 {exe}"
-            else:
-                desc = f"进程 PID:{node.get('pid', 'unknown')}"
-        else:
-            desc = node_id
-        
+        label = node.get("label") or node.get("path") or node.get("ip") or node_id or "unknown"
+        desc = f"{self.NODE_TYPE_DESCRIPTIONS.get(node_type, node_type)} [{label}]"
         self.node_cache[node_id] = desc
         return desc
-    
-    def save(self, text: str, output_path: str):
-        """保存文本"""
+
+    def save(self, text: str, output_path: str) -> None:
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(text)
-        print(f"[+] 文本已保存到: {output_path}")
-        print(f"    长度: {len(text)} 字符")
+        print(f"[+] Saved narrative text to: {output_path}")
+        print(f"    length: {len(text)} chars")

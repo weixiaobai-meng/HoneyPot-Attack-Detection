@@ -1,0 +1,13 @@
+[Unit]
+Description=Systemwire server
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+WorkingDirectory=/data/systemwire
+ExecStart=/data/systemwire/venv/bin/python /data/systemwire/main_.pyc
+
+[Install]
+WantedBy=multi-user.target

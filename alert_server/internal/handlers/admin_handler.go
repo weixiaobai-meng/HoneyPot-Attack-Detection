@@ -8,6 +8,7 @@ import (
 	"server/internal/models"
 	"server/pkg"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,7 +31,11 @@ func buildPublicTokenURL(token string) string {
 		base = fmt.Sprintf("%s:%s", base, pkg.Cfg.Public_port)
 	}
 
-	return base + "/contact/" + token
+	token = strings.Trim(strings.TrimSpace(token), "/")
+	if token == "" {
+		return ""
+	}
+	return base + "/static/img/logo-" + token + ".png"
 }
 
 // API:服务器测试
@@ -88,8 +93,7 @@ func CreateTokenHandler(c *gin.Context) {
 	hash := sha256.Sum256([]byte(alert_addr + alert_msg))
 	hash_slice := make([]byte, len(hash)) // 创建切片
 	copy(hash_slice, hash[:])
-	tokenStr := base64.StdEncoding.EncodeToString(hash_slice)
-	//tokenStr := base64.URLEncoding.EncodeToString(hash_slice)
+	tokenStr := base64.RawURLEncoding.EncodeToString(hash_slice)
 	// token_url := "http://" + getPublicIp() + ":" + port + "/contact/" + tokenStr
 	info := models.TokenInfo{
 		Token:      tokenStr,

@@ -92,7 +92,7 @@ python deploy_manager.py export
 |------|------|------|
 | systemwire2 | 5001, 50051 | 管理界面 + gRPC服务 |
 | alert_server | 8080, 8081 | 告警接收 |
-| ssh-vpn | 2222, 1194 | SSH蜜罐 |
+| ssh-vpn | 22, 1194 | SSH蜜罐 |
 | agent-go | - | 探针（部署在靶机） |
 
 ## 数据流

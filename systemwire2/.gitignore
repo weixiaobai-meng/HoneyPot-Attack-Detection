@@ -1,0 +1,41 @@
+# 环境文件
+.vscode/
+.idea/
+venv/
+systemwire.egg-info/venv/
+systemwire.egg-info/
+# 编译文件
+/__pycache__/
+/build
+/dist
+app.spec
+# 蜜点文件
+Honeyfiles/upload/*
+Honeyfiles/generate/*
+
+*.docx
+*.xlsx
+
+#配置文件
+config.py
+
+# 日志文件
+*.log
+
+# 数据库文件
+*.db
+
+*.cfg
+*.zip
+/email/
+test.py
+*bak
+.mypy_cache/
+*.exe
+*.pyc
+
+migrations/
+log/flask.log.*
+tripwire.*
+
+instance/

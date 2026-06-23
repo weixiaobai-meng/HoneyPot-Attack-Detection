@@ -38,6 +38,14 @@ type config struct {
 	Blocklist         map[string]*net.IPNet // 黑名单
 	EnableLogColor    bool                  // 彩色日志开关
 	Mu                *sync.Mutex
+
+	// 寄生蜜点配置
+	EnableBotDetection   bool   // 是否启用Bot检测
+	EnableProxyDetection bool   // 是否启用代理检测
+	RTTServerURL         string // RTT服务器地址
+	SessionTimeout       int    // Session超时时间(秒)
+	CacheSize            int    // 内存缓存大小
+	LogRetentionDays     int    // 日志保存天数
 }
 
 var (
@@ -218,12 +226,24 @@ func loadConfigTriggerAuth() bool {
 	return true
 }
 
+// 加载寄生蜜点配置
+func loadConfigParasitic() bool {
+	sec := cfgFileContent.Section("parasitic")
+	Cfg.EnableBotDetection = sec.Key("enable_bot_detection").MustBool(true)
+	Cfg.EnableProxyDetection = sec.Key("enable_proxy_detection").MustBool(true)
+	Cfg.RTTServerURL = sec.Key("rtt_server_url").MustString("http://127.0.0.1:9092")
+	Cfg.SessionTimeout = sec.Key("session_timeout").MustInt(300)
+	Cfg.CacheSize = sec.Key("cache_size").MustInt(10000)
+	Cfg.LogRetentionDays = sec.Key("log_retention_days").MustInt(7)
+	return true
+}
+
 // 加载配置文件
 func load() bool {
 	if !loadConfigIPPort() || !loadConfigMode() ||
 		!loadConfigTlsMode() || !loadConfigEmailMode() ||
 		!loadConfigAdminEmail() || !loadConfigKeyValidateMode() ||
-		!loadConfigTriggerAuth() ||
+		!loadConfigTriggerAuth() || !loadConfigParasitic() ||
 		!loadConfigIpList(Cfg.WhitelistFile, Cfg.Whitelist, "白名单") ||
 		!loadConfigIpList(Cfg.BlocklistFile, Cfg.Blocklist, "黑名单") {
 		logrus.Error("[Config] 以上配置文件存在缺失，请检查配置文件")
@@ -240,7 +260,11 @@ func load() bool {
 	logrus.Info("   ├─ 触发认证密钥: ", Cfg.TriggerAuthKey)
 	logrus.Info("   ├─ 白名单模式:    ", Cfg.EnableWhitelist)
 	logrus.Info("   ├─ 白名单IP数量:  ", len(Cfg.Whitelist))
-	logrus.Info("   └─ 黑名单IP数量:  ", len(Cfg.Blocklist))
+	logrus.Info("   ├─ 黑名单IP数量:  ", len(Cfg.Blocklist))
+	logrus.Info("   ├─ Bot检测:       ", Cfg.EnableBotDetection)
+	logrus.Info("   ├─ 代理检测:      ", Cfg.EnableProxyDetection)
+	logrus.Info("   ├─ RTT服务器地址: ", Cfg.RTTServerURL)
+	logrus.Info("   └─ Session超时:   ", Cfg.SessionTimeout, "秒")
 	return true
 }
 

@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="soc-home">
+    <section class="home-hero">
+        <div>
+            <div class="soc-eyebrow">Systemwire SOC Console</div>
+            <h1>蜜点管理系统</h1>
+            <p>统一部署文件、账户、寄生三类蜜点，收集告警并沉淀为后续实验数据。当前页面展示本地部署链路、在线探针和最近告警。</p>
+        </div>
+        <div class="hero-badge"><i class="fas fa-satellite-dish"></i><span>Local Lab</span><b>Ready</b></div>
+    </section>
+
+    <section class="quick-grid">
+        <a href="{{ url_for('api.manage_honeypot_file') }}" class="quick-card file"><i class="fas fa-file-shield"></i><b>文件蜜点</b><span>alert_server 拉取文件 token 告警</span></a>
+        <a href="{{ url_for('api.manage_honeypot_account') }}" class="quick-card account"><i class="fas fa-user-lock"></i><b>账户蜜点</b><span>ssh-vpn 捕获连接和认证尝试</span></a>
+        <a href="{{ url_for('api.manage_honeypot_parasitic') }}" class="quick-card parasitic"><i class="fas fa-fingerprint"></i><b>寄生蜜点</b><span>注入 JS，由 js/bot 采集后回拉入库</span></a>
+        <a href="{{ url_for('api.manage_alert_unified') }}" class="quick-card alert"><i class="fas fa-bell"></i><b>告警中心</b><span>查看三类蜜点统一告警</span></a>
+    </section>
+
+    <section class="home-grid">
+        <div class="soc-panel-lite">
+            <div class="panel-title"><h2><i class="fas fa-satellite-dish"></i> 探针状态</h2><a href="{{ url_for('api.manage_agent_list') }}">查看全部</a></div>
+            <div id="agentStatus"><div class="loading"><div class="loading-spinner"></div><span>加载中...</span></div></div>
+        </div>
+        <div class="soc-panel-lite">
+            <div class="panel-title"><h2><i class="fas fa-bell"></i> 最近告警</h2><a href="{{ url_for('api.manage_alert_unified') }}">查看全部</a></div>
+            <div id="recentAlerts"><div class="loading"><div class="loading-spinner"></div><span>加载中...</span></div></div>
+        </div>
+    </section>
+
+    <section class="system-strip">
+        <div><b>3</b><span>蜜点类型</span></div>
+        <div><b>5001</b><span>管理端端口</span></div>
+        <div><b>9090/9091</b><span>文件告警服务</span></div>
+                        <div><b>22</b><span>账户蜜罐默认端口</span></div>
+    </section>
+</div>
+
+<style>
+.soc-home { padding: 16px; color: var(--text-primary); }
+.home-hero { min-height: 210px; display: flex; justify-content: space-between; gap: 18px; align-items: stretch; padding: 26px; border-radius: 30px; border: 1px solid var(--border-color); background: linear-gradient(145deg, rgba(13,27,26,.92), rgba(8,18,17,.82)); box-shadow: var(--shadow-lg); position: relative; overflow: hidden; }
+.home-hero::after { content: ''; position: absolute; right: -80px; top: -120px; width: 320px; height: 320px; border-radius: 50%; border: 1px solid rgba(125,220,139,.22); background: radial-gradient(circle, rgba(125,220,139,.12), transparent 68%); }
+.soc-eyebrow { color: var(--primary-color); font: 900 12px/1 var(--font-display); letter-spacing: .16em; text-transform: uppercase; }
+.home-hero h1 { margin: 12px 0 10px; font: 900 clamp(34px, 5vw, 58px)/.92 var(--font-display); letter-spacing: -.06em; }
+.home-hero p { max-width: 760px; margin: 0; color: var(--text-secondary); line-height: 1.8; }
+.hero-badge { min-width: 210px; border: 1px solid rgba(125,220,139,.24); border-radius: 24px; background: rgba(125,220,139,.08); display: grid; place-items: center; align-content: center; gap: 8px; z-index: 1; }
+.hero-badge i { font-size: 34px; color: var(--primary-color); }
+.hero-badge span { color: var(--text-secondary); }
+.hero-badge b { font: 900 30px/1 var(--font-display); }
+.quick-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0; }
+.quick-card { min-height: 132px; padding: 18px; border-radius: 24px; border: 1px solid var(--border-color); background: rgba(255,255,255,.035); text-decoration: none; color: var(--text-primary); display: grid; gap: 8px; transition: var(--transition); }
+.quick-card:hover { transform: translateY(-3px); border-color: var(--border-hover); background: rgba(125,220,139,.07); }
+.quick-card i { font-size: 28px; }
+.quick-card b { font-size: 18px; }
+.quick-card span { color: var(--text-secondary); line-height: 1.5; }
+.quick-card.file i { color: var(--honeypot-file); } .quick-card.account i { color: var(--honeypot-account); } .quick-card.parasitic i { color: var(--honeypot-parasitic); } .quick-card.alert i { color: var(--primary-color); }
+.home-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.soc-panel-lite { border: 1px solid var(--border-color); border-radius: 26px; background: var(--bg-card); box-shadow: var(--shadow-md); overflow: hidden; }
+.panel-title { display: flex; justify-content: space-between; align-items: center; padding: 16px 18px; border-bottom: 1px solid var(--border-color); }
+.panel-title h2 { margin: 0; font-size: 20px; }
+.panel-title a { color: var(--primary-color); text-decoration: none; font-weight: 900; }
+.list-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 14px 18px; border-bottom: 1px solid rgba(148,163,184,.10); }
+.list-item:last-child { border-bottom: 0; }
+.list-item-info { display: flex; gap: 12px; align-items: center; min-width: 0; }
+.list-item-icon { width: 38px; height: 38px; border-radius: 14px; display: grid; place-items: center; background: rgba(125,220,139,.10); color: var(--primary-color); }
+.list-item-text h5 { margin: 0 0 4px; color: var(--text-primary); }
+.list-item-text p { margin: 0; color: var(--text-secondary); font-size: 12px; word-break: break-word; }
+.system-strip { margin-top: 14px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.system-strip div { padding: 18px; border-radius: 22px; border: 1px solid var(--border-color); background: rgba(255,255,255,.035); }
+.system-strip b { display: block; font: 900 30px/1 var(--font-display); color: var(--primary-color); }
+.system-strip span { color: var(--text-secondary); }
+@media (max-width: 1100px) { .quick-grid, .system-strip { grid-template-columns: repeat(2, 1fr); } .home-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .home-hero { flex-direction: column; } .quick-grid, .system-strip { grid-template-columns: 1fr; } }
+</style>
+
+<script>
+async function loadAgentStatus() {
+    try {
+        const response = await fetch('/api/agent/list?all=1');
+        const data = await response.json();
+        const container = document.getElementById('agentStatus');
+        const agents = data.agents_infos || [];
+        if (agents.length > 0) {
+            container.innerHTML = agents.slice(0, 5).map(agent => `
+                <div class="list-item">
+                    <div class="list-item-info"><div class="list-item-icon"><i class="fas fa-satellite-dish"></i></div><div class="list-item-text"><h5>${escapeHtml(agent.name || agent.client_name || agent.id)}</h5><p>${escapeHtml(agent.id || agent.client_id)} | ${escapeHtml(agent.ip || '未知 IP')}</p></div></div>
+                    <span class="badge ${agent.status === 'online' ? 'badge-online' : 'badge-offline'}"><span class="status-dot ${agent.status === 'online' ? 'online' : 'offline'}"></span>${agent.status === 'online' ? '在线' : '离线'}</span>
+                </div>`).join('');
+        } else {
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i><h4>暂无探针</h4><p>请先创建并启动 agent-go。</p></div>';
+        }
+    } catch (error) { console.error('加载探针状态失败:', error); }
+}
+
+async function loadRecentAlerts() {
+    try {
+        const response = await fetch('/api/alerts/unified?hours=24');
+        const data = await response.json();
+        const container = document.getElementById('recentAlerts');
+        const alerts = data.code === 0 ? (data.data.alerts || []) : [];
+        if (alerts.length > 0) {
+            const typeNames = { file: '文件蜜点', account: '账户蜜点', parasitic: '寄生蜜点' };
+            container.innerHTML = alerts.slice(0, 5).map(alert => `
+                <div class="list-item">
+                    <div class="list-item-info"><div class="list-item-icon"><i class="fas fa-exclamation-circle"></i></div><div class="list-item-text"><h5>${escapeHtml(typeNames[alert.alert_type] || alert.alert_type)}</h5><p>${escapeHtml(alert.action || '-')} | ${escapeHtml(alert.attacker_ip || '未知 IP')}</p></div></div>
+                    <span class="mono" style="color:var(--text-secondary);font-size:12px;">${formatTime(alert.timestamp)}</span>
+                </div>`).join('');
+        } else {
+            container.innerHTML = '<div class="empty-state"><i class="fas fa-bell-slash"></i><h4>暂无告警</h4><p>最近 24 小时没有三类蜜点告警。</p></div>';
+        }
+    } catch (error) { console.error('加载最近告警失败:', error); }
+}
+function formatTime(value) { const d = new Date(value); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleTimeString('zh-CN', { hour12: false }); }
+function escapeHtml(text) { return String(text || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+document.addEventListener('DOMContentLoaded', () => { loadAgentStatus(); loadRecentAlerts(); });
+</script>
+{% endblock %}

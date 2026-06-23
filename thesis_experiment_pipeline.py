@@ -69,26 +69,34 @@ def run_step2(run_dir: Path, step1_file: Path) -> Dict:
 
     graph_json = run_dir / "step2_causal_graph.json"
     graph_mmd = run_dir / "step2_causal_graph.mmd"
+    triples_json = run_dir / "step2_standard_triples.json"
+    sequence_json = run_dir / "step2_event_sequence.json"
 
     with open(graph_json, "w", encoding="utf-8") as f:
         json.dump(graph_data, f, ensure_ascii=False, indent=2)
+    with open(triples_json, "w", encoding="utf-8") as f:
+        json.dump(graph_data.get("triples", []), f, ensure_ascii=False, indent=2)
+    with open(sequence_json, "w", encoding="utf-8") as f:
+        json.dump(graph_data.get("event_sequence", []), f, ensure_ascii=False, indent=2)
     CausalGraphVisualizer.save_mermaid(graph_data, str(graph_mmd), "Thesis Causal Graph")
 
     return {
         "json": str(graph_json),
         "mermaid": str(graph_mmd),
+        "triples_json": str(triples_json),
+        "event_sequence_json": str(sequence_json),
         "nodes": len(graph_data.get("nodes", [])),
         "edges": len(graph_data.get("edges", [])),
         "triples": len(graph_data.get("triples", [])),
     }
 
 
-def run_step3(run_dir: Path, graph_json: Path, epochs: int) -> Dict:
+def run_step3(run_dir: Path, graph_json: Path, epochs: int, seed: int = 42) -> Dict:
     stats_before = get_graph_statistics(str(graph_json))
 
-    train_graphs = load_graphs_for_training(str(graph_json), num_graphs=120, augment=True)
-    val_graphs = load_graphs_for_training(str(graph_json), num_graphs=24, augment=True)
-    test_graphs = load_graphs_for_training(str(graph_json), num_graphs=36, augment=False)
+    train_graphs = load_graphs_for_training(str(graph_json), num_graphs=120, augment=True, base_seed=seed)
+    val_graphs = load_graphs_for_training(str(graph_json), num_graphs=24, augment=True, base_seed=seed + 1000)
+    test_graphs = load_graphs_for_training(str(graph_json), num_graphs=36, augment=False, base_seed=seed + 2000)
 
     ckpt_dir = run_dir / "checkpoints"
     ensure_dir(ckpt_dir)
@@ -146,7 +154,7 @@ def run_pipeline(run_name: str, hours: int, epochs: int, seed: int) -> Path:
 
     step1 = run_step1(run_dir, hours)
     step2 = run_step2(run_dir, Path(step1["file"]))
-    step3 = run_step3(run_dir, Path(step2["json"]), epochs)
+    step3 = run_step3(run_dir, Path(step2["json"]), epochs, seed)
     step4 = run_step4(run_dir, Path(step3["output_graph"]))
 
     summary = {
@@ -189,4 +197,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

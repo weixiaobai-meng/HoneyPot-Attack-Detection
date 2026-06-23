@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div id="header">
+    <h2>文件蜜点网页创建</h2>
+</div>
+<div id="mid">
+    <p>选择文件和模板，然后生成一个可部署的蜜点网页。</p>
+    
+    <div class="form-group">
+        <label for="template-select">选择前端模板：</label>
+        <select id="template-select">
+            {% for template in template_list %}
+            <option value="{{ template.name }}">{{ template.display_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <div class="file-selection-list">
+        <h4>选择要部署的文件：</h4>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="select-all"> 全选</th>
+                        <th>文件ID</th>
+                        <th>文件名</th>
+                        <th>创建时间</th>
+                    </tr>
+                </thead>
+                <tbody id="file-table-body">
+                    {% for file in file_list %}
+                    <tr>
+                        <td><input type="checkbox" class="file-checkbox" data-file-id="{{file.id}}"></td>
+                        <td>{{file.id}}</td>
+                        <td>{{file.name}}</td>
+                        <td>{{file.create_time}}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4">未找到文件。请先创建蜜点文件。</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <button id="generate-btn" class="btn-primary">生成并部署</button>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/honeypot_generator.js') }}"></script>
+{% endblock %}

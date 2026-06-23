@@ -1,0 +1,44 @@
+﻿# systemwire2 multi-server example
+# Must-change items for Internet deployment:
+# - FILE_ALERT_SERVER: public alert_server worker URL embedded into honey files
+# - MANAGE_ADDRESS: alert_server manage API reachable from systemwire2
+# - PARASITIC_ALERT_SERVER: public js/bot base URL used by injected parasitic JS and by systemwire2 pull
+# - LOCAL_ADDRESS / GATEWAY_SERVER_ADDRESS: public or private address that agents dial
+# - TLS_*: certificates served by systemwire2 gRPC
+FLASK_HOST = "0.0.0.0"
+FLASK_PORT = 5001
+FLASK_MODE = "debug"
+FLASK_HTTP_MODE = "http"
+FLASK_SECRET_KEY = "change-me-server"
+
+DB_TYPE = "sqlite"
+DB_FILE_NAME = "tripwire.db"
+DB_FILE_PATH = ""
+LOCAL_API_BYPASS_AUTH = False
+
+PARTMENT = "server-lab"
+
+GATEWAY_SERVER_ADDRESS = "10.10.10.10:8080"
+NACOS_SERVER_ADDRESS = ""
+LOCAL_ADDRESS = "10.10.10.10"
+
+KAFKA_SERVER_ADDRESS = "10.10.10.10"
+HONEYFILE_ALERT_TOPIC = "file_honey_point_trigger_alarm"
+HONEYEMAIL_ALERT_TOPIC = "email_trigger_alarm"
+
+FILE_ALERT_SERVER = "http://10.10.10.20:9090"
+MANAGE_ADDRESS = "http://10.10.10.20:9091"
+PARASITIC_ALERT_SERVER = "http://10.10.10.30:8080"
+API_KEY = "Xiaocheng"
+TIME_FORMAT = "timestamp"
+
+EMAIL_PERIOD_SECONDS = 100000000
+FILE_PERIOD_SECONDS = 100
+PARASITIC_PERIOD_SECONDS = 60
+
+GRPC_PORT = "50051"
+TLS_ENABLE = True
+AUTH_TYPE = "double"
+SERVER_CERT_PATH = "agent_server/ssl/server.pem"
+SERVER_KEY_PATH = "agent_server/ssl/server.key"
+CA_CERT_PATH = "agent_server/ssl/ca.crt"

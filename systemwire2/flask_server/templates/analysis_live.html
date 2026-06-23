@@ -1,0 +1,794 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="analysis-page">
+    <section class="analysis-hero">
+        <div class="hero-copy">
+            <div class="eyebrow"><span class="live-dot"></span> 实时分析流水线</div>
+            <h1>实时分析结果页</h1>
+            <p>
+                基于当前统一告警库，触发 Step1-Step4 原型流水线，展示统一事件、标准三元组、攻击图谱与图转文本输出。
+                本页面用于支撑论文中期答辩与后续实验验证，不影响原有告警产生与展示链路。
+            </p>
+        </div>
+        <div class="hero-actions">
+            <label>
+                <span>分析窗口</span>
+                <select id="analysisHours" class="analysis-select">
+                    <option value="24" selected>最近 24 小时</option>
+                    <option value="72">最近 72 小时</option>
+                    <option value="168">最近 7 天</option>
+                    <option value="0">全部时间</option>
+                </select>
+            </label>
+            <button class="analysis-btn primary" onclick="runAnalysis()">
+                <i class="fas fa-play"></i> 运行实时分析
+            </button>
+            <button class="analysis-btn ghost" onclick="refreshAnalysis()">
+                <i class="fas fa-rotate"></i> 读取最新结果
+            </button>
+            <a class="analysis-btn secondary" href="{{ url_for('api.manage_alert_unified') }}">
+                <i class="fas fa-bell"></i> 返回告警中心
+            </a>
+        </div>
+    </section>
+
+    <section class="metric-grid">
+        <article class="metric-card">
+            <span class="metric-kicker">告警</span>
+            <strong id="metricTotalAlerts">0</strong>
+            <span>分析窗口内总告警数</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-kicker">图谱</span>
+            <strong id="metricNodes">0 / 0</strong>
+            <span>节点数 / 边数</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-kicker">三元组</span>
+            <strong id="metricTriples">0</strong>
+            <span>标准三元组数量</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-kicker">路径</span>
+            <strong id="metricPaths">0</strong>
+            <span>攻击路径组数量</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-kicker">裁剪</span>
+            <strong id="metricPruning">-</strong>
+            <span>裁剪压缩率</span>
+        </article>
+    </section>
+
+    <section id="statusBanner" class="status-banner info">正在读取最新分析结果...</section>
+    <section id="errorBanner" class="status-banner error" style="display:none;"></section>
+
+    <section class="summary-panel">
+        <div class="summary-left">
+            <h2>运行摘要</h2>
+            <p id="summaryText">尚未运行分析。</p>
+            <div class="summary-chips">
+                <span class="summary-chip">摘要文件: <code id="summaryPath">-</code></span>
+                <span class="summary-chip">图谱输出: <code id="graphPath">-</code></span>
+                <span class="summary-chip">文本输出: <code id="textPath">-</code></span>
+            </div>
+        </div>
+        <div class="summary-right">
+            <div class="mini-stat">
+                <span>文件告警</span>
+                <strong id="metricFileAlerts">0</strong>
+            </div>
+            <div class="mini-stat">
+                <span>账户告警</span>
+                <strong id="metricAccountAlerts">0</strong>
+            </div>
+            <div class="mini-stat">
+                <span>寄生告警</span>
+                <strong id="metricParasiticAlerts">0</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="tab-panel">
+        <div class="tab-header">
+            <button class="tab-btn active" data-tab="events" onclick="switchTab('events')">统一事件</button>
+            <button class="tab-btn" data-tab="triples" onclick="switchTab('triples')">标准三元组</button>
+            <button class="tab-btn" data-tab="graph" onclick="switchTab('graph')">攻击图谱</button>
+            <button class="tab-btn" data-tab="text" onclick="switchTab('text')">图转文本</button>
+        </div>
+
+        <div class="tab-content active" id="tab-events">
+            <div class="table-toolbar">
+                <label>
+                    <span>事件类型</span>
+                    <select id="eventTypeFilter" class="analysis-select" onchange="renderEvents()">
+                        <option value="all">全部</option>
+                        <option value="file">文件</option>
+                        <option value="account">账户</option>
+                        <option value="parasitic">寄生</option>
+                        <option value="audit">审计</option>
+                    </select>
+                </label>
+                <label class="search-inline">
+                    <span>关键词</span>
+                    <input id="eventKeyword" class="analysis-input" placeholder="IP / action / target / username" oninput="renderEvents()">
+                </label>
+            </div>
+            <div class="table-wrap">
+                <table class="analysis-table">
+                    <thead>
+                        <tr>
+                            <th>时间</th>
+                            <th>类型</th>
+                            <th>源IP</th>
+                            <th>动作</th>
+                            <th>目标</th>
+                            <th>会话/指纹</th>
+                            <th>关键说明</th>
+                        </tr>
+                    </thead>
+                    <tbody id="eventsTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-triples">
+            <div class="table-wrap">
+                <table class="analysis-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>主体</th>
+                            <th>关系</th>
+                            <th>客体</th>
+                        </tr>
+                    </thead>
+                    <tbody id="triplesTable"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-graph">
+            <div class="graph-grid">
+                <div class="graph-card">
+                    <h3>Mermaid 图谱源码</h3>
+                    <pre id="mermaidText" class="graph-code">暂无图谱输出。</pre>
+                </div>
+                <div class="graph-card">
+                    <h3>攻击者聚类</h3>
+                    <div id="attackerGroupsList" class="list-stack"></div>
+                </div>
+                <div class="graph-card">
+                    <h3>攻击路径组</h3>
+                    <div id="attackPathsList" class="list-stack"></div>
+                </div>
+                <div class="graph-card">
+                    <h3>图谱元信息</h3>
+                    <div id="graphMetaList" class="kv-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-content" id="tab-text">
+            <div class="text-grid">
+                <article class="text-card">
+                    <h3>攻击意图分析文本</h3>
+                    <pre id="textIntent">暂无文本输出。</pre>
+                </article>
+                <article class="text-card">
+                    <h3>TTP 映射文本</h3>
+                    <pre id="textTtp">暂无文本输出。</pre>
+                </article>
+                <article class="text-card">
+                    <h3>分析报告文本</h3>
+                    <pre id="textReport">暂无文本输出。</pre>
+                </article>
+            </div>
+        </div>
+    </section>
+</div>
+
+<style>
+html,
+body,
+#container,
+#main-container,
+#main-content {
+    min-height: 0;
+}
+
+#main-container,
+#main-content {
+    min-width: 0;
+}
+
+#main-content {
+    background: #07100f;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+#main-content > .analysis-page {
+    flex: 0 0 auto;
+    min-height: 100%;
+}
+
+.analysis-page {
+    --line: rgba(148, 163, 184, 0.18);
+    --text: #eef7ee;
+    --muted: #95a79f;
+    --green: #7ddc8b;
+    --bg: #07100f;
+    height: auto;
+    min-height: 100%;
+    min-width: 0;
+    overflow: visible;
+    padding: 14px 16px 28px;
+    scrollbar-gutter: stable both-edges;
+    color: var(--text);
+    background:
+        radial-gradient(circle at 8% 4%, rgba(125, 220, 139, 0.16), transparent 32%),
+        radial-gradient(circle at 86% 8%, rgba(91, 214, 214, 0.12), transparent 35%),
+        linear-gradient(135deg, #06100f 0%, #0a1514 46%, #10140c 100%);
+    font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+.analysis-page * { box-sizing: border-box; }
+.analysis-hero,
+.metric-card,
+.summary-panel,
+.tab-panel,
+.graph-card,
+.text-card,
+.status-banner {
+    border: 1px solid var(--line);
+    background: linear-gradient(145deg, rgba(13, 27, 26, .92), rgba(8, 18, 17, .82));
+    box-shadow: 0 20px 60px rgba(0, 0, 0, .24);
+    backdrop-filter: blur(14px);
+}
+.analysis-hero {
+    display: grid;
+    grid-template-columns: minmax(420px, 1fr) 360px;
+    gap: 12px;
+    padding: 18px 22px;
+    border-radius: 24px;
+    margin-bottom: 12px;
+}
+.eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--green);
+    font: 700 12px/1 'Space Grotesk', sans-serif;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+}
+.live-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 0 7px rgba(125, 220, 139, .12), 0 0 22px rgba(125, 220, 139, .7);
+}
+.hero-copy h1 {
+    margin: 10px 0 8px;
+    font: 800 clamp(28px, 3.2vw, 44px)/.98 'Space Grotesk', 'Noto Sans SC', sans-serif;
+    letter-spacing: -.04em;
+}
+.hero-copy p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.68; }
+.hero-actions {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+}
+.hero-actions label,
+.table-toolbar label {
+    display: grid;
+    gap: 6px;
+}
+.hero-actions span,
+.table-toolbar span {
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .1em;
+}
+.analysis-select,
+.analysis-input {
+    width: 100%;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background: rgba(5, 13, 12, 0.85);
+    color: var(--text);
+    border-radius: 14px;
+    padding: 10px 12px;
+    font-size: 14px;
+}
+.analysis-input::placeholder { color: #70817b; }
+.analysis-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 14px;
+    padding: 10px 14px;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    color: var(--text);
+    background: rgba(255,255,255,.04);
+    cursor: pointer;
+}
+.analysis-btn.primary { background: linear-gradient(135deg, rgba(125,220,139,.24), rgba(92,183,110,.18)); }
+.analysis-btn.secondary { background: linear-gradient(135deg, rgba(91,214,214,.18), rgba(64,112,170,.16)); }
+.analysis-btn.ghost { background: rgba(255,255,255,.03); }
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.metric-card {
+    min-height: 96px;
+    border-radius: 20px;
+    padding: 14px 16px;
+}
+.metric-kicker {
+    display: block;
+    color: var(--muted);
+    font: 700 11px/1 'Space Grotesk', sans-serif;
+    text-transform: uppercase;
+    letter-spacing: .12em;
+}
+.metric-card strong {
+    display: block;
+    margin-top: 10px;
+    font: 800 30px/1 'Space Grotesk', sans-serif;
+}
+.metric-card span:last-child { display: block; margin-top: 8px; }
+.status-banner {
+    border-radius: 18px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    color: #dcebdc;
+}
+.status-banner.error {
+    border-color: rgba(244, 114, 182, .35);
+    color: #ffd4e5;
+    background: linear-gradient(145deg, rgba(60, 17, 31, .92), rgba(38, 10, 18, .82));
+}
+.summary-panel {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: 12px;
+    border-radius: 22px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+}
+.summary-panel h2 { margin: 0 0 8px; font-size: 18px; }
+.summary-panel p { margin: 0; color: var(--muted); line-height: 1.65; }
+.summary-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 12px;
+}
+.summary-chip {
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    font-size: 12px;
+}
+.summary-chip code {
+    color: #c3ffe0;
+    font-family: 'JetBrains Mono', monospace;
+}
+.summary-right {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+.mini-stat {
+    border-radius: 16px;
+    padding: 12px;
+    background: rgba(255,255,255,.035);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+}
+.mini-stat span { display: block; color: var(--muted); font-size: 12px; }
+.mini-stat strong { display: block; margin-top: 10px; font-size: 24px; }
+.tab-panel {
+    border-radius: 24px;
+    padding: 14px;
+}
+.tab-header {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+.tab-btn {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 999px;
+    background: rgba(255,255,255,.03);
+    color: var(--text);
+    padding: 9px 14px;
+    cursor: pointer;
+    font-weight: 700;
+}
+.tab-btn.active {
+    background: linear-gradient(135deg, rgba(125,220,139,.24), rgba(91,214,214,.18));
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+.table-toolbar {
+    display: flex;
+    gap: 12px;
+    align-items: end;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+}
+.search-inline { min-width: 280px; flex: 1; }
+.table-wrap {
+    overflow-x: auto;
+    overflow-y: visible;
+    border-radius: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    max-width: 100%;
+    min-width: 0;
+    padding-bottom: 12px;
+    scrollbar-gutter: stable;
+}
+.analysis-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 960px;
+}
+.analysis-table th,
+.analysis-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+    text-align: left;
+    vertical-align: top;
+}
+.analysis-table th {
+    position: sticky;
+    top: 0;
+    background: rgba(7, 16, 15, 0.96);
+    font-size: 12px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+.empty-row td { color: var(--muted); text-align: center; padding: 24px; }
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 3px 9px;
+    font-size: 12px;
+    background: rgba(255,255,255,.06);
+}
+.pill.file { color: #9ec5ff; }
+.pill.account { color: #ffd39a; }
+.pill.parasitic { color: #97f0f0; }
+.pill.audit { color: #d3d9df; }
+.graph-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 12px;
+}
+.graph-card,
+.text-card {
+    border-radius: 18px;
+    padding: 14px;
+}
+.graph-card h3,
+.text-card h3 { margin: 0 0 10px; font-size: 16px; }
+.graph-code,
+.text-card pre {
+    margin: 0;
+    min-height: 240px;
+    max-height: 520px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    padding: 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(3, 10, 9, 0.78);
+    color: #d6f5de;
+    font: 13px/1.6 'JetBrains Mono', monospace;
+}
+.graph-card:last-child { grid-column: 1 / -1; }
+.list-stack {
+    display: grid;
+    gap: 10px;
+}
+.list-item {
+    border-radius: 14px;
+    padding: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(255,255,255,.03);
+}
+.list-item strong { display: block; margin-bottom: 6px; }
+.list-item p { margin: 0; color: var(--muted); line-height: 1.6; }
+.kv-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+}
+.kv-item {
+    border-radius: 14px;
+    padding: 10px 12px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(255,255,255,.03);
+}
+.kv-item span { display: block; color: var(--muted); font-size: 12px; }
+.kv-item strong { display: block; margin-top: 6px; }
+.text-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+@media (max-width: 1200px) {
+    .analysis-hero,
+    .summary-panel,
+    .graph-grid,
+    .text-grid {
+        grid-template-columns: 1fr;
+    }
+    .metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 680px) {
+    .analysis-page {
+        padding: 12px 12px 24px;
+    }
+    .metric-grid {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let analysisSummary = null;
+let analysisEvents = [];
+let analysisTriples = [];
+let analysisGraph = null;
+let analysisTexts = null;
+let activeTab = 'events';
+
+function setStatus(message, isError = false) {
+    const status = document.getElementById('statusBanner');
+    const error = document.getElementById('errorBanner');
+    if (isError) {
+        error.style.display = 'block';
+        error.textContent = message;
+    } else {
+        error.style.display = 'none';
+    }
+    status.textContent = message;
+}
+
+function switchTab(name) {
+    activeTab = name;
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === name));
+    document.querySelectorAll('.tab-content').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${name}`));
+}
+
+async function fetchJson(url, options = {}) {
+    const response = await fetch(url, options);
+    const result = await response.json();
+    if (!response.ok || result.code !== 0) {
+        throw new Error(result.message || `HTTP ${response.status}`);
+    }
+    return result.data;
+}
+
+function updateSummaryCards(summary) {
+    const counts = summary.alert_counts || {};
+    const graph = summary.graph || {};
+    const outputs = summary.outputs || {};
+    const pruning = summary.pruning_stats || {};
+    const sourceMode = summary.analysis_source_mode || ((summary.collector_sources || {}).analysis_source_mode) || 'mixed';
+    const includeTypes = summary.analysis_include_alert_types || ((summary.collector_sources || {}).analysis_include_alert_types) || [];
+    document.getElementById('metricTotalAlerts').textContent = summary.total_alerts || 0;
+    document.getElementById('metricNodes').textContent = `${graph.nodes || 0} / ${graph.edges || 0}`;
+    document.getElementById('metricTriples').textContent = graph.triples || graph.triple_count || 0;
+    document.getElementById('metricPaths').textContent = graph.attack_paths || graph.path_count || 0;
+    document.getElementById('metricPruning').textContent = pruning.compression_ratio || '-';
+    document.getElementById('metricFileAlerts').textContent = counts.file || 0;
+    document.getElementById('metricAccountAlerts').textContent = counts.account || 0;
+    document.getElementById('metricParasiticAlerts').textContent = counts.parasitic || 0;
+    document.getElementById('summaryText').textContent =
+        `模式：${summary.mode || '-'}；数据源：${sourceMode}；范围：${includeTypes.length ? includeTypes.join(' / ') : '全部'}；生成时间：${summary.generated_at || '-'}；总告警数：${summary.total_alerts || 0}。`;
+    document.getElementById('summaryPath').textContent = (summary.paths || {}).summary || outputs.summary || '-';
+    document.getElementById('graphPath').textContent = (summary.paths || {}).step2 || outputs.step2_causal_graph || '-';
+    document.getElementById('textPath').textContent = (summary.paths || {}).step4_intent || outputs.step4_intent_analysis || outputs.step4_llm_prompt || '-';
+}
+
+function typePill(type) {
+    const labelMap = { file: '文件', account: '账户', parasitic: '寄生', audit: '审计' };
+    return `<span class="pill ${type || ''}">${labelMap[type] || type || '-'}</span>`;
+}
+
+function detailSummary(item) {
+    const details = item.details || {};
+    if (item.alert_type === 'file') {
+        return `${details.filename || '-'} / ${details.token || '-'}`
+    }
+    if (item.alert_type === 'account') {
+        return `${details.username || '-'} / ${details.protocol || '-'} / ${details.client_family || '-'}`
+    }
+    if (item.alert_type === 'parasitic') {
+        return `${details.browser || '-'} / ${details.fingerprint || '-'}`
+    }
+    return details.reason || '-';
+}
+
+function renderEvents() {
+    const tbody = document.getElementById('eventsTable');
+    const typeValue = document.getElementById('eventTypeFilter').value;
+    const keyword = document.getElementById('eventKeyword').value.trim().toLowerCase();
+    let rows = analysisEvents.slice();
+    if (typeValue !== 'all') {
+        rows = rows.filter(item => (item.alert_type || '').toLowerCase() === typeValue);
+    }
+    if (keyword) {
+        rows = rows.filter(item => JSON.stringify(item).toLowerCase().includes(keyword));
+    }
+    if (!rows.length) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="7">暂无可展示的统一事件。</td></tr>';
+        return;
+    }
+    tbody.innerHTML = rows.map(item => {
+        const target = item.target_path || item.target_host || '-';
+        const session = item.session_id || (item.details || {}).fingerprint || '-';
+        return `
+            <tr>
+                <td>${item.timestamp || '-'}</td>
+                <td>${typePill(item.alert_type)}</td>
+                <td>${item.attacker_ip || '-'}</td>
+                <td>${item.action || '-'}</td>
+                <td>${target}</td>
+                <td>${session}</td>
+                <td>${detailSummary(item)}</td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function renderTriples() {
+    const tbody = document.getElementById('triplesTable');
+    if (!analysisTriples.length) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="4">暂无标准三元组。</td></tr>';
+        return;
+    }
+    tbody.innerHTML = analysisTriples.map(item => `
+        <tr>
+            <td>${item.id || '-'}</td>
+            <td>${item.subject || '-'}</td>
+            <td>${item.predicate || '-'}</td>
+            <td>${item.object || '-'}</td>
+        </tr>
+    `).join('');
+}
+
+function renderGraph() {
+    const mermaid = document.getElementById('mermaidText');
+    const attackerList = document.getElementById('attackerGroupsList');
+    const pathList = document.getElementById('attackPathsList');
+    const metaList = document.getElementById('graphMetaList');
+    if (!analysisGraph) {
+        mermaid.textContent = '暂无图谱输出。';
+        attackerList.innerHTML = '<div class="list-item"><p>暂无攻击者聚类。</p></div>';
+        pathList.innerHTML = '<div class="list-item"><p>暂无攻击路径组。</p></div>';
+        metaList.innerHTML = '';
+        return;
+    }
+    mermaid.textContent = analysisGraph.mermaid || '暂无 Mermaid 图内容。';
+    const attackers = analysisGraph.attacker_groups || [];
+    const paths = analysisGraph.attack_paths || [];
+    attackerList.innerHTML = attackers.length ? attackers.map(item => `
+        <div class="list-item">
+            <strong>${item.attacker_id || 'attacker'} · 事件数 ${item.event_count || 0}</strong>
+            <p>路径：${(item.path_ids || []).join(', ') || '-'}；锚点：${(item.anchors || []).join(' / ') || '-'}；时间范围：${item.start_time || '-'} ~ ${item.end_time || '-'}</p>
+        </div>
+    `).join('') : '<div class="list-item"><p>暂无攻击者聚类。</p></div>';
+    pathList.innerHTML = paths.length ? paths.map(item => `
+        <div class="list-item">
+            <strong>${item.path_id || 'path'} · 事件数 ${item.event_count || 0}</strong>
+            <p>攻击者：${item.attacker_id || '-'}；锚点：${(item.anchors || []).join(' / ') || '-'}；时间范围：${item.start_time || '-'} ~ ${item.end_time || '-'}</p>
+        </div>
+    `).join('') : '<div class="list-item"><p>暂无攻击路径组。</p></div>';
+    const meta = analysisGraph.graph_meta || {};
+    const items = [
+        ['节点数', meta.node_count || (analysisGraph.nodes || []).length || 0],
+        ['边数', meta.edge_count || (analysisGraph.edges || []).length || 0],
+        ['事件边', meta.event_edge_count || 0],
+        ['关联边', meta.correlation_edge_count || 0],
+        ['三元组', meta.triple_count || (analysisGraph.triples || []).length || 0],
+        ['攻击者聚类', meta.attacker_count || attackers.length || 0],
+        ['路径组', meta.path_count || paths.length || 0],
+        ['图谱模式', analysisGraph.mode || 'full'],
+    ];
+    metaList.innerHTML = items.map(([k, v]) => `
+        <div class="kv-item">
+            <span>${k}</span>
+            <strong>${v}</strong>
+        </div>
+    `).join('');
+}
+
+function renderTexts() {
+    document.getElementById('textIntent').textContent = (analysisTexts && analysisTexts.intent_analysis) || '暂无文本输出。';
+    document.getElementById('textTtp').textContent = (analysisTexts && analysisTexts.ttp_mapping) || '暂无文本输出。';
+    document.getElementById('textReport').textContent = (analysisTexts && analysisTexts.report) || '暂无文本输出。';
+}
+
+async function loadSummary() {
+    analysisSummary = await fetchJson('/api/analysis/live/summary');
+    updateSummaryCards(analysisSummary);
+}
+
+async function loadEvents() {
+    const payload = await fetchJson('/api/analysis/live/events?limit=1000');
+    analysisEvents = payload.events || [];
+    renderEvents();
+}
+
+async function loadTriples() {
+    const payload = await fetchJson('/api/analysis/live/triples?limit=1000');
+    analysisTriples = payload.triples || [];
+    renderTriples();
+}
+
+async function loadGraph() {
+    analysisGraph = await fetchJson('/api/analysis/live/graph');
+    renderGraph();
+}
+
+async function loadTexts() {
+    analysisTexts = await fetchJson('/api/analysis/live/text');
+    renderTexts();
+}
+
+async function refreshAnalysis() {
+    setStatus('正在读取最新分析结果...');
+    try {
+        await loadSummary();
+        await loadEvents();
+        await loadTriples();
+        await loadGraph();
+        await loadTexts();
+        setStatus('分析结果读取完成。');
+    } catch (error) {
+        setStatus(error.message || '读取分析结果失败。', true);
+    }
+}
+
+async function runAnalysis() {
+    const hours = Number(document.getElementById('analysisHours').value || 24);
+    setStatus('正在触发 Step1-Step4 实时分析，请稍候...');
+    try {
+        await fetchJson('/api/analysis/live', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hours })
+        });
+        await refreshAnalysis();
+        setStatus(`实时分析已完成，当前分析窗口为最近 ${hours === 0 ? '全部' : hours + ' 小时'}。`);
+    } catch (error) {
+        setStatus(error.message || '运行实时分析失败。', true);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    switchTab('events');
+    refreshAnalysis();
+});
+</script>
+{% endblock %}

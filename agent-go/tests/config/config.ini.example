@@ -1,0 +1,18 @@
+# TLS配置
+[AGENT]
+AgentMode = online
+ServerAddress = 127.0.0.1:50051
+Token = xxxxxxxxxxx
+ReportInterval = 5  # 单位s
+RealTimeUpdate = true
+MonitorType = audit
+LogPath = log/agent.log
+
+[TLS]
+Enable = true
+AuthType = 2
+ServerCertPath = 
+ClientCertPath = 
+ClientKeyPath = 
+CACertPath = 
+ServerName = *.cfly.top

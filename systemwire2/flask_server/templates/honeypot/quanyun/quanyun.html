@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全云蜜罐页面</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/quanyun.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>全云蜜罐系统</h1>
+        <p>欢迎访问全云蜜罐页面</p>
+        
+        <div class="file-list">
+            <h2>可下载文件</h2>
+            <ul id="file-list-container">
+                <!-- 文件列表将通过JavaScript动态加载 -->
+            </ul>
+        </div>
+        
+        <div class="footer">
+            <p>&copy; 2025 全云蜜罐系统</p>
+        </div>
+    </div>
+    
+    <script>
+        // 获取URL参数中的文件名
+        const urlParams = new URLSearchParams(window.location.search);
+        const fileName = urlParams.get('file');
+        
+        if (fileName) {
+            // 如果有文件名参数，直接显示下载链接
+            document.getElementById('file-list-container').innerHTML = `
+                <li>
+                    <a href="/download/${fileName}" class="download-link">点击下载文件: ${fileName}</a>
+                </li>
+            `;
+        } else {
+            // 否则显示文件列表
+            fetch('/api/files')
+                .then(response => response.json())
+                .then(data => {
+                    const fileListContainer = document.getElementById('file-list-container');
+                    if (data.files && data.files.length > 0) {
+                        fileListContainer.innerHTML = data.files.map(file => `
+                            <li>
+                                <a href="/download/${file}" class="download-link">${file}</a>
+                            </li>
+                        `).join('');
+                    } else {
+                        fileListContainer.innerHTML = '<li>暂无可用文件</li>';
+                    }
+                })
+                .catch(error => {
+                    console.error('获取文件列表失败:', error);
+                    document.getElementById('file-list-container').innerHTML = '<li>获取文件列表失败</li>';
+                });
+        }
+    </script>
+</body>
+</html>

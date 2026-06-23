@@ -1,0 +1,7 @@
+{
+  "listen_port": 22,
+  "alert_server": "http://localhost:9090/account/alert",
+  "log_file": "ssh_auth_log.json",
+  "max_connections": 100,
+  "timeout": 30
+}

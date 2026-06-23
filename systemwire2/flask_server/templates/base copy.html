@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统管理</title>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/manage.css') }}">
+    
+</head>
+<body>
+    <div id="container">
+        <div id="sider">
+            <div id="sider-header">
+                <h2>管理系统简易版</h2>
+            </div>
+            <div class="menu-item">
+                <i class="fas fa-folder"></i>
+                <span>文件管理</span>
+                <div class="submenu">
+                    <a href="{{ url_for('api.manage_file_create') }}" class="submenu-item">新增文件</a>
+                    <a href="{{ url_for('api.manage_file_deploy') }}" class="submenu-item">部署信息</a>
+                    <a href="{{ url_for('api.manage_file_list') }}" class="submenu-item">文件仓库</a>
+                    <div class="submenu-item">模板库</div>
+                </div>
+            </div>
+            <div class="menu-item">
+                <i class="fas fa-users"></i>
+                <span>单位管理</span>
+                <div class="submenu">
+                    <div href="{{ url_for('api.manage_company_list') }}" class="submenu-item">单位列表</div>
+                    <div href="{{ url_for('api.manage_company_create') }}" class="submenu-item">创建单位</div>
+                </div>
+            </div>
+            <div class="menu-item">
+                <i class="fas fa-users"></i>
+                <span>探针管理</span>
+                <div class="submenu">
+                    <a href="{{ url_for('api.manage_agent_list') }}" class="submenu-item">探针列表</a>
+                    <a href="{{ url_for('api.manage_agent_command_list') }}" class="submenu-item">探针命令记录</a>
+                </div>
+            </div>
+            <div class="menu-item">
+                <i class="fas fa-users"></i>
+                <span>告警信息</span>
+                <div class="submenu">
+                    <a href="{{ url_for('api.manage_alert_file') }}" class="submenu-item">文件告警</a>
+                </div>
+            </div>
+        </div>
+        <div id="main-content">
+             {% block content %}
+             {% endblock %}
+        </div>
+    </div>
+</body>
+</html>

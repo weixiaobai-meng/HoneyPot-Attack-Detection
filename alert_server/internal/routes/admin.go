@@ -42,4 +42,8 @@ func AdminRoutes(router *gin.Engine) {
 	router.POST("/filters/white", handlers.CreateFilterWhite)         // 添加白名单
 	router.DELETE("/filters/white", handlers.DeleteFilterWhite)       // 删除白名单
 
+	// 寄生蜜点数据查询（需要鉴权）
+	router.GET("/api/logs", handlers.LogsHandler)
+	router.GET("/internal/target-ips", handlers.TargetIPsHandler)
+
 }

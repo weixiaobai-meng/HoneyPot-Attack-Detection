@@ -1,0 +1,300 @@
+﻿{% extends 'base.html' %}
+
+{% block content %}
+<div id="header">
+    <h2><i class="fas fa-file-medical"></i> 文件蜜点部署</h2>
+</div>
+
+<div id="mid">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="fas fa-satellite-dish"></i></div>
+            <div class="stat-info"><span class="stat-value" id="agentCount">0</span><span class="stat-label">在线探针</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon purple"><i class="fas fa-file"></i></div>
+            <div class="stat-info"><span class="stat-value" id="fileCount">0</span><span class="stat-label">可用文件</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="fas fa-check-circle"></i></div>
+            <div class="stat-info"><span class="stat-value" id="selectedCount">0</span><span class="stat-label">已选文件</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="fas fa-folder-open"></i></div>
+            <div class="stat-info"><span class="stat-value" id="pathCount">0</span><span class="stat-label">部署目录</span></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3><i class="fas fa-rocket"></i> 部署配置</h3>
+        </div>
+        <div class="card-body">
+            <form id="deployForm">
+                <div class="deploy-grid">
+                    <div>
+                        <div class="form-group">
+                            <label><i class="fas fa-satellite-dish"></i> 选择探针</label>
+                            <select id="agentSelect" class="form-control" required>
+                                <option value="">请选择在线探针...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label><i class="fas fa-file"></i> 选择文件蜜点（支持多选）</label>
+                            <select id="fileSelect" class="form-control multi-select" multiple size="8" required></select>
+                            <small class="help-text">按住 Ctrl 可以选择多个文件，后端会一次下发为 <code>files[]</code>。</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label><i class="fas fa-folder-open"></i> 部署路径</label>
+                            <div class="inline-row">
+                                <input type="text" id="deployPath" class="form-control" placeholder="例如: C:\\Users\\Public\\Documents 或 /home/user/Documents">
+                                <button type="button" class="btn btn-secondary" onclick="addPath()"><i class="fas fa-plus"></i> 添加</button>
+                            </div>
+                            <div id="pathList" class="path-list"></div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="monitorCheck" checked>
+                                <span>部署后自动加入 agent 文件监控</span>
+                            </label>
+                            <small class="help-text">说明：统一告警中心只展示 alert_server 拉取入库的文件蜜点告警；agent 文件监控只在“探针管理 -> 文件监控告警”里辅助排查。</small>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div class="card inner-card">
+                            <div class="card-header"><h3><i class="fas fa-info-circle"></i> 部署说明</h3></div>
+                            <div class="card-body note-body">
+                                <p><i class="fas fa-check text-success"></i> 支持一次选择多个 docx/xlsx 等蜜点文件。</p>
+                                <p><i class="fas fa-check text-success"></i> 每个文件都会部署到所有目标目录。</p>
+                                <p><i class="fas fa-check text-success"></i> 告警中心只看文件 token 回连告警，主机文件监控保留在探针审计页。</p>
+                                <p><i class="fas fa-check text-success"></i> 建议部署到用户常访问目录，例如桌面、文档、下载目录。</p>
+                            </div>
+                        </div>
+
+                        <div class="quick-paths">
+                            <p>推荐路径</p>
+                            <div class="badge-row">
+                                <span class="badge badge-file" onclick="setPath('C:\\Users\\Public\\Desktop')">Windows Desktop</span>
+                                <span class="badge badge-file" onclick="setPath('C:\\Users\\Public\\Documents')">Windows Documents</span>
+                                <span class="badge badge-file" onclick="setPath('/home/user/Desktop')">Linux Desktop</span>
+                                <span class="badge badge-file" onclick="setPath('/home/user/Documents')">Linux Documents</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="resetForm()"><i class="fas fa-undo"></i> 重置</button>
+                    <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-rocket"></i> 开始部署</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card mt-4">
+        <div class="card-header"><h3><i class="fas fa-terminal"></i> 最近一次提交结果</h3></div>
+        <div class="card-body"><div id="lastResult" class="last-result">还没有发送部署命令。</div></div>
+    </div>
+</div>
+
+<style>
+.mt-4 { margin-top: 1rem; }
+.deploy-grid { display: grid; grid-template-columns: minmax(420px, 1.1fr) minmax(320px, 0.9fr); gap: 1.5rem; }
+.inline-row { display: flex; gap: 0.5rem; }
+.multi-select { min-height: 220px; }
+.help-text { display: block; margin-top: 0.45rem; color: var(--text-muted); font-size: 0.78rem; line-height: 1.5; }
+.path-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+.path-chip { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.5rem 0.75rem; border-radius: 999px; background: rgba(14, 165, 233, 0.12); color: var(--text-primary); border: 1px solid rgba(14, 165, 233, 0.24); }
+.path-chip i:last-child { cursor: pointer; color: var(--text-muted); }
+.inner-card { background: var(--bg-primary); }
+.note-body { font-size: 0.84rem; color: var(--text-secondary); line-height: 1.9; }
+.quick-paths { margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: var(--radius-md); }
+.quick-paths p { margin: 0 0 0.7rem 0; color: var(--text-muted); font-size: 0.78rem; }
+.badge-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.badge-file { cursor: pointer; transition: var(--transition); }
+.badge-file:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(59, 130, 246, 0.28); }
+.form-actions { margin-top: 1.5rem; display: flex; justify-content: flex-end; gap: 1rem; }
+.last-result { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.8; }
+@media (max-width: 900px) { .deploy-grid { grid-template-columns: 1fr; } .inline-row { flex-direction: column; } }
+</style>
+
+<script>
+let deployPaths = [];
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+async function loadAgents() {
+    try {
+        const response = await fetch('/api/agent/list');
+        const data = await response.json();
+        const agents = data.agents_infos || [];
+        const select = document.getElementById('agentSelect');
+        select.innerHTML = '<option value="">请选择在线探针...</option>';
+        document.getElementById('agentCount').textContent = agents.length;
+        agents.forEach((agent) => {
+            const name = agent.name || agent.id;
+            select.innerHTML += `<option value="${escapeHtml(agent.id)}">${escapeHtml(name)}</option>`;
+        });
+    } catch (error) {
+        console.error('loadAgents failed', error);
+    }
+}
+
+async function loadFiles() {
+    try {
+        const response = await fetch('/file/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ page_num: 1, page_size: 200 })
+        });
+        const data = await response.json();
+        const files = data.data || [];
+        const select = document.getElementById('fileSelect');
+        select.innerHTML = '';
+        document.getElementById('fileCount').textContent = files.length;
+        files.forEach((file) => {
+            const name = file.filename || file.name || `file-${file.id}`;
+            select.innerHTML += `<option value="${file.id}" data-filename="${escapeHtml(name)}">${escapeHtml(name)}</option>`;
+        });
+        updateSelectedCount();
+    } catch (error) {
+        console.error('loadFiles failed', error);
+    }
+}
+
+function updateSelectedCount() {
+    const selected = Array.from(document.getElementById('fileSelect').selectedOptions || []);
+    document.getElementById('selectedCount').textContent = selected.length;
+}
+
+function addPath() {
+    const input = document.getElementById('deployPath');
+    const path = input.value.trim();
+    if (path && !deployPaths.includes(path)) {
+        deployPaths.push(path);
+        input.value = '';
+        renderPathList();
+    }
+}
+
+function setPath(path) {
+    document.getElementById('deployPath').value = path;
+}
+
+function removePath(index) {
+    deployPaths.splice(index, 1);
+    renderPathList();
+}
+
+function renderPathList() {
+    document.getElementById('pathCount').textContent = deployPaths.length;
+    const list = document.getElementById('pathList');
+    list.innerHTML = deployPaths.map((path, index) => `
+        <div class="path-chip">
+            <i class="fas fa-folder"></i>
+            <span>${escapeHtml(path)}</span>
+            <i class="fas fa-times" onclick="removePath(${index})"></i>
+        </div>
+    `).join('');
+}
+
+function resetForm() {
+    deployPaths = [];
+    document.getElementById('deployForm').reset();
+    renderPathList();
+    updateSelectedCount();
+}
+
+function renderResult(message, isError = false) {
+    const result = document.getElementById('lastResult');
+    result.style.color = isError ? 'var(--danger-color, #ef4444)' : 'var(--text-secondary)';
+    result.innerHTML = message;
+}
+
+async function submitDeploy(event) {
+    event.preventDefault();
+    addPath();
+
+    const agentId = document.getElementById('agentSelect').value.trim();
+    const selectedOptions = Array.from(document.getElementById('fileSelect').selectedOptions || []);
+    const monitor = document.getElementById('monitorCheck').checked;
+
+    if (!agentId) {
+        alert('请选择在线探针。');
+        return;
+    }
+    if (selectedOptions.length === 0) {
+        alert('请至少选择一个文件蜜点。');
+        return;
+    }
+    if (deployPaths.length === 0) {
+        alert('请至少添加一个部署路径。');
+        return;
+    }
+
+    const files = selectedOptions.map((option) => ({
+        file_id: Number(option.value),
+        filename: option.dataset.filename || option.textContent.trim()
+    }));
+
+    const cmdData = {
+        files,
+        file_ids: files.map((file) => file.file_id),
+        deploy_paths: deployPaths,
+        monitor
+    };
+
+    try {
+        const response = await fetch('/api/agent/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                agent_id: agentId,
+                cmd_type: 6,
+                cmd_data: JSON.stringify(cmdData)
+            })
+        });
+        const result = await response.json();
+        if (result.code === 0) {
+            renderResult(`部署命令已进入队列。<br>文件数: <code>${files.length}</code><br>目录数: <code>${deployPaths.length}</code><br>cmd_id: <code>${result.data.cmd_id}</code>`);
+            alert('文件蜜点部署命令已发送。');
+        } else {
+            renderResult(`部署失败：${escapeHtml(result.message)}`, true);
+            alert('部署失败: ' + result.message);
+        }
+    } catch (error) {
+        renderResult(`部署失败：${escapeHtml(error.message)}`, true);
+        alert('部署失败: ' + error.message);
+    }
+}
+
+function bindEvents() {
+    document.getElementById('fileSelect').addEventListener('change', updateSelectedCount);
+    document.getElementById('deployForm').addEventListener('submit', submitDeploy);
+    document.getElementById('deployPath').addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            addPath();
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    bindEvents();
+    renderPathList();
+    loadAgents();
+    loadFiles();
+});
+</script>
+{% endblock %}

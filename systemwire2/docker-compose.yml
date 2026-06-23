@@ -1,0 +1,12 @@
+
+services:
+  systemwire2:
+    build:
+      context: .   # 当前目录作为构建上下文
+      dockerfile: Dockerfile
+    container_name: systemwire2_app
+    ports:
+      - "5001:5001"
+    volumes:
+      - ./config:/app/config      # 映射整个 config 目录，这样你可以修改 config.py 以及其他任何配置文件
+    restart: unless-stopped

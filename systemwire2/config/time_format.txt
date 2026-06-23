@@ -1,0 +1,5 @@
+%Y-%m-%d %H:%M:%S%z
+%a, %d %b %Y %H:%M:%S %z
+%a, %d %b %Y %H:%M:%S %z (CST)
+%a, %d %b %Y %H:%M:%S %z (GMT)
+%a, %d %b %Y %H:%M:%S %z (%Z)

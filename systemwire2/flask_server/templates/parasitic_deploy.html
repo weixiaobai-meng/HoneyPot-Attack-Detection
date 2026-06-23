@@ -1,0 +1,264 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div id="header">
+    <h2><i class="fas fa-spider"></i> 寄生蜜点部署</h2>
+</div>
+
+<div id="mid">
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon green"><i class="fas fa-satellite-dish"></i></div>
+            <div class="stat-info"><span class="stat-value" id="agentCount">0</span><span class="stat-label">在线探针</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon pink"><i class="fas fa-code"></i></div>
+            <div class="stat-info"><span class="stat-value">5</span><span class="stat-label">内置 JS</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon blue"><i class="fas fa-file-code"></i></div>
+            <div class="stat-info"><span class="stat-value">HTML</span><span class="stat-label">注入目标</span></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon orange"><i class="fas fa-shield-alt"></i></div>
+            <div class="stat-info"><span class="stat-value">inline</span><span class="stat-label">推荐模式</span></div>
+        </div>
+    </div>
+
+    <div class="deploy-grid">
+        <div class="card">
+            <div class="card-header"><h3><i class="fas fa-code"></i> 注入配置</h3></div>
+            <div class="card-body">
+                <form id="deployForm">
+                    <div class="form-group">
+                        <label><i class="fas fa-satellite-dish"></i> 选择探针</label>
+                        <select id="agentSelect" class="form-control" required>
+                            <option value="">请选择在线探针...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label><i class="fas fa-folder"></i> 目标网站目录</label>
+                        <input type="text" id="targetDir" class="form-control" placeholder="例如: D:\\研究生毕设\\generated_runs\\parasitic_js_test_site 或 /var/www/html">
+                        <small class="help-text">agent 会扫描该目录第一层的 <code>.html/.htm</code> 文件并注入脚本。正式告警链路为“页面 JS -> js/bot -> systemwire2 入库”。</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label><i class="fas fa-code-branch"></i> JS 脚本来源</label>
+                        <div class="source-options">
+                            <label class="radio-card">
+                                <input type="radio" name="jsSource" value="builtin" checked>
+                                <span><strong>内置五个 JS 一键注入</strong><small>加载 js/sessionToken.js、client.min.js、fingerprint.js、network.js、bot.js，并自动把接口地址改写到 js/bot。</small></span>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="jsSource" value="url">
+                                <span><strong>远程 URL</strong><small>适合线上固定脚本地址，script_tag 或 inline 都可用。</small></span>
+                            </label>
+                            <label class="radio-card">
+                                <input type="radio" name="jsSource" value="content">
+                                <span><strong>直接输入</strong><small>适合临时测试一段 JS。</small></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="jsUrlGroup" class="form-group" style="display:none;">
+                        <label>JS URL</label>
+                        <input type="text" id="jsUrl" class="form-control" placeholder="http://your-server/bot.js">
+                    </div>
+
+                    <div id="jsContentGroup" class="form-group" style="display:none;">
+                        <label>JS 内容</label>
+                        <textarea id="jsContent" class="form-control" rows="8" placeholder="请输入 JS 代码..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label><i class="fas fa-cog"></i> 注入模式</label>
+                        <select id="injectMode" class="form-control">
+                            <option value="inline" selected>内联注入（推荐，本地测试最稳）</option>
+                            <option value="script_tag">Script 标签引入（仅远程 URL 推荐）</option>
+                        </select>
+                        <small class="help-text">选择内置五个 JS 时，后端会强制改为 inline，避免浏览器无法访问 agent 本地路径。</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="backupCheck" checked>
+                            <span>注入前备份原 HTML 为 <code>.bak</code></span>
+                        </label>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="fillTestDir()"><i class="fas fa-vial"></i> 填入测试目录</button>
+                        <button type="submit" class="btn btn-primary btn-lg"><i class="fas fa-rocket"></i> 开始注入</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div>
+            <div class="card">
+                <div class="card-header"><h3><i class="fas fa-list-check"></i> 五个内置 JS 的职责</h3></div>
+                <div class="card-body note-body">
+                    <p><strong>sessionToken.js:</strong> 生成当前访问会话标识。</p>
+                    <p><strong>client.min.js:</strong> 提供浏览器指纹库。</p>
+                    <p><strong>fingerprint.js:</strong> 采集浏览器、系统、GPU、插件、canvas 等指纹信息并提交到 <code>./info/</code>。</p>
+                    <p><strong>network.js:</strong> 采集 WebRTC IP、WebSocket RTT 等网络侧信息。</p>
+                    <p><strong>bot.js:</strong> 采集鼠标、点击、键盘、滚动行为并提交到 <code>./bot-check</code>。</p>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header"><h3><i class="fas fa-vial"></i> 测试 HTML</h3></div>
+                <div class="card-body note-body">
+                    <p>我已准备单独测试站点目录：</p>
+                    <p><code id="testDirLabel">D:\研究生毕设\generated_runs\parasitic_js_test_site</code></p>
+                    <p>把这个目录填到“目标网站目录”，下发注入命令后打开里面的 <code>index.html</code> 即可检查是否出现 <code>honeypot-parasitic-marker</code> 和脚本执行请求。</p>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header"><h3><i class="fas fa-terminal"></i> 最近一次提交结果</h3></div>
+                <div class="card-body"><div id="lastResult" class="last-result">还没有发送部署命令。</div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.mt-4 { margin-top: 1rem; }
+.deploy-grid { display: grid; grid-template-columns: minmax(440px, 1.1fr) minmax(320px, 0.9fr); gap: 1.5rem; }
+.help-text { display: block; margin-top: 0.45rem; color: var(--text-muted); font-size: 0.78rem; line-height: 1.5; }
+.source-options { display: grid; gap: 0.75rem; }
+.radio-card { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.85rem; border: 1px solid var(--border-color); border-radius: var(--radius-md); background: var(--bg-primary); cursor: pointer; }
+.radio-card input { margin-top: 0.25rem; }
+.radio-card strong { display: block; color: var(--text-primary); margin-bottom: 0.2rem; }
+.radio-card small { display: block; color: var(--text-muted); line-height: 1.45; }
+.note-body { font-size: 0.84rem; color: var(--text-secondary); line-height: 1.85; }
+.form-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; flex-wrap: wrap; }
+.last-result { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.8; }
+@media (max-width: 900px) { .deploy-grid { grid-template-columns: 1fr; } .form-actions .btn { flex: 1; justify-content: center; } }
+</style>
+
+<script>
+const testDir = 'D:\\研究生毕设\\generated_runs\\parasitic_js_test_site';
+
+function escapeHtml(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+async function loadAgents() {
+    try {
+        const response = await fetch('/api/agent/list');
+        const data = await response.json();
+        const agents = data.agents_infos || [];
+        const select = document.getElementById('agentSelect');
+        select.innerHTML = '<option value="">请选择在线探针...</option>';
+        document.getElementById('agentCount').textContent = agents.length;
+        agents.forEach((agent) => {
+            const name = agent.name || agent.id;
+            select.innerHTML += `<option value="${escapeHtml(agent.id)}">${escapeHtml(name)}</option>`;
+        });
+    } catch (error) {
+        console.error('loadAgents failed', error);
+    }
+}
+
+function updateSourceGroups() {
+    const source = document.querySelector('input[name="jsSource"]:checked').value;
+    document.getElementById('jsUrlGroup').style.display = source === 'url' ? 'block' : 'none';
+    document.getElementById('jsContentGroup').style.display = source === 'content' ? 'block' : 'none';
+    const injectMode = document.getElementById('injectMode');
+    if (source === 'builtin') {
+        injectMode.value = 'inline';
+    }
+}
+
+function fillTestDir() {
+    document.getElementById('targetDir').value = testDir;
+}
+
+function isAbsoluteTargetDir(value) {
+    return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('/');
+}
+
+function renderResult(message, isError = false) {
+    const result = document.getElementById('lastResult');
+    result.style.color = isError ? 'var(--danger-color, #ef4444)' : 'var(--text-secondary)';
+    result.innerHTML = message;
+}
+
+async function submitDeploy(event) {
+    event.preventDefault();
+
+    const agentId = document.getElementById('agentSelect').value.trim();
+    const targetDir = document.getElementById('targetDir').value.trim();
+    const jsSource = document.querySelector('input[name="jsSource"]:checked').value;
+    const jsUrl = document.getElementById('jsUrl').value.trim();
+    const jsContent = document.getElementById('jsContent').value;
+    const backup = document.getElementById('backupCheck').checked;
+    let injectMode = document.getElementById('injectMode').value;
+
+    if (!agentId || !targetDir) {
+        alert('请先选择探针并填写目标网站目录。');
+        return;
+    }
+    if (!isAbsoluteTargetDir(targetDir)) {
+        alert('target_dir must be an absolute path. Recommended: D:\\研究生毕设\\generated_runs\\parasitic_js_test_site');
+        return;
+    }
+    if (jsSource === 'url' && !jsUrl) {
+        alert('请输入 JS URL。');
+        return;
+    }
+    if (jsSource === 'content' && !jsContent.trim()) {
+        alert('请输入 JS 内容。');
+        return;
+    }
+
+    const cmdData = {
+        target_dir: targetDir,
+        js_url: jsSource === 'url' ? jsUrl : '',
+        js_content: jsSource === 'content' ? jsContent : '',
+        js_bundle: jsSource === 'builtin' ? 'builtin_root_js' : '',
+        inject_mode: jsSource === 'builtin' ? 'inline' : injectMode,
+        backup
+    };
+
+    try {
+        const response = await fetch('/api/agent/command', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                agent_id: agentId,
+                cmd_type: 7,
+                cmd_data: JSON.stringify(cmdData)
+            })
+        });
+        const result = await response.json();
+        if (result.code === 0) {
+            renderResult(`注入命令已进入队列。<br>source: <code>${jsSource}</code><br>mode: <code>${cmdData.inject_mode}</code><br>cmd_id: <code>${result.data.cmd_id}</code>`);
+            alert('寄生蜜点注入命令已发送。');
+        } else {
+            renderResult(`注入失败：${escapeHtml(result.message)}`, true);
+            alert('注入失败: ' + result.message);
+        }
+    } catch (error) {
+        renderResult(`注入失败：${escapeHtml(error.message)}`, true);
+        alert('注入失败: ' + error.message);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.getElementById('testDirLabel').textContent = testDir;
+    document.querySelectorAll('input[name="jsSource"]').forEach((radio) => radio.addEventListener('change', updateSourceGroups));
+    document.getElementById('deployForm').addEventListener('submit', submitDeploy);
+    updateSourceGroups();
+    loadAgents();
+});
+</script>
+{% endblock %}

@@ -1,0 +1,89 @@
+syntax = "proto3";
+option go_package = ".";
+
+package proto;     
+
+// 定义服务
+service AgentService {
+    // 设备注册
+    rpc RegisterHost(Host) returns (Feedback);
+    // 上报状态
+    rpc ReprotState(State) returns (Feedback);
+    // 请求命令
+    rpc RequestCmd(Host) returns (stream Cmd); //服务端流式
+    // 返回命令结果
+    rpc ReturnCmdResult(CmdResult) returns (Feedback);
+
+    // 上报告警
+    rpc ReportMonitorEvent(MonitorEvent) returns (Feedback);
+
+    // 上报url告警
+    rpc ReportUrlEvent(UrlAlertEvent) returns (Feedback);
+}
+
+// Host信息
+message Host {
+    string hostname = 1; // 主机名
+    string id = 2; // 主机ID
+    string ip = 3; // IP地址
+    string os = 4; // 操作系统
+}
+
+// 上报状态数据
+message State {
+    double cpu = 1; // CPU使用率
+    double memory = 2; // 内存使用率
+    double disk = 3; // 磁盘使用率
+    double network = 4; // 网络使用率
+    double io = 5; // IO使用率
+    double load = 6; // 系统负载
+    int64 time = 7; // 时间戳
+}
+
+// 任务/命令
+message Cmd {
+    uint64 id = 1;
+    uint64 type = 2;
+    string data = 3;
+}
+
+// 命令结果
+message CmdResult {
+    uint64 id = 1;
+    uint64 type = 2;
+    float delay = 3;
+    string data = 4;
+    bool successful = 5;
+}
+
+// 收到反馈
+message Feedback {
+    bool successful = 1;
+    string message = 2;
+}
+
+// 消息上报
+message Report {
+    uint64 id = 1;
+    uint64 type = 2;
+    string data = 3;
+}
+
+// 监控消息上报
+message MonitorEvent {
+    string id =1;           // uuid
+	uint64 eventType=2;     // 事件类型
+	uint64 timeStamp=3;     // 事件发生时间
+	string path=4;          // 路径
+	string data=5;          // 其他数据
+    string jsonData=6;     // 提取过的json数据
+}
+
+// URl消息上报
+message UrlAlertEvent {
+    string id=1;                // uuid
+	uint64 timeStamp=2;         // 事件类型
+	string ip=3;                // 事件发生时间
+	string fingerprint=4;       // 路径
+	string details=5;           // 其他数据
+}

@@ -1,0 +1,30 @@
+# ide环境文件
+.vscode
+
+# 包
+vendor/
+
+# 配置文件
+config.ini
+
+# 测试文件
+*.test
+
+# 日志文件
+log/
+audit
+
+.VSCodeCounter/
+
+# 编译后的可执行文件
+*.exe
+hyclient
+sysagent
+inotify
+config/config.ini
+config/paths.list
+agent-go.exe
+agent-go
+agent_debug
+audit
+config/config.ini

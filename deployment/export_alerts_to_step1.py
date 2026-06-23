@@ -15,6 +15,7 @@ from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Dict, Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -24,8 +25,33 @@ from step1_data_collection import AlertType, DataCollector, UnifiedAlert
 from step2_causal_graph import CausalGraphBuilder, CausalGraphVisualizer
 from step4_graph_to_text import GraphToTextConverter
 
+try:
+    from step3_dqn_pruning import DQNTrainer
+    DQN_IMPORT_ERROR = None
+except ModuleNotFoundError as exc:
+    if getattr(exc, "name", "") != "torch":
+        raise
+    DQNTrainer = None
+    DQN_IMPORT_ERROR = exc
+
 
 DEFAULT_RUN_DIR = REPO_ROOT / "generated_runs" / "three_honeypot_pipeline"
+MAX_ALERTS_FOR_LIVE_ANALYSIS = 10000
+MAX_DQN_EDGES = 5000
+MAX_SIMULATED_KEPT_EDGES = 5000
+MAX_PROMPT_EDGES = 200
+
+
+def build_live_analysis_collector_config():
+    base_config = DataCollector()._default_config()
+    config = deepcopy(base_config)
+    config["analysis_source_mode"] = "systemwire2_unified_only"
+    config["analysis_include_alert_types"] = ["file", "account", "parasitic"]
+    config["unified_alert_store"]["enabled"] = True
+    config["unified_alert_store"]["prefer_types"] = ["file", "account", "parasitic"]
+    config["unified_alert_store"]["fallback_to_raw"] = False
+    config["audit_log"]["enabled"] = False
+    return config
 
 
 def rel(path: Path) -> str:
@@ -43,10 +69,16 @@ def build_default_paths():
         "deployments": REPO_ROOT / "deployment" / "output" / "honeypot_deployments.json",
         "collected_alerts": REPO_ROOT / "deployment" / "output" / "collected_alerts.json",
         "step1": REPO_ROOT / "step1_data_collection" / "output" / "unified_alerts.json",
+        "canonical_events": REPO_ROOT / "step1_data_collection" / "output" / "canonical_events.json",
         "step2": REPO_ROOT / "step2_causal_graph" / "output" / "causal_graph.json",
         "step2_mermaid": REPO_ROOT / "step2_causal_graph" / "output" / "causal_graph.mmd",
+        "step2_triples": REPO_ROOT / "step2_causal_graph" / "output" / "step2_standard_triples.json",
+        "step2_event_sequence": REPO_ROOT / "step2_causal_graph" / "output" / "step2_event_sequence.json",
         "step3": REPO_ROOT / "step3_dqn_pruning" / "output" / "pruned_graph.json",
-        "step4": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_intent_analysis.txt",
+        "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
+        "step4_intent": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_intent_analysis.txt",
+        "step4_ttp": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_ttp_mapping.txt",
+        "step4_report": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_report.txt",
         "summary": REPO_ROOT / "deployment" / "output" / "honeypot_experiment_summary.json",
     }
 
@@ -60,10 +92,16 @@ def build_run_paths(run_dir: Path):
         "deployments": run_dir / "deployment_output" / "honeypot_deployments.json",
         "collected_alerts": run_dir / "deployment_output" / "collected_alerts.json",
         "step1": run_dir / "step1" / "unified_alerts.json",
+        "canonical_events": run_dir / "step1" / "canonical_events.json",
         "step2": run_dir / "step2" / "causal_graph.json",
         "step2_mermaid": run_dir / "step2" / "causal_graph.mmd",
+        "step2_triples": run_dir / "step2" / "step2_standard_triples.json",
+        "step2_event_sequence": run_dir / "step2" / "step2_event_sequence.json",
         "step3": run_dir / "step3" / "pruned_graph.json",
-        "step4": run_dir / "step4" / "llm_prompt_intent_analysis.txt",
+        "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
+        "step4_intent": run_dir / "step4" / "llm_prompt_intent_analysis.txt",
+        "step4_ttp": run_dir / "step4" / "llm_prompt_ttp_mapping.txt",
+        "step4_report": run_dir / "step4" / "llm_prompt_report.txt",
         "summary": run_dir / "summary.json",
     }
 
@@ -71,7 +109,21 @@ def build_run_paths(run_dir: Path):
 def ensure_dirs(paths):
     for key in ["alerts_dir", "deployment_output_dir"]:
         paths[key].mkdir(parents=True, exist_ok=True)
-    for key in ["deployments", "collected_alerts", "step1", "step2", "step2_mermaid", "step3", "step4", "summary"]:
+    for key in [
+        "deployments",
+        "collected_alerts",
+        "step1",
+        "canonical_events",
+        "step2",
+        "step2_mermaid",
+        "step2_triples",
+        "step2_event_sequence",
+        "step3",
+        "step4_intent",
+        "step4_ttp",
+        "step4_report",
+        "summary",
+    ]:
         paths[key].parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -79,6 +131,58 @@ def dump_json(path: Path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
+    node_ids = set()
+    event_ids = set()
+    for edge in kept_edges:
+        if edge.get("source"):
+            node_ids.add(edge["source"])
+        if edge.get("target"):
+            node_ids.add(edge["target"])
+        if edge.get("event_id"):
+            event_ids.add(edge["event_id"])
+
+    nodes = [node for node in graph_data.get("nodes", []) if node.get("id") in node_ids]
+    triples = []
+    for triple in graph_data.get("triples", []):
+        if isinstance(triple, dict) and triple.get("event_id") in event_ids:
+            triples.append(triple)
+    event_sequence = [
+        item for item in graph_data.get("event_sequence", [])
+        if item.get("event_id") in event_ids
+    ]
+
+    meta = dict(graph_data.get("graph_meta", {}))
+    meta["node_count"] = len(nodes)
+    meta["edge_count"] = len(kept_edges)
+    meta["triple_count"] = len(triples)
+
+    subset = {
+        "graph_meta": meta,
+        "nodes": nodes,
+        "edges": kept_edges,
+        "triples": triples,
+        "event_sequence": event_sequence,
+    }
+    if pruning_stats is not None:
+        subset["pruning_stats"] = pruning_stats
+    return subset
+
+
+def build_prompt_graph(graph_data, max_edges=MAX_PROMPT_EDGES):
+    edges = graph_data.get("edges", [])
+    if len(edges) <= max_edges:
+        return graph_data
+    prompt_edges = edges[-max_edges:]
+    prompt_graph = build_graph_subset(graph_data, prompt_edges, pruning_stats=graph_data.get("pruning_stats", {}))
+    prompt_graph["prompt_scope"] = {
+        "edge_limit": max_edges,
+        "original_edge_count": len(edges),
+        "selected_recent_edges": len(prompt_edges),
+    }
+    return prompt_graph
 
 
 def create_simulated_deployments():
@@ -100,7 +204,7 @@ def create_simulated_deployments():
             "agent_id": "localprobe01",
             "created_at": created_at,
             "service": "ssh",
-            "listen_port": 2222,
+            "listen_port": 22,
             "bait_accounts": ["root", "opsadmin"],
             "alert_sink": "ssh-vpn/ssh_auth_log.json",
             "purpose": "Capture credential guessing and SSH client characteristics",
@@ -141,7 +245,7 @@ def create_simulated_honeypot_alerts():
                 "client_version": "SSH-2.0-libssh2_1.11.1",
                 "client_family": "libssh2 scanner/automation tool",
                 "src_port": "51244",
-                "dst_port": "2222",
+                "dst_port": "22",
             },
         ),
         UnifiedAlert(
@@ -159,7 +263,7 @@ def create_simulated_honeypot_alerts():
                 "client_version": "SSH-2.0-OpenSSH_8.9",
                 "client_family": "OpenSSH client",
                 "src_port": "51288",
-                "dst_port": "2222",
+                "dst_port": "22",
             },
         ),
     ]
@@ -298,6 +402,53 @@ def alert_to_dict(alert: UnifiedAlert):
     return alert.to_dict()
 
 
+def _to_alert_objects(alerts):
+    items = []
+    for alert in alerts:
+        if isinstance(alert, UnifiedAlert):
+            items.append(alert)
+        else:
+            data = dict(alert)
+            event_type = data.get("alert_type")
+            if isinstance(event_type, AlertType):
+                alert_type = event_type
+            else:
+                alert_type = AlertType(event_type)
+            timestamp = data.get("timestamp")
+            if isinstance(timestamp, datetime):
+                ts = timestamp
+            else:
+                ts = datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
+            items.append(
+                UnifiedAlert(
+                    alert_id=data.get("alert_id") or "",
+                    alert_type=alert_type,
+                    timestamp=ts,
+                    attacker_ip=data.get("attacker_ip"),
+                    attacker_info=data.get("attacker_info"),
+                    target_host=data.get("target_host"),
+                    target_path=data.get("target_path"),
+                    action=data.get("action"),
+                    details=data.get("details") or {},
+                    session_id=data.get("session_id"),
+                    process_info=data.get("process_info"),
+                    source_type=data.get("source_type"),
+                    source_id=data.get("source_id"),
+                    source_label=data.get("source_label"),
+                    object_type=data.get("object_type"),
+                    object_id=data.get("object_id"),
+                    object_label=data.get("object_label"),
+                    stage=data.get("stage"),
+                    tactic=data.get("tactic"),
+                    technique=data.get("technique"),
+                    confidence=float(data.get("confidence", 0.8)),
+                    severity=data.get("severity", "medium"),
+                    evidence=data.get("evidence") or {},
+                )
+            )
+    return items
+
+
 def write_split_and_unified(alert_groups, paths, deployments=None):
     ensure_dirs(paths)
     if deployments is not None:
@@ -311,51 +462,114 @@ def write_split_and_unified(alert_groups, paths, deployments=None):
     }
 
     all_alerts = []
+    canonical_events = []
     for name, alerts in alert_groups.items():
-        data = [alert_to_dict(a) if isinstance(a, UnifiedAlert) else a for a in alerts]
+        objects = _to_alert_objects(alerts)
+        data = [alert_to_dict(a) for a in objects]
         dump_json(split_paths[name], data)
         all_alerts.extend(data)
+        canonical_events.extend([alert.to_canonical_event() for alert in objects])
 
     all_alerts.sort(key=lambda item: item.get("timestamp") or "")
+    canonical_events.sort(key=lambda item: item.get("timestamp") or "")
     dump_json(paths["collected_alerts"], all_alerts)
     dump_json(paths["step1"], all_alerts)
+    dump_json(paths["canonical_events"], canonical_events)
     return all_alerts, split_paths
 
 
-def simulate_pruning(graph_data, paths):
+def simulate_pruning(graph_data, paths, fallback_reason=None):
     important_actions = {"ssh_login", "file_access", "url_access", "read", "connect", "execve"}
     edges = graph_data.get("edges", [])
     kept = [edge for edge in edges if edge.get("action") in important_actions]
     if not kept and edges:
-        kept = edges[:1]
+        kept = edges[-1:]
 
-    pruned = deepcopy(graph_data)
-    pruned["edges"] = kept
-    pruned["pruning_stats"] = {
+    capped = False
+    if len(kept) > MAX_SIMULATED_KEPT_EDGES:
+        kept = kept[-MAX_SIMULATED_KEPT_EDGES:]
+        capped = True
+
+    pruning_stats = {
         "mode": "deterministic_simulation",
         "original_edges": len(edges),
         "kept_edges": len(kept),
         "pruned_edges": max(len(edges) - len(kept), 0),
         "compression_ratio": f"{(100 * (len(edges) - len(kept)) / len(edges)):.1f}%" if edges else "0.0%",
+        "kept_edge_cap_applied": capped,
     }
+    if fallback_reason:
+        pruning_stats["fallback_reason"] = fallback_reason
+    pruned = build_graph_subset(graph_data, kept, pruning_stats=pruning_stats)
     dump_json(paths["step3"], pruned)
     return pruned
+
+
+def run_dqn_pruning(paths, graph_data):
+    if len(graph_data.get("edges", [])) > MAX_DQN_EDGES:
+        return None, f"edge_count_exceeds_{MAX_DQN_EDGES}"
+
+    checkpoint = paths.get("step3_checkpoint")
+    if not checkpoint or not checkpoint.exists():
+        return None, "dqn_checkpoint_missing"
+
+    if DQNTrainer is None:
+        reason = "torch_not_installed"
+        if DQN_IMPORT_ERROR:
+            reason = f"{reason}: {DQN_IMPORT_ERROR}"
+        return None, reason
+
+    try:
+        import torch
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", "") == "torch":
+            return None, f"torch_not_installed: {exc}"
+        raise
+
+    try:
+        trainer = DQNTrainer(device="cpu")
+        state = torch.load(checkpoint, map_location="cpu")
+        trainer.model.load_state_dict(state)
+        pruned = trainer.predict_and_prune(str(paths["step2"]), str(paths["step3"]))
+        stats = pruned.get("pruning_stats", {})
+        stats["mode"] = "dqn_checkpoint"
+        stats["checkpoint"] = rel(checkpoint)
+        pruned["pruning_stats"] = stats
+        dump_json(paths["step3"], pruned)
+        return pruned, None
+    except MemoryError:
+        return None, "dqn_out_of_memory"
+    except Exception as exc:
+        print(f"[-] DQN pruning failed, fallback to deterministic pruning: {exc}")
+        return None, f"dqn_runtime_error: {exc}"
 
 
 def run_steps_from_unified(alerts, paths):
     builder = CausalGraphBuilder()
     graph_data = builder.build_from_alerts(alerts)
     dump_json(paths["step2"], graph_data)
-    CausalGraphVisualizer.save_mermaid(graph_data, str(paths["step2_mermaid"]), title="Simulated Three-Honeypot Attack Graph")
+    dump_json(paths["step2_triples"], graph_data.get("triples", []))
+    dump_json(paths["step2_event_sequence"], graph_data.get("event_sequence", []))
+    graph_title = "Live Honeypot Attack Graph" if alerts else "Empty Honeypot Attack Graph"
+    CausalGraphVisualizer.save_mermaid(graph_data, str(paths["step2_mermaid"]), title=graph_title)
 
-    pruned = simulate_pruning(graph_data, paths)
+    pruned, fallback_reason = run_dqn_pruning(paths, graph_data)
+    if pruned is None:
+        pruned = simulate_pruning(graph_data, paths, fallback_reason=fallback_reason)
+    prompt_graph = build_prompt_graph(pruned)
     converter = GraphToTextConverter()
-    prompt = converter.convert_to_llm_prompt(pruned, "intent_analysis")
-    converter.save(prompt, str(paths["step4"]))
-    return graph_data, pruned, prompt
+    prompts = {
+        "intent_analysis": converter.convert_to_llm_prompt(prompt_graph, "intent_analysis"),
+        "ttp_mapping": converter.convert_to_llm_prompt(prompt_graph, "ttp_mapping"),
+        "report": converter.convert_to_llm_prompt(prompt_graph, "report"),
+    }
+    converter.save(prompts["intent_analysis"], str(paths["step4_intent"]))
+    converter.save(prompts["ttp_mapping"], str(paths["step4_ttp"]))
+    converter.save(prompts["report"], str(paths["step4_report"]))
+    return graph_data, pruned, prompts
 
 
-def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=None):
+def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=None) -> Dict[str, Any]:
     type_counts = Counter(a.get("alert_type") for a in alerts)
     action_counts = Counter(e.get("action") for e in graph_data.get("edges", []))
     summary = {
@@ -367,6 +581,11 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
         "graph": {
             "nodes": len(graph_data.get("nodes", [])),
             "edges": len(graph_data.get("edges", [])),
+            "event_edges": graph_data.get("graph_meta", {}).get("event_edge_count", 0),
+            "correlation_edges": graph_data.get("graph_meta", {}).get("correlation_edge_count", 0),
+            "triples": len(graph_data.get("triples", [])),
+            "event_sequence": len(graph_data.get("event_sequence", [])),
+            "attack_paths": len(graph_data.get("attack_paths", [])),
             "edge_actions": dict(action_counts),
         },
         "pruning_stats": pruned.get("pruning_stats", {}),
@@ -378,10 +597,15 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "audit_alerts": rel(split_paths.get("audit", Path())) if split_paths.get("audit") else "",
             "collected_alerts": rel(paths["collected_alerts"]),
             "step1_unified_alerts": rel(paths["step1"]),
+            "step1_canonical_events": rel(paths["canonical_events"]),
             "step2_causal_graph": rel(paths["step2"]),
             "step2_mermaid": rel(paths["step2_mermaid"]),
+            "step2_standard_triples": rel(paths["step2_triples"]),
+            "step2_event_sequence": rel(paths["step2_event_sequence"]),
             "step3_pruned_graph": rel(paths["step3"]),
-            "step4_llm_prompt": rel(paths["step4"]),
+            "step4_intent_analysis": rel(paths["step4_intent"]),
+            "step4_ttp_mapping": rel(paths["step4_ttp"]),
+            "step4_report": rel(paths["step4_report"]),
         },
     }
     dump_json(paths["summary"], summary)
@@ -395,10 +619,16 @@ def copy_run_to_defaults(source_paths):
         (source_paths["deployments"], default_paths["deployments"]),
         (source_paths["collected_alerts"], default_paths["collected_alerts"]),
         (source_paths["step1"], default_paths["step1"]),
+        (source_paths["canonical_events"], default_paths["canonical_events"]),
         (source_paths["step2"], default_paths["step2"]),
         (source_paths["step2_mermaid"], default_paths["step2_mermaid"]),
+        (source_paths["step2_triples"], default_paths["step2_triples"]),
+        (source_paths["step2_event_sequence"], default_paths["step2_event_sequence"]),
         (source_paths["step3"], default_paths["step3"]),
-        (source_paths["step4"], default_paths["step4"]),
+        (source_paths["step4_intent"], default_paths["step4_intent"]),
+        (source_paths["step4_ttp"], default_paths["step4_ttp"]),
+        (source_paths["step4_report"], default_paths["step4_report"]),
+        (source_paths["summary"], default_paths["summary"]),
     ]
     for name in ["file_alerts.json", "account_alerts.json", "parasitic_alerts.json", "audit_alerts.json"]:
         mapping.append((source_paths["alerts_dir"] / name, default_paths["alerts_dir"] / name))
@@ -413,22 +643,30 @@ def simulate(run_dir: Path, write_defaults: bool):
     deployments = create_simulated_deployments()
     groups = create_simulated_honeypot_alerts()
     alerts, split_paths = write_split_and_unified(groups, paths, deployments=deployments)
-    graph_data, pruned, _prompt = run_steps_from_unified(alerts, paths)
+    graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
     if write_defaults:
         copy_run_to_defaults(paths)
     summary = summarize(alerts, graph_data, pruned, split_paths, paths, "simulate", deployments=deployments)
     print_summary(summary)
+    return summary
 
 
 def export_live(hours: int, run_dir: Path = None):
     paths = build_run_paths(run_dir) if run_dir else build_default_paths()
     ensure_dirs(paths)
     end_time = datetime.now()
-    start_time = end_time - timedelta(hours=hours)
-    collector = DataCollector()
+    start_time = None if hours <= 0 else end_time - timedelta(hours=hours)
+    collector = DataCollector(config=build_live_analysis_collector_config())
+    collector_sources = collector.describe_sources()
     live_alerts = collector.collect_all(start_time, end_time)
     alerts = [a.to_dict() for a in live_alerts]
     alerts.sort(key=lambda item: item.get("timestamp") or "")
+
+    if len(alerts) > MAX_ALERTS_FOR_LIVE_ANALYSIS:
+        raise ValueError(
+            f"analysis window contains {len(alerts)} alerts, exceeds safe limit {MAX_ALERTS_FOR_LIVE_ANALYSIS}; "
+            "please narrow the time range before running post-alert analysis"
+        )
 
     groups = {"file": [], "account": [], "parasitic": [], "audit": []}
     for item in alerts:
@@ -445,9 +683,20 @@ def export_live(hours: int, run_dir: Path = None):
 
     dump_json(paths["collected_alerts"], alerts)
     dump_json(paths["step1"], alerts)
-    graph_data, pruned, _prompt = run_steps_from_unified(alerts, paths)
+    dump_json(paths["canonical_events"], [alert.to_canonical_event() for alert in live_alerts])
+    graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
     summary = summarize(alerts, graph_data, pruned, split_paths, paths, "export-live")
+    summary["analysis_window_hours"] = hours
+    summary["analysis_window"] = {
+        "start_time": start_time.isoformat() if start_time else None,
+        "end_time": end_time.isoformat(),
+    }
+    summary["collector_sources"] = collector_sources
+    summary["analysis_source_mode"] = collector_sources.get("analysis_source_mode") or "mixed"
+    summary["analysis_include_alert_types"] = collector_sources.get("analysis_include_alert_types") or []
+    dump_json(paths["summary"], summary)
     print_summary(summary)
+    return summary
 
 
 def print_summary(summary):
@@ -484,4 +733,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,14 @@
+[Unit]
+Description=My Go Program
+After=network.target
+
+[Service]
+ExecStart=/data/sysagent/sysagent
+WorkingDirectory=/data/sysagent
+Restart=always
+RestartSec=5
+Environment=PATH=/usr/bin:/usr/local/bin
+User=root
+
+[Install]
+WantedBy=multi-user.target

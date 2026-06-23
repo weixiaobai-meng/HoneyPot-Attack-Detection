@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/soc-alert-pages.css') }}">
+
+<div class="soc-page account-page">
+    <section class="soc-top">
+        <div class="soc-title-card">
+            <div class="soc-eyebrow">Account Honey Alert</div>
+            <h1>账户蜜点告警</h1>
+            <p>字段按账户蜜点侧重点展示：协议/攻击方式、攻击源、目标地址、尝试账号口令、SSH 客户端或 VPN 探测原始消息。配置文件本身是诱饵，真正的告警来自 ssh-vpn 捕获到的认证尝试。</p>
+        </div>
+
+        <div class="soc-action-card">
+            <form action="{{ url_for('api.manage_alert_account') }}" onsubmit="return validateForm();">
+                <div class="soc-form-row">
+                    <label class="soc-field">
+                        <span>查询天数</span>
+                        <input type="text" id="days" name="days" class="soc-input" placeholder="默认 7，最多 30" value="{{ last_days }}">
+                    </label>
+                    <button type="submit" class="soc-btn primary"><i class="fas fa-search"></i> 查询</button>
+                    <button type="button" class="soc-btn account" onclick="pullAccountAlerts()"><i class="fas fa-cloud-arrow-down"></i> 从 alert_server 拉取</button>
+                </div>
+            </form>
+            <div class="soc-note">接收链路：默认是 ssh-vpn -> POST http://127.0.0.1:9090/account/alert -> alert_server -> systemwire2 /account/alert/pull。兼容旧链路时，也支持直接 POST 到 systemwire2 /account/alert。打开 Xshell/FinalShell 诱饵配置会先产生“SSH 连接探测”；输入密码并回车后才会产生“SSH 密码认证尝试”。</div>
+            <div id="pullStatus" class="soc-status" style="display:none;"></div>
+        </div>
+    </section>
+
+    <section class="soc-panel">
+        <div class="soc-panel-header">
+            <div>
+                <h2><i class="fas fa-list"></i> 账户蜜点认证尝试</h2>
+                <p>重点不是“能否登录成功”，而是攻击者是否连到蜜罐、使用什么协议/账号/口令/客户端和来源端口尝试访问诱饵服务。</p>
+            </div>
+            <span class="soc-count">共 {{ alert_infos|length }} 条告警</span>
+        </div>
+
+        <div class="soc-table-wrap">
+            <table class="soc-table wide">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>触发时间</th>
+                        <th>协议 / 攻击方式</th>
+                        <th>攻击源</th>
+                        <th>目标地址</th>
+                        <th>账号 / 密码</th>
+                        <th>SSH 客户端 / 工具</th>
+                        <th>原始消息</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for alert in alert_infos %}
+                    <tr>
+                        <td><span class="pill account">#{{ alert.id }}</span></td>
+                        <td class="mono">{{ alert.alert_time }}</td>
+                        <td>
+                            <span class="pill account">{{ alert.protocol or 'ssh' }}</span>
+                            <div class="cell-sub">{{ alert.attack_type or '-' }}</div>
+                        </td>
+                        <td><span class="pill warn">{{ alert.src_endpoint or '-' }}</span></td>
+                        <td><span class="pill">{{ alert.dst_endpoint or '-' }}</span></td>
+                        <td>
+                            <div class="cell-title">{{ alert.username or '-' }}</div>
+                            <div class="cell-sub mono">password: {{ alert.password or '-' }}</div>
+                        </td>
+                        <td>
+                            <div class="cell-title">{{ alert.client_family or '-' }}</div>
+                            <div class="cell-sub mono">{{ alert.client_version or '-' }}</div>
+                        </td>
+                        <td>
+                            <details>
+                                <summary class="pill account">{{ alert.message or 'raw_event' }}</summary>
+                                <pre class="json-box">{{ alert.raw_event_json or '{}' }}</pre>
+                            </details>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="8">
+                            <div class="empty-row">
+                                <i class="fas fa-shield-alt"></i>
+                                <h3>暂无账户蜜点告警</h3>
+                                <p>确认 ssh-vpn 已启动，并且其 REMOTE_LOG_URL 指向 alert_server 的 /account/alert；如果走兼容直连模式，也可直接指向 systemwire2 的 /account/alert。</p>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<script>
+function validateForm() {
+    const value = document.getElementById('days').value.trim();
+    if (!value) return true;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n < 0 || n > 30) {
+        alert('查询天数必须是 0-30 的整数');
+        return false;
+    }
+    return true;
+}
+
+async function pullAccountAlerts() {
+    const status = document.getElementById('pullStatus');
+    const days = document.getElementById('days').value.trim() || '30';
+    status.className = 'soc-status';
+    status.style.display = 'block';
+    status.textContent = `正在从 alert_server 拉取最近 ${days} 天账户告警...`;
+    try {
+        const response = await fetch(`/account/alert/pull?days=${encodeURIComponent(days)}`);
+        const data = await response.json();
+        if (data.code === 0) {
+            status.className = 'soc-status ok';
+            status.textContent = `拉取完成：新增 ${data.data.pulled} 条账户告警，页面即将刷新。`;
+            setTimeout(() => window.location.reload(), 900);
+        } else {
+            status.className = 'soc-status err';
+            status.textContent = data.message || '账户告警拉取失败';
+        }
+    } catch (err) {
+        status.className = 'soc-status err';
+        status.textContent = `拉取失败：${err.message}`;
+    }
+}
+</script>
+{% endblock %}
