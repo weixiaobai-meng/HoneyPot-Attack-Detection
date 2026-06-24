@@ -1,43 +1,43 @@
-﻿# Flask 閰嶇疆
+# Flask 配置
 FLASK_HOST = "0.0.0.0"
 FLASK_PORT = 5001
 FLASK_MODE = "debug"
 FLASK_HTTP_MODE = "https"
-FLASK_SECRET_KEY = 'secret_key' # 璁剧疆flask
+FLASK_SECRET_KEY = 'secret_key' # Flask 密钥
 
-# 鏁版嵁搴?
+# 数据库
 DB_TYPE = "sqlite"
 DB_FILE_NAME = "tripwire.db"
 
-# 鍩虹閰嶇疆
-PARTMENT = "鍗曚綅鍚? # 閮ㄧ讲鐨勫崟浣?
+# 基础配置
+PARTMENT = "单位名称" # 部署单位
 
-# GATEWAY缃戝叧
-GATEWAY_SERVER_ADDRESS = ""                                 # nacos缃戝叧
-NACOS_SERVER_ADDRESS = ""                                   # nacos server
-LOCAL_ADDRESS = "XX.XX.XX.XX"                               # 涓婃姤缁檔acos鐨勬湰鍦癐P
+# GATEWAY 网关
+GATEWAY_SERVER_ADDRESS = ""                                  # nacos 网关
+NACOS_SERVER_ADDRESS = ""                                    # nacos server
+LOCAL_ADDRESS = "XX.XX.XX.XX"                                # 上报给 nacos 的本地 IP
 
-# kafka 娑堟伅鎺ㄩ€?
-KAFKA_SERVER_ADDRESS = "XX.XX.XX.XX"                        # kafka鐨処P
-HONEYFILE_ALERT_TOPIC = "file_honey_point_trigger_alarm"    # 鏂囦欢铚滅偣鐨凨afka TOPIC鍚?
-HONEYEMAIL_ALERT_TOPIC = "email_trigger_alarm"              # 閭欢铚滅偣鐨凨afka TOPIC鍚?
+# Kafka 消息推送
+KAFKA_SERVER_ADDRESS = "XX.XX.XX.XX"                         # Kafka IP
+HONEYFILE_ALERT_TOPIC = "file_honey_point_trigger_alarm"     # 文件蜜点 Kafka topic
+HONEYEMAIL_ALERT_TOPIC = "email_trigger_alarm"               # 邮件蜜点 Kafka topic
 
-# 鏂囦欢铚滅偣鍛婅鎺ュ彛
-FILE_ALERT_SERVER = "https://175.178.165.96:8080"           # 鏂囦欢铚滅偣鍛婅鍣ㄥ憡璀﹀湴鍧€鍙婄鍙?
-MANAGE_ADDRESS = "https://175.178.165.96:8081"              # 鏂囦欢铚滅偣鍛婅鍣ㄧ鐞嗗湴鍧€鍙婄鍙?
-PARASITIC_ALERT_SERVER = "https://175.178.165.96:8080"      # js/bot base url
-API_KEY = "xxxxxxxxxxxx"                                    # 鏂囦欢铚滅偣鍛婅鍣ㄦ媺鍙栧瘑閽?
-TIME_FORMAT = "timestamp"                                   # 鏂囦欢铚滅偣鍛婅鍣ㄦ媺鍙栨椂闂存牸寮?
+# 文件蜜点告警接口
+FILE_ALERT_SERVER = "https://175.178.165.96:8080"            # 文件蜜点告警触发地址
+MANAGE_ADDRESS = "https://175.178.165.96:8081"               # 文件蜜点告警管理地址
+PARASITIC_ALERT_SERVER = "https://175.178.165.96:8080"       # js/bot base url
+API_KEY = "xxxxxxxxxxxx"                                     # 文件蜜点告警拉取密钥
+TIME_FORMAT = "timestamp"                                    # 文件蜜点告警拉取时间格式
 
-# 铚滅偣閰嶇疆
-EMAIL_PERIOD_SECONDS = 100000000                            # 閭欢铚滅偣璐︽埛杞鏃堕棿鍛ㄦ湡
-FILE_PERIOD_SECONDS = 200                                   # 鏂囦欢铚滅偣鍛婅鎷夊彇鏃堕棿鍛ㄦ湡
-PARASITIC_PERIOD_SECONDS = 60                               # parasitic pull period
+# 蜜点配置
+EMAIL_PERIOD_SECONDS = 100000000                             # 邮件蜜点账户轮询周期
+FILE_PERIOD_SECONDS = 200                                    # 文件蜜点告警拉取周期
+PARASITIC_PERIOD_SECONDS = 60                                # 寄生蜜点拉取周期
 
-# 鎺㈤拡鏈嶅姟绔厤缃?
-GRPC_PORT = "50051"                                         # 鎺㈤拡绠＄悊绔鍙?
-TLS_ENABLE = True                                           # 鍚敤TLS
-AUTH_TYPE = "double"                                        # 鍙屽悜double/鍗曢」璁よ瘉single
-SERVER_CERT_PATH = "agent_server/ssl/server.pem"            # 鏈嶅姟绔瘉涔﹁矾寰?
-SERVER_KEY_PATH = "agent_server/ssl/server.key"             # 鏈嶅姟绔瘑閽ヨ矾寰?
-CA_CERT_PATH = "agent_server/ssl/ca.crt"                    # CA璇佷功璺緞
+# 探针服务端配置
+GRPC_PORT = "50051"                                          # 探针管理端口
+TLS_ENABLE = True                                            # 启用 TLS
+AUTH_TYPE = "double"                                         # 双向 double / 单向 single 认证
+SERVER_CERT_PATH = "agent_server/ssl/server.pem"             # 服务端证书路径
+SERVER_KEY_PATH = "agent_server/ssl/server.key"              # 服务端私钥路径
+CA_CERT_PATH = "agent_server/ssl/ca.crt"                     # CA 证书路径
