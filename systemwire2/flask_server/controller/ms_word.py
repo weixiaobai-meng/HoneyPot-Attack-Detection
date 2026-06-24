@@ -137,11 +137,22 @@ def make_canary_msword_add(input_file, url=None):
             elif entry.filename == "word/document.xml":
                 search = "</w:sectPr>"
                 replace = (
+                    '<w:p><w:r><w:pict><v:shape id="_x0000_i1026" '
+                    'type="#_x0000_t75" style="width:.75pt;height:.75pt">'
+                    '<v:imagedata r:id="rIdCanaryBody" />'
+                    '</v:shape></w:pict></w:r></w:p>'
                     '<w:footerReference w:type="default" r:id="rId0" /></w:sectPr>'
                 )
             elif entry.filename == "word/_rels/document.xml.rels":
                 search = "</Relationships>"
-                replace = '<Relationship Id="rId0" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer0.xml" /></Relationships>'
+                replace = (
+                    '<Relationship Id="rIdCanaryBody" '
+                    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+                    'Target="' + url + '" TargetMode="External"/>'
+                    '<Relationship Id="rId0" '
+                    'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" '
+                    'Target="footer0.xml" /></Relationships>'
+                )
             elif entry.external_attr & 0x10:
                 continue
             contents = _zipinfo_contents_replace2_memory(

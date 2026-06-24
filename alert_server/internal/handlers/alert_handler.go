@@ -24,12 +24,25 @@ const (
 
 var eventLogger = logrus.New()
 
+var transparentPixelPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+	0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+	0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+	0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41,
+	0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+	0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00,
+	0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+	0x42, 0x60, 0x82,
+}
+
 // TriggerHandler handles file honeypot callback requests.
 func TriggerHandler(c *gin.Context) {
 	eventLogfd, err := os.OpenFile("log/event.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
 		logrus.Fatal("open file error")
 	}
+	defer eventLogfd.Close()
 
 	eventLogger.SetOutput(eventLogfd)
 
@@ -40,90 +53,89 @@ func TriggerHandler(c *gin.Context) {
 		token = normalizeTriggerToken(c.Param("token"))
 	}
 
-	go func() {
-		defer eventLogfd.Close()
-
-		var srcIP string
-		if ip, exists := c.Get("clientIp"); exists {
-			srcIP = ip.(string)
-		} else {
-			srcIP = c.GetHeader("X-Forwarded-For")
-			if srcIP == "" {
-				srcIP = c.ClientIP()
-			}
+	var srcIP string
+	if ip, exists := c.Get("clientIp"); exists {
+		srcIP = ip.(string)
+	} else {
+		srcIP = c.GetHeader("X-Forwarded-For")
+		if srcIP == "" {
+			srcIP = c.ClientIP()
 		}
+	}
 
-		requestURL := c.Request.URL.String()
-		if strings.Contains(token, "'") {
-			logrus.Warn("[Warning] suspicious SQL injection, ip:", srcIP)
-			secLog := models.SecurityLog{
-				Trigger_time: time.Now(),
-				Src_ip:       srcIP,
-				Event:        "sql injection",
-				Url:          requestURL,
-			}
-			models.Insert_securityLog(pkg.Db, &secLog)
-			return
+	requestURL := c.Request.URL.String()
+	userAgent := c.GetHeader("User-Agent")
+
+	if strings.Contains(token, "'") {
+		logrus.Warn("[Warning] suspicious SQL injection, ip:", srcIP)
+		secLog := models.SecurityLog{
+			Trigger_time: time.Now(),
+			Src_ip:       srcIP,
+			Event:        "sql injection",
+			Url:          requestURL,
 		}
+		models.Insert_securityLog(pkg.Db, &secLog)
+		c.HTML(http.StatusNotFound, "404.html", nil)
+		return
+	}
 
-		tokenInfo, err := models.FindAlertMsg(pkg.Db, token)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			logrus.Warn("[Warning] suspicious path probing,", srcIP, ",", requestURL)
-			secLog := models.SecurityLog{
-				Trigger_time: time.Now(),
-				Src_ip:       srcIP,
-				Event:        "url probe",
-				Url:          requestURL,
-			}
-			models.Insert_securityLog(pkg.Db, &secLog)
-			return
+	tokenInfo, err := models.FindAlertMsg(pkg.Db, token)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		logrus.Warn("[Warning] suspicious path probing,", srcIP, ",", requestURL)
+		secLog := models.SecurityLog{
+			Trigger_time: time.Now(),
+			Src_ip:       srcIP,
+			Event:        "url probe",
+			Url:          requestURL,
 		}
-		if err != nil {
-			logrus.Error("[Error] find token info failed:", err)
-			return
-		}
+		models.Insert_securityLog(pkg.Db, &secLog)
+		c.HTML(http.StatusNotFound, "404.html", nil)
+		return
+	}
+	if err != nil {
+		logrus.Error("[Error] find token info failed:", err)
+		c.HTML(http.StatusNotFound, "404.html", nil)
+		return
+	}
 
-		eventLogger.SetFormatter(&logrus.JSONFormatter{
-			TimestampFormat: "2006-01-02 15:04:05",
-		})
-		eventLog := eventLogger.WithFields(logrus.Fields{
-			"message":    tokenInfo.Alert_msg,
-			"token":      token,
-			"trigger_ip": srcIP,
-			"ip":         srcIP,
-			"User-Agent": c.GetHeader("User-Agent"),
-		})
+	eventLogger.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: "2006-01-02 15:04:05",
+	})
+	eventLog := eventLogger.WithFields(logrus.Fields{
+		"message":    tokenInfo.Alert_msg,
+		"token":      token,
+		"trigger_ip": srcIP,
+		"ip":         srcIP,
+		"User-Agent": userAgent,
+	})
 
-		logrus.Info("[Alert] file honeypot triggered, ip:", srcIP, " message:", tokenInfo.Alert_msg)
+	logrus.Info("[Alert] file honeypot triggered, ip:", srcIP, " message:", tokenInfo.Alert_msg)
 
-		tokenURL := buildPublicTokenURL(token)
-		loc, err := time.LoadLocation("Asia/Shanghai")
-		if err != nil {
-			logrus.Error("load time location failed", err)
-			return
-		}
-		triggerTime := time.Now().UTC().In(loc)
+	tokenURL := buildPublicTokenURL(token)
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		logrus.Error("load time location failed", err)
+		loc = time.Local
+	}
+	triggerTime := time.Now().UTC().In(loc)
 
-		triggerInfo := models.TriggerInfo{
-			Token:         token,
-			Token_url:     tokenURL,
-			Trigger_time:  triggerTime,
-			Trigger_ip:    c.ClientIP(),
-			Alert_addr:    tokenInfo.Alert_addr,
-			Alert_msg:     tokenInfo.Alert_msg,
-			Trigger_agent: c.GetHeader("User-Agent"),
-		}
-		ret := models.Insert_trigger(pkg.Db, &triggerInfo)
-		if ret != 0 {
-			eventLog.Warn("file alert database insert failed")
-		} else {
-			eventLog.Warn("file alert")
-		}
+	triggerInfo := models.TriggerInfo{
+		Token:         token,
+		Token_url:     tokenURL,
+		Trigger_time:  triggerTime,
+		Trigger_ip:    srcIP,
+		Alert_addr:    tokenInfo.Alert_addr,
+		Alert_msg:     tokenInfo.Alert_msg,
+		Trigger_agent: userAgent,
+	}
+	ret := models.Insert_trigger(pkg.Db, &triggerInfo)
+	if ret != 0 {
+		eventLog.Warn("file alert database insert failed")
+	} else {
+		eventLog.Warn("file alert")
+	}
 
-		if pkg.Cfg.AlertMode == ALERT_MODE_NONE {
-			return
-		}
-
+	if pkg.Cfg.AlertMode != ALERT_MODE_NONE {
 		alertReceivers := strings.Split(tokenInfo.Alert_addr, ";")
 		alertReceiverList := make([]string, 0, len(alertReceivers))
 		for _, receiver := range alertReceivers {
@@ -153,9 +165,11 @@ func TriggerHandler(c *gin.Context) {
 		default:
 			logrus.Error("unknown mail alert mode")
 		}
-	}()
+	}
 
-	c.HTML(http.StatusNotFound, "404.html", nil)
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	c.Header("Pragma", "no-cache")
+	c.Data(http.StatusOK, "image/png", transparentPixelPNG)
 }
 
 // FingerprintHandle stores the legacy fingerprint POST used by file detections.

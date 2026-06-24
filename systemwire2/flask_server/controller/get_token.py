@@ -69,6 +69,10 @@ def _ensure_local_token_table(conn):
 def _register_token_locally(mail_addr, alert_msg):
     token = _build_local_token(mail_addr, alert_msg)
     token_url = _normalize_public_token_url(token)
+    return _register_token_value_locally(token, mail_addr, alert_msg), token_url
+
+
+def _register_token_value_locally(token, mail_addr, alert_msg):
     db_path = _alert_server_token_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     now_text = datetime.now().isoformat(sep=" ", timespec="seconds")
@@ -89,21 +93,20 @@ def _register_token_locally(mail_addr, alert_msg):
         ).fetchone()
 
         if row:
-            if row[1] is not None:
-                conn.execute(
-                    """
-                    UPDATE token_infos
-                    SET deleted_at = NULL,
-                        updated_at = ?,
-                        alert_addr = ?,
-                        alert_msg = ?,
-                        company_id = 1
-                    WHERE id = ?
-                    """,
-                    (now_text, mail_addr, alert_msg, row[0]),
-                )
-                conn.commit()
-            return 0, token_url
+            conn.execute(
+                """
+                UPDATE token_infos
+                SET deleted_at = NULL,
+                    updated_at = ?,
+                    alert_addr = ?,
+                    alert_msg = ?,
+                    company_id = 1
+                WHERE id = ?
+                """,
+                (now_text, mail_addr, alert_msg, row[0]),
+            )
+            conn.commit()
+            return 0
 
         conn.execute(
             """
@@ -121,14 +124,17 @@ def _register_token_locally(mail_addr, alert_msg):
             (now_text, now_text, token, mail_addr, alert_msg),
         )
         conn.commit()
-        return 0, token_url
+        return 0
     finally:
         conn.close()
 
 
 def _fallback_local_token(mail_addr, alert_msg, remote_reason):
     try:
-        return _register_token_locally(mail_addr, alert_msg)
+        err, token_url = _register_token_locally(mail_addr, alert_msg)
+        if err:
+            return 1, f"{remote_reason}; local fallback failed"
+        return 0, token_url
     except Exception as exc:
         return 1, f"{remote_reason}; local fallback failed: {exc}"
 
@@ -168,6 +174,13 @@ def getToken(maillAddr, msg):
         return _fallback_local_token(maillAddr, msg, err_msg)
 
     token_url = _normalize_public_token_url(payload.get("token")) or payload.get("token")
+    token = token_url.rsplit("/static/img/logo-", 1)[-1] if "/static/img/logo-" in str(token_url) else str(token_url)
+    if token.endswith(".png"):
+        token = token[:-4]
+    try:
+        _register_token_value_locally(token.strip("/"), maillAddr, msg)
+    except Exception:
+        pass
     return 0, token_url
 
 

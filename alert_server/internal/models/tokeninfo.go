@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -28,14 +29,29 @@ func InsertToken(db *gorm.DB, info *TokenInfo) uint {
 	defer file.Close()
 	log.SetOutput(file)
 
-	var tokeninfos []TokenInfo
-	db.Where("token = ?", info.Token).Find(&tokeninfos)
-	if len(tokeninfos) > 0 {
-		log.Printf("token %s exists,insertion failed", info.Token)
+	var tokeninfo TokenInfo
+	result := db.Unscoped().Where("token = ?", info.Token).First(&tokeninfo)
+	if result.Error == nil {
+		updates := map[string]interface{}{
+			"deleted_at": nil,
+			"alert_addr": info.Alert_addr,
+			"alert_msg":  info.Alert_msg,
+			"company_id": info.Company_id,
+			"updated_at": time.Now(),
+		}
+		if err := db.Unscoped().Model(&tokeninfo).Updates(updates).Error; err != nil {
+			log.Printf("token %s restore/update failed: %s", info.Token, err.Error())
+			return 1
+		}
+		log.Printf("token %s exists, restored/updated", info.Token)
+		return 0
+	}
+	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		log.Printf("token %s lookup failed: %s", info.Token, result.Error.Error())
 		return 1
 	}
 
-	result := db.Create(&info)
+	result = db.Create(&info)
 
 	if result.Error != nil {
 		log.Panicf("failed to insert tokeninfo %s", result.Error.Error())
