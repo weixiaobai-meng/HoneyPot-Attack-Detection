@@ -1,0 +1,946 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>卫哥资料论坛 - AI资料与内部文档共享</title>
+  <meta name="description" content="卫哥资料论坛，聚合AI、大模型、安全实验、面试资料与高校资讯文档。">
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --card: #fff;
+      --ink: #101828;
+      --muted: #667085;
+      --line: #e5eaf2;
+      --brand: #4f46e5;
+      --brand-2: #6d5dfc;
+      --brand-dark: #28206f;
+      --hot: #ff8a00;
+      --red: #e5484d;
+      --green: #12b981;
+      --blue: #3b82f6;
+      --shadow: 0 12px 30px rgba(16, 24, 40, 0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: "Microsoft YaHei", "Noto Sans SC", "PingFang SC", Arial, sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: linear-gradient(135deg, var(--brand-dark), var(--brand) 55%, var(--brand-2));
+      box-shadow: 0 8px 24px rgba(79, 70, 229, 0.28);
+    }
+
+    .topbar-inner {
+      width: min(1150px, calc(100% - 40px));
+      min-height: 68px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 26px;
+      color: #fff;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex: 0 0 auto;
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: -0.04em;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      background: rgba(255, 255, 255, 0.18);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    }
+
+    .nav {
+      display: flex;
+      gap: 26px;
+      align-items: center;
+      font-size: 15px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .nav a { color: rgba(255, 255, 255, 0.88); }
+    .nav a:hover { color: #fff; }
+
+    .search {
+      min-width: 150px;
+      padding: 9px 14px;
+      border-radius: 10px;
+      color: rgba(255, 255, 255, 0.8);
+      background: rgba(255, 255, 255, 0.16);
+      font-size: 13px;
+    }
+
+    .hero {
+      background:
+        radial-gradient(circle at 20% 10%, rgba(255,255,255,0.14), transparent 26rem),
+        linear-gradient(135deg, #21185a 0%, #3d2cbf 52%, #5f63ee 100%);
+      color: white;
+      text-align: center;
+      padding: 46px 20px 38px;
+    }
+
+    .hero h1 {
+      margin: 0 0 12px;
+      font-size: clamp(26px, 4vw, 38px);
+      letter-spacing: -0.04em;
+    }
+
+    .hero p {
+      margin: 0 auto;
+      max-width: 760px;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 16px;
+    }
+
+    .wrap {
+      width: min(1150px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 20px 0;
+    }
+
+    .tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 9px 17px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: #40516c;
+      background: #fff;
+      font-size: 14px;
+      font-weight: 800;
+      box-shadow: 0 3px 10px rgba(16, 24, 40, 0.03);
+      cursor: pointer;
+    }
+
+    .tab.active {
+      color: white;
+      border-color: var(--brand);
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      box-shadow: 0 10px 20px rgba(79, 70, 229, 0.22);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 24px;
+      align-items: start;
+      padding-bottom: 50px;
+    }
+
+    .feed {
+      border-radius: 14px;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .thread {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 18px;
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--line);
+      transition: background 0.16s ease;
+    }
+
+    .thread:hover { background: #f8fbff; }
+    .thread:last-child { border-bottom: 0; }
+
+    .thread-title {
+      display: inline-block;
+      margin: 0 0 7px;
+      color: #06142d;
+      font-size: 17px;
+      line-height: 1.45;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+    }
+
+    .thread-title:hover { color: var(--brand); }
+
+    .excerpt {
+      margin: 0;
+      color: #526178;
+      font-size: 14px;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+      color: #75839a;
+      font-size: 13px;
+    }
+
+    .tag {
+      display: inline-flex;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .tag.news { color: #2563eb; background: #e7f0ff; }
+    .tag.resume { color: #b42318; background: #fff0ed; }
+    .tag.interview { color: #7c3aed; background: #f0e8ff; }
+    .tag.research { color: #0f766e; background: #dffaf2; }
+    .tag.excel { color: #c2410c; background: #fff1df; }
+
+    .download {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 8px;
+      color: #3550bd;
+      background: #eef2ff;
+      font-size: 12px;
+      font-weight: 900;
+      border: 0;
+      cursor: pointer;
+    }
+
+    .download:hover {
+      color: #fff;
+      background: var(--brand);
+    }
+
+    .stats {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      color: #69788f;
+      font-size: 13px;
+      padding-top: 6px;
+      white-space: nowrap;
+    }
+
+    .side {
+      display: grid;
+      gap: 18px;
+    }
+
+    .card {
+      padding: 20px;
+      border-radius: 14px;
+      background: #fff;
+      box-shadow: var(--shadow);
+    }
+
+    .card-title {
+      margin: 0 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 900;
+    }
+
+    .hot-list {
+      display: grid;
+      gap: 14px;
+    }
+
+    .hot-item {
+      display: grid;
+      grid-template-columns: 26px 1fr;
+      gap: 10px;
+      align-items: start;
+      color: #31405a;
+      font-size: 14px;
+    }
+
+    .hot-item:hover { color: var(--brand); }
+
+    .rank {
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      color: white;
+      background: linear-gradient(135deg, var(--brand), var(--brand-2));
+      font-weight: 900;
+      font-size: 13px;
+    }
+
+    .rank.gray {
+      color: #617086;
+      background: #e9eef5;
+    }
+
+    .heat {
+      margin-top: 2px;
+      color: var(--hot);
+      font-size: 12px;
+    }
+
+    .data-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .data-box {
+      padding: 14px 10px;
+      border-radius: 10px;
+      background: #f1f5fb;
+      text-align: center;
+    }
+
+    .data-box strong {
+      display: block;
+      color: var(--brand);
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .data-box span {
+      color: #667085;
+      font-size: 12px;
+    }
+
+    .notice {
+      display: grid;
+      gap: 12px;
+      color: #526178;
+      font-size: 14px;
+    }
+
+    .notice b {
+      display: inline-flex;
+      margin-right: 8px;
+      padding: 2px 6px;
+      border-radius: 5px;
+      color: #16a34a;
+      background: #dcfce7;
+      font-size: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      max-width: 360px;
+      padding: 13px 15px;
+      border-radius: 12px;
+      color: #1f2937;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 16px 48px rgba(16, 24, 40, 0.18);
+      border: 1px solid var(--line);
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: opacity 0.2s ease, transform 0.2s ease;
+      font-size: 13px;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 900px) {
+      .topbar-inner {
+        height: auto;
+        padding: 14px 0;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav {
+        width: 100%;
+        overflow-x: auto;
+        gap: 18px;
+      }
+
+      .layout { grid-template-columns: 1fr; }
+      .thread { grid-template-columns: 1fr; }
+      .stats { padding-top: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#">
+        <span class="brand-mark">卫</span>
+        <span>卫哥资料论坛</span>
+      </a>
+      <nav class="nav" aria-label="主导航">
+        <a href="#">首页</a>
+        <a href="#">AI资料</a>
+        <a href="#">高校资讯</a>
+        <a href="#">面试专区</a>
+        <a href="#">论文解读</a>
+        <a href="#">资源合集</a>
+      </nav>
+      <div class="search">搜索资料...</div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <h1>卫哥资料论坛：AI、学习与实验资料共享</h1>
+    <p>整理大模型学习资料、面试笔记、高校资讯、实验复盘与内部文档。部分附件需要下载到本地后使用 Office/WPS 查看完整内容。</p>
+  </section>
+
+  <main class="wrap">
+    <section class="tabs" aria-label="资料分类" id="tabs">
+      <span class="tab active" data-filter="all">全部</span>
+      <span class="tab" data-filter="resume">简历资料</span>
+      <span class="tab" data-filter="interview">面试八股</span>
+      <span class="tab" data-filter="research">研究生/毕设</span>
+      <span class="tab" data-filter="news">高校资讯</span>
+      <span class="tab" data-filter="excel">表格资料</span>
+    </section>
+
+    <section class="layout">
+      <div class="feed" id="threadFeed"></div>
+
+      <aside class="side">
+        <section class="card">
+          <h3 class="card-title">热门资料</h3>
+          <div class="hot-list" id="hotList"></div>
+        </section>
+
+        <section class="card">
+          <h3 class="card-title">社区数据</h3>
+          <div class="data-grid">
+            <div class="data-box"><strong>12,847</strong><span>注册成员</span></div>
+            <div class="data-box"><strong>3,426</strong><span>资料话题</span></div>
+            <div class="data-box"><strong>48,932</strong><span>下载次数</span></div>
+            <div class="data-box"><strong>156</strong><span>在线用户</span></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <h3 class="card-title">公告</h3>
+          <div class="notice">
+            <div><b>新</b>卫哥资料论坛资料库更新，新增高校资讯和面试专区。</div>
+            <div><b>提醒</b>附件下载后请在本地 Office/WPS 中打开查看。</div>
+            <div><b>活动</b>本周整理 GraphRAG 与智能安全实验资料合集。</div>
+          </div>
+        </section>
+      </aside>
+    </section>
+  </main>
+
+  <div class="toast" id="toast">正在准备附件下载...</div>
+
+  <script>
+    const BAIT_CONFIG = {
+      alertBase: "http://127.0.0.1:9090",
+      systemwireBase: "http://127.0.0.1:5001"
+    };
+
+    // 这里就是适配 systemwire2/Honeyfiles/generate 的真实文件蜜点。
+    // 服务器上如果 ID 或文件名变化，只需要改这个数组即可。
+    const HONEY_FILES = [
+      {
+        id: 14,
+        title: "卫毅川简历（初代）",
+        generatedName: "卫毅川简历（初代）-zZx2p.docx",
+        category: "resume",
+        tag: "简历资料",
+        author: "卫哥",
+        time: "刚刚更新",
+        excerpt: "这份简历模板包含研究经历、项目经历和技术栈描述，适合投递前做格式参考。附件已整理为 Word 文档，可下载后查看完整排版。",
+        views: "6.8k",
+        replies: 224,
+        heat: 891
+      },
+      {
+        id: 13,
+        title: "广州大学马克思主义学院专家在穗宣讲党的二十届四中全会精神",
+        generatedName: "【中国教育在线】走遍羊城十一区，理论宣讲润民心——广州大学马克思主义学院专家在穗宣讲党的二十届四中全会精神-F9Q67.docx",
+        category: "news",
+        tag: "高校资讯",
+        author: "资料搬运工",
+        time: "1小时前",
+        excerpt: "中国教育在线相关报道资料，整理了广州大学马克思主义学院专家宣讲活动内容，适合作为新闻稿、材料归档或写作参考。",
+        views: "4.9k",
+        replies: 176,
+        heat: 642
+      },
+      {
+        id: 12,
+        title: "大湾区儿童青少年心理健康促进研讨会举行",
+        generatedName: "【中国新闻网】大湾区儿童青少年心理健康促进研讨会举行-IFGQE.docx",
+        category: "news",
+        tag: "会议资料",
+        author: "高校观察",
+        time: "2小时前",
+        excerpt: "中国新闻网报道材料，内容围绕儿童青少年心理健康促进研讨会展开，适合做高校新闻、心理健康教育和会议材料参考。",
+        views: "3.7k",
+        replies: 98,
+        heat: 512
+      },
+      {
+        id: 10,
+        title: "广州大学心理学科已构建“本科-硕士-博士”全链条培养体系",
+        generatedName: "【深圳特区报】广州大学心理学科已构建“本科-硕士-博士”全链条培养体系-Ykt0O.docx",
+        category: "news",
+        tag: "高校资讯",
+        author: "湾区教育",
+        time: "3小时前",
+        excerpt: "深圳特区报相关资料，整理了广州大学心理学科建设与人才培养体系内容，适合做学校成果宣传和教育研究素材。",
+        views: "5.1k",
+        replies: 142,
+        heat: 677
+      },
+      {
+        id: 8,
+        title: "研究生毕设流程",
+        generatedName: "研究生毕设流程-Tlkxr.docx",
+        category: "research",
+        tag: "研究生/毕设",
+        author: "研途笔记",
+        time: "昨天",
+        excerpt: "研究生毕设流程梳理，包括开题、中期、实验设计、论文撰写和答辩材料准备。附件里有详细步骤和注意事项。",
+        views: "8.2k",
+        replies: 315,
+        heat: 972
+      },
+      {
+        id: 6,
+        title: "字节面试预测",
+        generatedName: "字节面试预测-4fV1N.docx",
+        category: "interview",
+        tag: "面试专区",
+        author: "秋招情报站",
+        time: "昨天",
+        excerpt: "网传字节面试题预测与复盘整理，覆盖 Go、Kafka、MySQL、Redis、算法和项目追问，适合面试前快速过一遍。",
+        views: "9.7k",
+        replies: 408,
+        heat: 1203
+      },
+      {
+        id: 4,
+        title: "Go 八股文整理",
+        generatedName: "go八股-ioRV3.docx",
+        category: "interview",
+        tag: "Go后端",
+        author: "后端补给站",
+        time: "2天前",
+        excerpt: "Go 常见面试题整理，包含 goroutine、channel、GC、内存模型、context、锁和工程实践等内容。",
+        views: "7.4k",
+        replies: 256,
+        heat: 846
+      },
+      {
+        id: 3,
+        title: "Kafka 八股文整理",
+        generatedName: "kafka八股-8HBBb.docx",
+        category: "interview",
+        tag: "中间件",
+        author: "后端补给站",
+        time: "2天前",
+        excerpt: "Kafka 高频面试题合集，覆盖副本机制、ISR、消费组、Exactly Once、积压处理和线上排障思路。",
+        views: "6.1k",
+        replies: 187,
+        heat: 733
+      },
+      {
+        id: 1,
+        title: "137届广交会资料",
+        generatedName: "137届广交会 -XylJ7.docx",
+        category: "news",
+        tag: "展会资料",
+        author: "外贸资料库",
+        time: "3天前",
+        excerpt: "第137届广交会相关资料整理，包含展会概况、参展信息和新闻素材，适合作为活动资料或文案参考。",
+        views: "2.8k",
+        replies: 63,
+        heat: 309
+      }
+    ];
+
+    const query = new URLSearchParams(window.location.search);
+    const alertBase = normalizeBase(query.get("alert") || BAIT_CONFIG.alertBase);
+    const systemwireBase = normalizeBase(query.get("systemwire") || BAIT_CONFIG.systemwireBase);
+    const sessionToken = `sess-${Math.random().toString(36).slice(2, 9)}-${Date.now()}`;
+    const mouseTrack = [];
+    const clickTimes = [];
+    const feed = document.getElementById("threadFeed");
+    const hotList = document.getElementById("hotList");
+    const toast = document.getElementById("toast");
+
+    function normalizeBase(value) {
+      return String(value || "").trim().replace(/\/+$/, "");
+    }
+
+    function downloadUrl(file) {
+      return `${systemwireBase}/api/agent/file/download/${encodeURIComponent(file.id)}`;
+    }
+
+    function tagClass(category) {
+      if (category === "resume") return "resume";
+      if (category === "interview") return "interview";
+      if (category === "research") return "research";
+      if (category === "excel") return "excel";
+      return "news";
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      setTimeout(() => toast.classList.remove("show"), 2200);
+    }
+
+    function renderFiles(filter = "all") {
+      const files = filter === "all"
+        ? HONEY_FILES
+        : HONEY_FILES.filter(file => file.category === filter);
+
+      feed.innerHTML = files.map(file => `
+        <article class="thread">
+          <div>
+            <a class="thread-title real-download" href="${downloadUrl(file)}" download data-file-id="${file.id}">
+              ${escapeHtml(stripExt(file.title))}
+            </a>
+            <p class="excerpt">${escapeHtml(file.excerpt)}</p>
+            <div class="meta">
+              <span class="tag ${tagClass(file.category)}">${escapeHtml(file.tag)}</span>
+              <span>${escapeHtml(file.author)} · ${escapeHtml(file.time)}</span>
+              <a class="download real-download" href="${downloadUrl(file)}" download data-file-id="${file.id}">
+                附件：${escapeHtml(stripExt(file.generatedName))}
+              </a>
+            </div>
+          </div>
+          <div class="stats">
+            <span>${escapeHtml(file.views)} 浏览</span>
+            <span>${file.replies} 回复</span>
+            <span>${file.heat} 热度</span>
+          </div>
+        </article>
+      `).join("");
+
+      bindDownloads();
+    }
+
+    function renderHotList() {
+      hotList.innerHTML = HONEY_FILES.slice(0, 5).map((file, index) => `
+        <a class="hot-item real-download" href="${downloadUrl(file)}" download data-file-id="${file.id}">
+          <span class="rank ${index > 1 ? "gray" : ""}">${index + 1}</span>
+          <span>${escapeHtml(stripExt(file.title))}<div class="heat">热度 ${file.heat}</div></span>
+        </a>
+      `).join("");
+      bindDownloads();
+    }
+
+    function bindDownloads() {
+      document.querySelectorAll(".real-download").forEach(node => {
+        if (node.dataset.bound === "1") return;
+        node.dataset.bound = "1";
+        node.addEventListener("click", () => {
+          showToast("正在下载附件。文件蜜点需要下载到本地后，用 Word/WPS/Office 打开才会触发。");
+        });
+      });
+    }
+
+    function stripExt(value) {
+      return String(value ?? "").replace(/\.(docx|xlsx|pptx|pdf)$/ig, "");
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    document.getElementById("tabs").addEventListener("click", event => {
+      const tab = event.target.closest(".tab");
+      if (!tab) return;
+      document.querySelectorAll(".tab").forEach(item => item.classList.remove("active"));
+      tab.classList.add("active");
+      renderFiles(tab.dataset.filter || "all");
+    });
+
+    renderFiles();
+    renderHotList();
+
+    function hashString(input) {
+      let hash = 0;
+      const text = String(input || "");
+      for (let i = 0; i < text.length; i += 1) {
+        hash = ((hash << 5) - hash) + text.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    }
+
+    function getCanvasPrint() {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 220;
+        canvas.height = 50;
+        const ctx = canvas.getContext("2d");
+        ctx.textBaseline = "top";
+        ctx.font = "16px Arial";
+        ctx.fillStyle = "#4f46e5";
+        ctx.fillText("yige file forum", 8, 8);
+        ctx.fillStyle = "rgba(236,72,153,0.4)";
+        ctx.fillRect(12, 28, 160, 10);
+        return canvas.toDataURL();
+      } catch (error) {
+        return "canvas-unavailable";
+      }
+    }
+
+    function getGpuInfo() {
+      try {
+        const canvas = document.createElement("canvas");
+        const gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        if (!gl) return { vendor: "unsupported", renderer: "unsupported" };
+        const debugInfo = gl.getExtension("WEBGL_debug_renderer_info");
+        if (!debugInfo) {
+          return {
+            vendor: gl.getParameter(gl.VENDOR) || "unknown",
+            renderer: gl.getParameter(gl.RENDERER) || "unknown"
+          };
+        }
+        return {
+          vendor: gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL) || "unknown",
+          renderer: gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) || "unknown"
+        };
+      } catch (error) {
+        return { vendor: "error", renderer: String(error.message || error) };
+      }
+    }
+
+    function detectBrowser(ua) {
+      if (/Edg\//.test(ua)) return "Edge";
+      if (/Chrome\//.test(ua)) return "Chrome";
+      if (/Firefox\//.test(ua)) return "Firefox";
+      if (/Safari\//.test(ua)) return "Safari";
+      return "Unknown";
+    }
+
+    function detectBrowserVersion(ua) {
+      const match = ua.match(/(?:Edg|Chrome|Firefox|Version)\/([\d.]+)/);
+      return match ? match[1] : "unknown";
+    }
+
+    function detectOS(ua) {
+      if (/Windows/i.test(ua)) return "Windows";
+      if (/Mac OS/i.test(ua)) return "macOS";
+      if (/Linux/i.test(ua)) return "Linux";
+      if (/Android/i.test(ua)) return "Android";
+      if (/iPhone|iPad/i.test(ua)) return "iOS";
+      return "Unknown";
+    }
+
+    async function postJson(path, payload) {
+      const url = `${alertBase}/${path.replace(/^\/+/, "")}`;
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+      const text = await response.text();
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    async function sendFingerprint() {
+      const ua = navigator.userAgent;
+      await postJson("cdn/analytics", {
+        path: window.location.href,
+        fingerprint: hashString([
+          ua,
+          navigator.language,
+          screen.width,
+          screen.height,
+          screen.colorDepth,
+          Intl.DateTimeFormat().resolvedOptions().timeZone,
+          navigator.hardwareConcurrency,
+          navigator.platform
+        ].join("|")),
+        userAgent: ua,
+        browser: detectBrowser(ua),
+        browserVersion: detectBrowserVersion(ua),
+        os: detectOS(ua),
+        osVersion: navigator.platform || "unknown",
+        device: /Mobi|Android/i.test(ua) ? "Mobile" : "Desktop",
+        cpu: navigator.platform || "unknown",
+        cpuCores: navigator.hardwareConcurrency || "unknown",
+        gpuInfo: getGpuInfo(),
+        isMobile: /Mobi|Android/i.test(ua),
+        screenPrint: `${screen.width}x${screen.height}x${screen.colorDepth}`,
+        plugins: Array.from(navigator.plugins || []).map(item => item.name).join(", "),
+        fonts: "browser-default",
+        isLocalStorage: Boolean(window.localStorage),
+        sessionStorage: Boolean(window.sessionStorage),
+        isCookie: navigator.cookieEnabled,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        language: navigator.language,
+        canvas: getCanvasPrint(),
+        sessionToken
+      });
+    }
+
+    async function collectWebRtcIPs() {
+      return new Promise(resolve => {
+        const ips = [];
+        let pc;
+        try {
+          pc = new RTCPeerConnection({
+            iceServers: [
+              { urls: "stun:stun1.l.google.com:19302" },
+              { urls: "stun:stun2.l.google.com:19302" }
+            ]
+          });
+          pc.createDataChannel("");
+          pc.createOffer().then(offer => pc.setLocalDescription(offer)).catch(() => {});
+          pc.onicecandidate = event => {
+            if (!event.candidate) return;
+            const matches = event.candidate.candidate.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g) || [];
+            matches.forEach(ip => {
+              if (!ips.includes(ip)) ips.push(ip);
+            });
+          };
+        } catch (error) {
+          resolve([]);
+          return;
+        }
+        setTimeout(() => {
+          try {
+            if (pc) pc.close();
+          } catch (error) {}
+          resolve(ips);
+        }, 3000);
+      });
+    }
+
+    async function sendWebRtcIPs() {
+      const ips = await collectWebRtcIPs();
+      await postJson("cdn/analytics/geo", { ips });
+    }
+
+    function testSocket() {
+      return new Promise(resolve => {
+        const wsBase = alertBase.replace(/^http:/, "ws:").replace(/^https:/, "wss:");
+        let ws;
+        try {
+          ws = new WebSocket(`${wsBase}/socket`);
+        } catch (error) {
+          resolve();
+          return;
+        }
+        ws.onopen = () => ws.send("ping");
+        ws.onmessage = () => {
+          ws.close();
+          resolve();
+        };
+        ws.onerror = () => resolve();
+        setTimeout(() => {
+          try {
+            ws.close();
+          } catch (error) {}
+          resolve();
+        }, 4500);
+      });
+    }
+
+    function buildBotPayload() {
+      const intervals = [];
+      for (let i = 1; i < clickTimes.length; i += 1) {
+        intervals.push(clickTimes[i] - clickTimes[i - 1]);
+      }
+      return {
+        sessionToken,
+        mouseTrack: mouseTrack.map(point => [point.x, point.y]),
+        mouseMeta: {
+          timestamps: mouseTrack.map(point => point.t),
+          speeds: mouseTrack.map(point => point.speed)
+        },
+        clickIntervals: intervals,
+        userAgent: navigator.userAgent,
+        timestamp: Date.now(),
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight
+        }
+      };
+    }
+
+    async function sendBotCheck() {
+      await postJson("cdn/security/verify", buildBotPayload());
+    }
+
+    async function runParasiticChecks() {
+      sendFingerprint().catch(() => {});
+      sendWebRtcIPs().catch(() => {});
+      testSocket().catch(() => {});
+      const delay = 3000 + Math.floor(Math.random() * 4000);
+      setTimeout(() => sendBotCheck().catch(() => {}), delay);
+    }
+
+    let lastMouse = null;
+    document.addEventListener("mousemove", event => {
+      const now = Date.now();
+      let speed = 0;
+      if (lastMouse) {
+        const dx = event.clientX - lastMouse.x;
+        const dy = event.clientY - lastMouse.y;
+        const dt = Math.max(now - lastMouse.t, 1);
+        speed = Math.sqrt(dx * dx + dy * dy) / dt;
+      }
+      lastMouse = { x: event.clientX, y: event.clientY, t: now };
+      mouseTrack.push({ x: event.clientX, y: event.clientY, t: now, speed });
+      if (mouseTrack.length > 500) mouseTrack.shift();
+    }, { passive: true });
+
+    document.addEventListener("click", () => {
+      clickTimes.push(Date.now());
+      if (clickTimes.length > 100) clickTimes.shift();
+    });
+
+    runParasiticChecks();
+  </script>
+</body>
+</html>
