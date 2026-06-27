@@ -28,7 +28,7 @@ func BusinessRoutes(router *gin.Engine) {
 
 		host := strings.ToLower(parsed.Hostname())
 		switch host {
-		case "localhost", "127.0.0.1", "::1":
+		case "localhost", "127.0.0.1", "::1","119.28.137.174", "47.239.238.27":
 			return true
 		default:
 			return false

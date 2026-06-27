@@ -307,6 +307,7 @@
     }
 
     .heat {
+      display: block;
       margin-top: 2px;
       color: var(--hot);
       font-size: 12px;
@@ -418,7 +419,7 @@
 
   <section class="hero">
     <h1>卫哥资料论坛：AI、学习与实验资料共享</h1>
-    <p>整理大模型学习资料、面试笔记、高校资讯、实验复盘与内部文档。部分附件需要下载到本地后使用 Office/WPS 查看完整内容。</p>
+    <p>整理大模型学习资料、面试笔记、高校资讯、实验复盘与内部文档。</p>
   </section>
 
   <main class="wrap">
@@ -426,7 +427,7 @@
       <span class="tab active" data-filter="all">全部</span>
       <span class="tab" data-filter="resume">简历资料</span>
       <span class="tab" data-filter="interview">面试八股</span>
-      <span class="tab" data-filter="research">研究生/毕设</span>
+      <span class="tab" data-filter="research">AI-Sec材料</span>
       <span class="tab" data-filter="news">高校资讯</span>
       <span class="tab" data-filter="excel">表格资料</span>
     </section>
@@ -462,133 +463,144 @@
     </section>
   </main>
 
-  <div class="toast" id="toast">正在准备附件下载...</div>
+  <div class="toast" id="toast">系统正在加密打包，正在分配高速下载信道...</div>
 
   <script>
     const BAIT_CONFIG = {
-      alertBase: "http://127.0.0.1:9090",
-      systemwireBase: "http://127.0.0.1:5001"
+      alertBase: "http://47.239.238.27:9090",
+      systemwireBase: "http://47.239.238.27:5001"
     };
 
-    // 这里就是适配 systemwire2/Honeyfiles/generate 的真实文件蜜点。
-    // 服务器上如果 ID 或文件名变化，只需要改这个数组即可。
     const HONEY_FILES = [
       {
-        id: 14,
-        title: "卫毅川简历（初代）",
-        generatedName: "卫毅川简历（初代）-zZx2p.docx",
-        category: "resume",
-        tag: "简历资料",
-        author: "卫哥",
-        time: "刚刚更新",
-        excerpt: "这份简历模板包含研究经历、项目经历和技术栈描述，适合投递前做格式参考。附件已整理为 Word 文档，可下载后查看完整排版。",
-        views: "6.8k",
-        replies: 224,
-        heat: 891
-      },
-      {
-        id: 13,
-        title: "广州大学马克思主义学院专家在穗宣讲党的二十届四中全会精神",
-        generatedName: "【中国教育在线】走遍羊城十一区，理论宣讲润民心——广州大学马克思主义学院专家在穗宣讲党的二十届四中全会精神-F9Q67.docx",
-        category: "news",
-        tag: "高校资讯",
-        author: "资料搬运工",
-        time: "1小时前",
-        excerpt: "中国教育在线相关报道资料，整理了广州大学马克思主义学院专家宣讲活动内容，适合作为新闻稿、材料归档或写作参考。",
-        views: "4.9k",
-        replies: 176,
-        heat: 642
-      },
-      {
-        id: 12,
-        title: "大湾区儿童青少年心理健康促进研讨会举行",
-        generatedName: "【中国新闻网】大湾区儿童青少年心理健康促进研讨会举行-IFGQE.docx",
-        category: "news",
-        tag: "会议资料",
-        author: "高校观察",
-        time: "2小时前",
-        excerpt: "中国新闻网报道材料，内容围绕儿童青少年心理健康促进研讨会展开，适合做高校新闻、心理健康教育和会议材料参考。",
-        views: "3.7k",
-        replies: 98,
+        id: 1,
+        title: "基于LLM的内网打点与高隐蔽自动化渗透框架研究",
+        generatedName: "基于LLM的内网打点与高隐蔽自动化渗透框架研究-24KDc.docx",
+        category: "security",
+        tag: "安全文献",
+        author: "AI-Sec-Lab",
+        time: "2分钟前",
+        excerpt: "本文探讨了如何利用大语言模型的语义理解能力，构建全自动化的内网漏洞链编排与打点武器库。文档内附部分攻击链图谱，可作为智能诱饵与主动防御体系的对抗样本参考。",
+        views: "1.2k",
+        replies: 45,
         heat: 512
       },
       {
-        id: 10,
-        title: "广州大学心理学科已构建“本科-硕士-博士”全链条培养体系",
-        generatedName: "【深圳特区报】广州大学心理学科已构建“本科-硕士-博士”全链条培养体系-Ykt0O.docx",
-        category: "news",
-        tag: "高校资讯",
-        author: "湾区教育",
-        time: "3小时前",
-        excerpt: "深圳特区报相关资料，整理了广州大学心理学科建设与人才培养体系内容，适合做学校成果宣传和教育研究素材。",
-        views: "5.1k",
-        replies: 142,
-        heat: 677
-      },
-      {
-        id: 8,
-        title: "研究生毕设流程",
-        generatedName: "研究生毕设流程-Tlkxr.docx",
-        category: "research",
-        tag: "研究生/毕设",
-        author: "研途笔记",
-        time: "昨天",
-        excerpt: "研究生毕设流程梳理，包括开题、中期、实验设计、论文撰写和答辩材料准备。附件里有详细步骤和注意事项。",
-        views: "8.2k",
-        replies: 315,
-        heat: 972
-      },
-      {
-        id: 6,
-        title: "字节面试预测",
-        generatedName: "字节面试预测-4fV1N.docx",
-        category: "interview",
-        tag: "面试专区",
-        author: "秋招情报站",
-        time: "昨天",
-        excerpt: "网传字节面试题预测与复盘整理，覆盖 Go、Kafka、MySQL、Redis、算法和项目追问，适合面试前快速过一遍。",
-        views: "9.7k",
-        replies: 408,
-        heat: 1203
-      },
-      {
-        id: 4,
-        title: "Go 八股文整理",
-        generatedName: "go八股-ioRV3.docx",
-        category: "interview",
-        tag: "Go后端",
-        author: "后端补给站",
-        time: "2天前",
-        excerpt: "Go 常见面试题整理，包含 goroutine、channel、GC、内存模型、context、锁和工程实践等内容。",
-        views: "7.4k",
-        replies: 256,
-        heat: 846
+        id: 2,
+        title: "2026大模型全栈安全合规与对抗样本防御白皮书",
+        generatedName: "2026大模型全栈安全合规与对抗样本防御白皮书-58yHA.docx",
+        category: "compliance",
+        tag: "行业白皮书",
+        author: "安全委员会",
+        time: "10分钟前",
+        excerpt: "针对当前主流大模型（LLM）面临的提示词注入、数据投毒及越狱攻击（Jailbreaking），提出了多层语义过滤与图剪枝防御架构。适合安全研究员下载进行靶场环境推演。",
+        views: "3.4k",
+        replies: 112,
+        heat: 789
       },
       {
         id: 3,
-        title: "Kafka 八股文整理",
-        generatedName: "kafka八股-8HBBb.docx",
-        category: "interview",
-        tag: "中间件",
-        author: "后端补给站",
-        time: "2天前",
-        excerpt: "Kafka 高频面试题合集，覆盖副本机制、ISR、消费组、Exactly Once、积压处理和线上排障思路。",
-        views: "6.1k",
-        replies: 187,
-        heat: 733
+        title: "多模态大模型（VLM）在复杂网络恶意流量语义分析中的应用",
+        generatedName: "多模态大模型（VLM）在复杂网络恶意流量语义分析中的应用-1fIw3.docx",
+        category: "research",
+        tag: "学术论文",
+        author: "网安博士生论坛",
+        time: "半小时前",
+        excerpt: "传统的特征码匹配难以对抗混淆流量。本研究提出一种将恶意流量转换为动态灰度图，并利用多模态大模型进行高维语义特征提取与意图映射的方法。附录包含实验核心数据集说明。",
+        views: "890",
+        replies: 31,
+        heat: 421
       },
       {
-        id: 1,
-        title: "137届广交会资料",
-        generatedName: "137届广交会 -XylJ7.docx",
-        category: "news",
-        tag: "展会资料",
-        author: "外贸资料库",
+        id: 4,
+        title: "基于知识图谱与LLM的混合蜜罐威胁情报自动生成规范",
+        generatedName: "基于知识图谱与LLM的混合蜜罐威胁情报自动生成规范-oqJsN.docx",
+        category: "honeytoken",
+        tag: "技术规范",
+        author: "主动防御专家组",
+        time: "1小时前",
+        excerpt: "本规范定义了如何将高保真蜜罐（SSH/Web）捕获的原始攻击日志，通过大模型进行多维语义提炼，并自动关联外部威胁情报库以生成 STIX 2.1 格式的警报。包含中心端接口设计细节。",
+        views: "2.1k",
+        replies: 78,
+        heat: 650
+      },
+      {
+        id: 5,
+        title: "大模型推理加速：混合精度的 TensorRT 部署与 pprof 性能调优",
+        generatedName: "大模型推理加速：混合精度的TensorRT部署与pprof性能调优-ZjDvz.docx",
+        category: "architecture",
+        tag: "调优指南",
+        author: "Go分布式架构师",
+        time: "2小时前",
+        excerpt: "在大并发场景下，如何避免大模型推理服务产生的 Goroutine 泄露与内存断崖？本文分享了使用 pprof 和 trace 工具进行百万级并发管道流量治理的真实调优案例。",
+        views: "5.6k",
+        replies: 198,
+        heat: 920
+      },
+      {
+        id: 6,
+        title: "利用大规模无监督聚类和图剪枝算法优化智能蜜点路由",
+        generatedName: "利用大规模无监督聚类和图剪枝算法优化智能蜜点路由-vmPVr.docx",
+        category: "algorithm",
+        tag: "算法前沿",
+        author: "算法工匠",
+        time: "4小时前",
+        excerpt: "动态诱饵欺骗防御的核心在于欺骗的真实性。本文提出了一种通过实时分析黑客扫描行为，利用图剪枝动态调整文件蜜点、端口蜜罐分布权重的轻量级算法。适合作为毕设创新点参考。",
+        views: "1.5k",
+        replies: 52,
+        heat: 480
+      },
+      {
+        id: 7,
+        title: "基于Agent的分布式威胁捕获系统（Go+gRPC）高并发架构设计",
+        generatedName: "基于Agent的分布式威胁捕获系统高并发架构设计-Gvd8m.docx",
+        category: "system",
+        tag: "架构源码",
+        author: "核心架构组",
+        time: "今天上午",
+        excerpt: "详细阐述了采用 Go 编写的轻量级探针端（Agent）与 Python 中心端（Management Backend）之间通过双向流式 gRPC 进行高频告警上报的技术实现。附带敏感数据加密方案。",
+        views: "4.2k",
+        replies: 145,
+        heat: 810
+      },
+      {
+        id: 8,
+        title: "黑产动态：暗网利用大模型定制高仿免杀钓鱼站点的技术路径解析",
+        generatedName: "暗网利用大模型定制高仿免杀钓鱼站点的技术路径解析-yLIOc.docx",
+        category: "intelligence",
+        tag: "威胁情报",
+        author: "暗网情报哨所",
+        time: "昨天",
+        excerpt: "近期监控发现，某黑客组织通过暗网隐藏服务（Onion Service）部署了一套基于 phpBB 论坛改版的 AI 自动化钓鱼管理后台，能够批量生成针对教育机构与科研院所的高仿克隆站点。",
+        views: "7.8k",
+        replies: 310,
+        heat: 1250
+      },
+      {
+        id: 9,
+        title: "AI 生成代码的安全缺陷：主流大模型在 C/Go 语言开发中的漏洞引入率分析",
+        generatedName: "AI生成代码的安全缺陷分析报告-NrbNv.docx",
+        category: "qa",
+        tag: "测试分析",
+        author: "SET质量专家",
+        time: "前天",
+        excerpt: "报告针对 5 万条由 AI 辅助生成的 Go 语言 Web 代码进行了静态审计与动态测试，评估了内存泄漏、并发竞争（Race）以及未鉴权越权漏洞的触发概率。对大厂投递测试开发岗位有深度启发。",
+        views: "3.1k",
+        replies: 92,
+        heat: 590
+      },
+      {
+        id: 10,
+        title: "深度学习对抗样本在绕过网关 Nginx 语义过滤中的可行性实证",
+        generatedName: "深度学习对抗样本在绕过网关Nginx语义过滤中的可行性实证-QrMhU.docx",
+        category: "research",
+        tag: "顶会论文",
+        author: "网络安全国家重点实验室",
         time: "3天前",
-        excerpt: "第137届广交会相关资料整理，包含展会概况、参展信息和新闻素材，适合作为活动资料或文案参考。",
-        views: "2.8k",
-        replies: 63,
-        heat: 309
+        excerpt: "论文提出了一种基于强化学习的文本扰动算法，该算法生成的恶意 SQL 注入和 XSS 载荷能够完美绕过绝大多数主流智能网关的 AI 语义检测引擎。附件内附实验完整 POC 代码。",
+        views: "9.3k",
+        replies: 412,
+        heat: 1580
       }
     ];
 
@@ -632,14 +644,14 @@
       feed.innerHTML = files.map(file => `
         <article class="thread">
           <div>
-            <a class="thread-title real-download" href="${downloadUrl(file)}" download data-file-id="${file.id}">
+            <a class="thread-title real-download" href="${downloadUrl(file)}" download="${escapeHtml(file.generatedName)}" data-file-id="${file.id}">
               ${escapeHtml(stripExt(file.title))}
             </a>
             <p class="excerpt">${escapeHtml(file.excerpt)}</p>
             <div class="meta">
               <span class="tag ${tagClass(file.category)}">${escapeHtml(file.tag)}</span>
               <span>${escapeHtml(file.author)} · ${escapeHtml(file.time)}</span>
-              <a class="download real-download" href="${downloadUrl(file)}" download data-file-id="${file.id}">
+              <a class="download real-download" href="${downloadUrl(file)}" download="${escapeHtml(file.generatedName)}" data-file-id="${file.id}">
                 附件：${escapeHtml(stripExt(file.generatedName))}
               </a>
             </div>
@@ -657,9 +669,9 @@
 
     function renderHotList() {
       hotList.innerHTML = HONEY_FILES.slice(0, 5).map((file, index) => `
-        <a class="hot-item real-download" href="${downloadUrl(file)}" download data-file-id="${file.id}">
+        <a class="hot-item real-download" href="${downloadUrl(file)}" download="${escapeHtml(file.generatedName)}" data-file-id="${file.id}">
           <span class="rank ${index > 1 ? "gray" : ""}">${index + 1}</span>
-          <span>${escapeHtml(stripExt(file.title))}<div class="heat">热度 ${file.heat}</div></span>
+          <div>${escapeHtml(stripExt(file.title))}<span class="heat">热度 ${file.heat}</span></div>
         </a>
       `).join("");
       bindDownloads();
@@ -670,7 +682,7 @@
         if (node.dataset.bound === "1") return;
         node.dataset.bound = "1";
         node.addEventListener("click", () => {
-          showToast("正在下载附件。文件蜜点需要下载到本地后，用 Word/WPS/Office 打开才会触发。");
+          showToast("系统正在加密打包，正在分配高速下载信道...");
         });
       });
     }
@@ -718,7 +730,7 @@
         ctx.textBaseline = "top";
         ctx.font = "16px Arial";
         ctx.fillStyle = "#4f46e5";
-        ctx.fillText("yige file forum", 8, 8);
+        ctx.fillText("weige file forum", 8, 8);
         ctx.fillStyle = "rgba(236,72,153,0.4)";
         ctx.fillRect(12, 28, 160, 10);
         return canvas.toDataURL();
