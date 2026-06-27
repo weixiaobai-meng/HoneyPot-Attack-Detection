@@ -9,7 +9,6 @@ import argparse
 from datetime import timedelta
 from urllib.parse import urlparse
 from kafka import KafkaProducer,errors as kafka_errors
-from kafka.errors import NoBrokersAvailable
 from flask_server.utils.common import Server_config, get_base_info, get_time_bj
 from flask_server.models import *
 
