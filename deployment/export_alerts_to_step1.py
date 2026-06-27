@@ -15,7 +15,7 @@ from collections import Counter
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -40,6 +40,7 @@ MAX_ALERTS_FOR_LIVE_ANALYSIS = 10000
 MAX_DQN_EDGES = 5000
 MAX_SIMULATED_KEPT_EDGES = 5000
 MAX_PROMPT_EDGES = 200
+SYSTEMWIRE2_ROOT = REPO_ROOT / "systemwire2"
 
 
 def build_live_analysis_collector_config():
@@ -52,6 +53,209 @@ def build_live_analysis_collector_config():
     config["unified_alert_store"]["fallback_to_raw"] = False
     config["audit_log"]["enabled"] = False
     return config
+
+
+def _import_systemwire2_unified_api_builder():
+    if not SYSTEMWIRE2_ROOT.exists():
+        raise FileNotFoundError(f"systemwire2 root not found: {SYSTEMWIRE2_ROOT}")
+
+    systemwire_root_text = str(SYSTEMWIRE2_ROOT)
+    if systemwire_root_text not in sys.path:
+        sys.path.insert(0, systemwire_root_text)
+
+    from flask_server.flask_app import flask_app  # type: ignore
+    from flask_server.alert_store import build_unified_alert_api_rows  # type: ignore
+
+    return flask_app, build_unified_alert_api_rows
+
+
+def _import_systemwire2_intel_enricher():
+    if not SYSTEMWIRE2_ROOT.exists():
+        raise FileNotFoundError(f"systemwire2 root not found: {SYSTEMWIRE2_ROOT}")
+
+    systemwire_root_text = str(SYSTEMWIRE2_ROOT)
+    if systemwire_root_text not in sys.path:
+        sys.path.insert(0, systemwire_root_text)
+
+    from flask_server.alert_store import _attach_source_and_actor_intel  # type: ignore
+
+    return _attach_source_and_actor_intel
+
+
+def _parse_alert_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return datetime.now()
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now()
+
+
+def _map_unified_api_row_to_alert(row: Dict[str, Any]) -> UnifiedAlert:
+    alert_type = AlertType(str(row.get("alert_type") or "audit"))
+    timestamp = _parse_alert_timestamp(row.get("timestamp"))
+    details = deepcopy(row.get("details") or {})
+    source_intel = deepcopy(row.get("source_intel") or {})
+    actor_intel = deepcopy(row.get("actor_intel") or {})
+    attacker_ip = row.get("attacker_ip")
+    action = row.get("action")
+    severity = row.get("severity") or "medium"
+    target_path = row.get("target_path")
+    attacker_info = None
+    target_host = None
+    source_type = None
+    source_id = None
+    source_label = None
+    object_type = None
+    object_id = None
+    object_label = None
+    stage = None
+    tactic = None
+    technique = None
+    session_id = None
+    confidence = 0.9
+    evidence = deepcopy(details)
+
+    if alert_type == AlertType.FILE_HONEYPOT:
+        attacker_info = details.get("report_agent") or None
+        target_host = details.get("deployment_summary") or None
+        source_type = "network"
+        source_id = f"network:{attacker_ip}" if attacker_ip else "network:unknown"
+        source_label = attacker_ip or "unknown network source"
+        object_type = "file"
+        object_id = f"file:{target_path}" if target_path else "file:unknown"
+        object_label = details.get("filename") or target_path or "unknown file"
+        stage = "collection"
+        tactic = "Collection"
+        technique = "Honey File Access"
+        confidence = 0.96
+    elif alert_type == AlertType.ACCOUNT_HONEYPOT:
+        attacker_info = details.get("client_version") or None
+        target_host = details.get("dst_endpoint") or row.get("target_path") or None
+        protocol = str(details.get("protocol") or "ssh").strip().lower()
+        source_type = "network"
+        source_id = f"network:{attacker_ip}" if attacker_ip else "network:unknown"
+        source_label = attacker_ip or "unknown account source"
+        object_type = "service"
+        object_id = f"service:{protocol}@{row.get('target_path')}" if row.get("target_path") else f"service:{protocol}"
+        object_label = row.get("target_path") or f"{protocol} service"
+        stage = "initial_access"
+        tactic = "Initial Access"
+        technique = "External Remote Services"
+        confidence = 0.95
+    elif alert_type == AlertType.PARASITIC_HONEYPOT:
+        fingerprint = details.get("fingerprint") or ""
+        session_id = details.get("session_token") or None
+        attacker_info = fingerprint or None
+        source_type = "browser"
+        source_id = f"browser:{fingerprint}" if fingerprint else (f"browser:{session_id}" if session_id else "browser:unknown")
+        source_label = fingerprint or session_id or "unknown browser fingerprint"
+        object_type = "url"
+        object_id = f"url:{target_path}" if target_path else "url:unknown"
+        object_label = target_path or "unknown url"
+        stage = "reconnaissance"
+        tactic = "Reconnaissance"
+        technique = "Honey Web Resource Access"
+        target_host = row.get("target_path")
+        confidence = 0.94 if details.get("possible_proxy") or details.get("is_bot") else 0.9
+    else:
+        source_type = "unknown"
+        source_id = "unknown:source"
+        source_label = attacker_ip or "unknown source"
+        object_type = "unknown"
+        object_id = "unknown:object"
+        object_label = target_path or "unknown object"
+
+    return UnifiedAlert(
+        alert_id=str(row.get("alert_id") or ""),
+        alert_type=alert_type,
+        timestamp=timestamp,
+        attacker_ip=attacker_ip,
+        attacker_info=attacker_info,
+        target_host=target_host,
+        target_path=target_path,
+        action=action,
+        details=details,
+        session_id=session_id,
+        source_type=source_type,
+        source_id=source_id,
+        source_label=source_label,
+        object_type=object_type,
+        object_id=object_id,
+        object_label=object_label,
+        stage=stage,
+        tactic=tactic,
+        technique=technique,
+        confidence=confidence,
+        severity=severity,
+        source_intel=source_intel,
+        actor_intel=actor_intel,
+        evidence=evidence,
+    )
+
+
+def collect_live_alerts_from_systemwire2_api(hours: int) -> List[UnifiedAlert]:
+    flask_app, build_unified_alert_api_rows = _import_systemwire2_unified_api_builder()
+    allowed_types = {"file", "account", "parasitic"}
+    with flask_app.app_context():
+        rows: List[Dict[str, Any]] = build_unified_alert_api_rows(hours=hours, alert_type=None)
+    rows = [row for row in rows if str(row.get("alert_type") or "").strip().lower() in allowed_types]
+    alerts = [_map_unified_api_row_to_alert(row) for row in rows]
+    alerts.sort(key=lambda item: item.timestamp)
+    return alerts
+
+
+def _alert_to_intel_row(alert: UnifiedAlert) -> Dict[str, Any]:
+    row = {
+        "alert_id": alert.alert_id,
+        "alert_type": alert.alert_type.value if isinstance(alert.alert_type, AlertType) else str(alert.alert_type),
+        "timestamp": alert.timestamp.isoformat() if isinstance(alert.timestamp, datetime) else str(alert.timestamp),
+        "attacker_ip": alert.attacker_ip,
+        "target_path": alert.target_path or alert.target_host or "",
+        "action": alert.action,
+        "severity": alert.severity,
+        "details": deepcopy(alert.details or {}),
+    }
+    return row
+
+
+def enrich_alerts_with_systemwire2_intel(alerts: List[UnifiedAlert]) -> List[UnifiedAlert]:
+    if not alerts:
+        return []
+
+    attach_source_and_actor_intel = _import_systemwire2_intel_enricher()
+    intel_rows = [_alert_to_intel_row(alert) for alert in alerts]
+    enriched_rows = attach_source_and_actor_intel(intel_rows)
+
+    by_id = {alert.alert_id: alert for alert in alerts}
+    enriched_alerts: List[UnifiedAlert] = []
+    for row in enriched_rows:
+        original = by_id.get(str(row.get("alert_id") or ""))
+        base_alert = _map_unified_api_row_to_alert(row)
+        if original is not None:
+            base_alert.process_info = deepcopy(original.process_info)
+            if original.session_id and not base_alert.session_id:
+                base_alert.session_id = original.session_id
+        enriched_alerts.append(base_alert)
+
+    enriched_alerts.sort(key=lambda item: item.timestamp)
+    return enriched_alerts
+
+
+def enrich_simulated_alert_groups(alert_groups: Dict[str, List[UnifiedAlert]]) -> Dict[str, List[UnifiedAlert]]:
+    all_alerts: List[UnifiedAlert] = []
+    ordered_group_names = ["file", "account", "parasitic", "audit"]
+    for group_name in ordered_group_names:
+        all_alerts.extend(alert_groups.get(group_name, []))
+
+    enriched = enrich_alerts_with_systemwire2_intel(all_alerts)
+    grouped: Dict[str, List[UnifiedAlert]] = {name: [] for name in ordered_group_names}
+    for alert in enriched:
+        grouped.setdefault(alert.alert_type.value, []).append(alert)
+    return grouped
 
 
 def rel(path: Path) -> str:
@@ -641,7 +845,7 @@ def copy_run_to_defaults(source_paths):
 def simulate(run_dir: Path, write_defaults: bool):
     paths = build_run_paths(run_dir)
     deployments = create_simulated_deployments()
-    groups = create_simulated_honeypot_alerts()
+    groups = enrich_simulated_alert_groups(create_simulated_honeypot_alerts())
     alerts, split_paths = write_split_and_unified(groups, paths, deployments=deployments)
     graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
     if write_defaults:
@@ -658,7 +862,15 @@ def export_live(hours: int, run_dir: Path = None):
     start_time = None if hours <= 0 else end_time - timedelta(hours=hours)
     collector = DataCollector(config=build_live_analysis_collector_config())
     collector_sources = collector.describe_sources()
-    live_alerts = collector.collect_all(start_time, end_time)
+    try:
+        live_alerts = collect_live_alerts_from_systemwire2_api(hours)
+        collector_sources["analysis_source_mode"] = "systemwire2_unified_api"
+        collector_sources["analysis_source_detail"] = "flask_server.alert_store.build_unified_alert_api_rows"
+    except Exception as exc:
+        print(f"[-] unified API export path unavailable, fallback to unified store collector: {exc}")
+        live_alerts = collector.collect_all(start_time, end_time)
+        collector_sources["analysis_source_mode"] = "systemwire2_unified_store_fallback"
+        collector_sources["analysis_source_detail"] = str(exc)
     alerts = [a.to_dict() for a in live_alerts]
     alerts.sort(key=lambda item: item.get("timestamp") or "")
 

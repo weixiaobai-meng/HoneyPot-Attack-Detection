@@ -5,6 +5,7 @@ Step 1: collect multi-source honeypot alerts into a unified event stream.
 import json
 import os
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -46,6 +47,8 @@ class DataCollector:
     def _default_config(self) -> Dict:
         base_dir = Path(__file__).resolve().parent.parent
         return {
+            "analysis_source_mode": "",
+            "analysis_include_alert_types": [],
             "unified_alert_store": {
                 "enabled": True,
                 "db_path": str(self._resolve_systemwire_db_path(base_dir)),
@@ -70,6 +73,25 @@ class DataCollector:
                 "type": "file",
             },
         }
+
+    @staticmethod
+    def _systemwire2_root(base_dir: Path) -> Path:
+        return base_dir / "systemwire2"
+
+    @staticmethod
+    def _import_systemwire2_unified_api_builder(base_dir: Path):
+        systemwire2_root = DataCollector._systemwire2_root(base_dir)
+        if not systemwire2_root.exists():
+            raise FileNotFoundError(f"systemwire2 root not found: {systemwire2_root}")
+
+        systemwire_root_text = str(systemwire2_root)
+        if systemwire_root_text not in sys.path:
+            sys.path.insert(0, systemwire_root_text)
+
+        from flask_server.flask_app import flask_app  # type: ignore
+        from flask_server.alert_store import build_unified_alert_api_rows  # type: ignore
+
+        return flask_app, build_unified_alert_api_rows
 
     @staticmethod
     def _resolve_systemwire_db_path(base_dir: Path) -> Path:
@@ -117,6 +139,13 @@ class DataCollector:
             except ValueError:
                 continue
         return datetime.now()
+
+    @staticmethod
+    def _parse_alert_type(value) -> AlertType:
+        if isinstance(value, AlertType):
+            return value
+        text = str(value or "").strip().lower()
+        return AlertType(text or AlertType.AUDIT_EVENT.value)
 
     @staticmethod
     def _json_obj(value) -> Dict:
@@ -172,6 +201,145 @@ class DataCollector:
         if "://" not in text and "/" not in text and ":" in text:
             return text.split(":", 1)[0]
         return None
+
+    def _map_unified_api_row_to_alert(self, row: Dict) -> UnifiedAlert:
+        alert_type = self._parse_alert_type(row.get("alert_type"))
+        timestamp = self._parse_time_value(row.get("timestamp"))
+        details = self._json_obj(row.get("details"))
+        source_intel = self._json_obj(row.get("source_intel"))
+        actor_intel = self._json_obj(row.get("actor_intel"))
+        attacker_ip = row.get("attacker_ip")
+        action = row.get("action")
+        severity = row.get("severity") or "medium"
+        target_path = row.get("target_path")
+        attacker_info = None
+        target_host = None
+        source_type = None
+        source_id = None
+        source_label = None
+        object_type = None
+        object_id = None
+        object_label = None
+        stage = None
+        tactic = None
+        technique = None
+        session_id = None
+        confidence = 0.9
+        evidence = dict(details)
+
+        if alert_type == AlertType.FILE_HONEYPOT:
+            attacker_info = details.get("report_agent") or None
+            target_host = details.get("deployment_summary") or None
+            source_type = "network"
+            source_id = f"network:{attacker_ip}" if attacker_ip else "network:unknown"
+            source_label = attacker_ip or "unknown network source"
+            object_type = "file"
+            object_id = f"file:{target_path}" if target_path else "file:unknown"
+            object_label = details.get("filename") or target_path or "unknown file"
+            stage = "collection"
+            tactic = "Collection"
+            technique = "Honey File Access"
+            confidence = 0.96
+        elif alert_type == AlertType.ACCOUNT_HONEYPOT:
+            attacker_info = details.get("client_version") or None
+            target_host = row.get("target_path") or None
+            protocol = str(details.get("protocol") or "ssh").strip().lower()
+            source_type = "network"
+            source_id = f"network:{attacker_ip}" if attacker_ip else "network:unknown"
+            source_label = attacker_ip or "unknown account source"
+            object_type = "service"
+            object_id = f"service:{protocol}@{target_host}" if target_host else f"service:{protocol}"
+            object_label = target_host or f"{protocol} service"
+            stage = "initial_access"
+            tactic = "Initial Access"
+            technique = "External Remote Services"
+            confidence = 0.95
+        elif alert_type == AlertType.PARASITIC_HONEYPOT:
+            fingerprint = str(details.get("fingerprint") or "").strip()
+            session_id = details.get("session_token") or None
+            attacker_info = fingerprint or None
+            target_host = self._parse_target_host(target_path or "")
+            source_type = "browser"
+            source_id = f"browser:{fingerprint}" if fingerprint else (f"browser:{session_id}" if session_id else "browser:unknown")
+            source_label = fingerprint or session_id or "unknown browser fingerprint"
+            object_type = "url"
+            object_id = f"url:{target_path}" if target_path else "url:unknown"
+            object_label = target_path or "unknown url"
+            stage = "reconnaissance"
+            tactic = "Reconnaissance"
+            technique = "Honey Web Resource Access"
+            confidence = 0.94 if details.get("possible_proxy") or details.get("is_bot") else 0.9
+        else:
+            source_type = "unknown"
+            source_id = "unknown:source"
+            source_label = attacker_ip or "unknown source"
+            object_type = "unknown"
+            object_id = "unknown:object"
+            object_label = target_path or "unknown object"
+
+        return UnifiedAlert(
+            alert_id=str(row.get("alert_id") or ""),
+            alert_type=alert_type,
+            timestamp=timestamp,
+            attacker_ip=attacker_ip,
+            attacker_info=attacker_info,
+            target_host=target_host,
+            target_path=target_path,
+            action=action,
+            details=details,
+            session_id=session_id,
+            source_type=source_type,
+            source_id=source_id,
+            source_label=source_label,
+            object_type=object_type,
+            object_id=object_id,
+            object_label=object_label,
+            stage=stage,
+            tactic=tactic,
+            technique=technique,
+            confidence=confidence,
+            severity=severity,
+            source_intel=source_intel,
+            actor_intel=actor_intel,
+            evidence=evidence,
+        )
+
+    def _collect_from_systemwire2_unified_api(
+        self,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> List[UnifiedAlert]:
+        base_dir = Path(__file__).resolve().parent.parent
+        flask_app, build_unified_alert_api_rows = self._import_systemwire2_unified_api_builder(base_dir)
+
+        analysis_types = [
+            str(item).strip().lower()
+            for item in self.config.get("analysis_include_alert_types", [])
+            if str(item).strip()
+        ]
+        if not analysis_types:
+            analysis_types = ["file", "account", "parasitic"]
+
+        end = self._normalize_dt(end_time) or datetime.now()
+        start = self._normalize_dt(start_time)
+        hours = 24
+        if start is not None:
+            delta_seconds = max((end - start).total_seconds(), 0)
+            hours = max(int((delta_seconds + 3599) // 3600), 1)
+
+        alerts: List[UnifiedAlert] = []
+        with flask_app.app_context():
+            rows = build_unified_alert_api_rows(hours=hours, alert_type=None)
+            for row in rows:
+                alert_type = str(row.get("alert_type") or "").strip().lower()
+                if alert_type not in analysis_types:
+                    continue
+                alert = self._map_unified_api_row_to_alert(dict(row))
+                if self._in_time_range(alert.timestamp, start_time, end_time):
+                    alerts.append(alert)
+
+        alerts.sort(key=lambda item: item.timestamp)
+        return alerts
 
     def _use_unified_store_for(self, alert_type: str) -> bool:
         config = self.config.get("unified_alert_store", {})
@@ -573,6 +741,10 @@ class DataCollector:
     ) -> List[UnifiedAlert]:
         start_time = self._normalize_dt(start_time)
         end_time = self._normalize_dt(end_time)
+        analysis_source_mode = str(self.config.get("analysis_source_mode") or "").strip().lower()
+        if analysis_source_mode == "systemwire2_unified_only":
+            return self._collect_from_systemwire2_unified_api(start_time, end_time)
+
         all_alerts: List[UnifiedAlert] = []
 
         file_alerts = self.collect_file_honeypot(start_time, end_time)

@@ -163,6 +163,8 @@ class CausalGraphBuilder:
             "technique": data.get("technique"),
             "severity": data.get("severity", "medium"),
             "confidence": float(data.get("confidence", 0.8)),
+            "source_intel": data.get("source_intel") or {},
+            "actor_intel": data.get("actor_intel") or {},
             "evidence": evidence,
             "raw_details": details,
         }
@@ -174,9 +176,12 @@ class CausalGraphBuilder:
         source_ip = source.get("ip")
         fingerprint = event.get("fingerprint")
         session_id = event.get("session_id")
+        actor_group_id = (event.get("actor_intel") or {}).get("group_id")
         details = event.get("raw_details") or {}
         username = details.get("username")
 
+        if actor_group_id:
+            anchors.append(f"actor-group:{actor_group_id}")
         if fingerprint:
             anchors.append(f"fp:{fingerprint}")
         if session_id:
@@ -455,6 +460,10 @@ class CausalGraphBuilder:
                 payload["ip"] = source.get("ip")
             if source.get("info"):
                 payload["info"] = source.get("info")
+            if event.get("source_intel"):
+                payload["source_intel"] = event.get("source_intel")
+            if event.get("actor_intel"):
+                payload["actor_intel"] = event.get("actor_intel")
         else:
             if obj.get("host"):
                 payload["host"] = obj.get("host")

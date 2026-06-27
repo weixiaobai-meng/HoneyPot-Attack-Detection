@@ -18,6 +18,7 @@ from typing import Dict
 import numpy as np
 import torch
 
+from deployment.export_alerts_to_step1 import build_live_analysis_collector_config
 from step1_data_collection import DataCollector
 from step2_causal_graph import CausalGraphBuilder, CausalGraphVisualizer
 from step3_dqn_pruning import DQNTrainer, load_graphs_for_training, get_graph_statistics
@@ -45,7 +46,7 @@ def run_step1(run_dir: Path, hours: int) -> Dict:
     start = datetime.now() - timedelta(hours=hours)
     end = datetime.now()
 
-    collector = DataCollector()
+    collector = DataCollector(config=build_live_analysis_collector_config())
     alerts = collector.collect_all(start, end)
 
     out_file = run_dir / "step1_unified_alerts.json"
@@ -53,6 +54,7 @@ def run_step1(run_dir: Path, hours: int) -> Dict:
     return {
         "file": str(out_file),
         "count": len(alerts),
+        "analysis_source_mode": "systemwire2_unified_only",
         "time_range": {
             "start": start.isoformat(),
             "end": end.isoformat(),

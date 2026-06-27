@@ -52,6 +52,8 @@ class UnifiedAlert:
     technique: Optional[str] = None
     confidence: float = 0.8
     severity: str = "medium"
+    source_intel: Dict[str, Any] = field(default_factory=dict)
+    actor_intel: Dict[str, Any] = field(default_factory=dict)
     evidence: Dict[str, Any] = field(default_factory=dict)
 
     def to_canonical_event(self) -> Dict[str, Any]:
@@ -82,6 +84,8 @@ class UnifiedAlert:
             "technique": self.technique,
             "severity": self.severity,
             "confidence": self.confidence,
+            "source_intel": self.source_intel,
+            "actor_intel": self.actor_intel,
             "evidence": self.evidence or self.details,
             "raw_details": self.details,
         }
@@ -111,6 +115,8 @@ class UnifiedAlert:
             "technique": self.technique,
             "confidence": self.confidence,
             "severity": self.severity,
+            "source_intel": self.source_intel,
+            "actor_intel": self.actor_intel,
             "evidence": self.evidence,
             "canonical_event": self.to_canonical_event(),
         }
