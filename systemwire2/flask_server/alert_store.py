@@ -1,6 +1,10 @@
 import json
+import importlib
+import ipaddress
 import os
 import sqlite3
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
 
@@ -21,8 +25,95 @@ from flask_server.models import (
 
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FILE_ALERT_LOGICAL_WINDOW_SECONDS = 60
 PARASITIC_ALERT_LOGICAL_WINDOW_SECONDS = 60
+IP_INTEL_CACHE_TTL_SECONDS = 6 * 60 * 60
+IP_INTEL_CACHE_FAILURE_TTL_SECONDS = 15 * 60
+IP_INTEL_DISABLE_VALUES = {"0", "false", "off", "no"}
+ACTOR_SIGNAL_LIMIT = 4
+ACTOR_SIGNAL_NONE = "暂未发现明显同源攻击信号"
+IP_INTEL_CACHE: Dict[str, Dict] = {}
+IP_INTEL_CACHE_LOCK = threading.Lock()
+IP_LOCAL_BACKEND_LOCK = threading.Lock()
+IP_LOCAL_BACKEND: Optional[Dict] = None
+COUNTRY_TRANSLATIONS = {
+    "China": "中国",
+    "Hong Kong": "中国香港",
+    "Macao": "中国澳门",
+    "Macau": "中国澳门",
+    "Taiwan": "中国台湾",
+}
+CHINA_REGION_TRANSLATIONS = {
+    "Beijing": "北京市",
+    "Tianjin": "天津市",
+    "Shanghai": "上海市",
+    "Chongqing": "重庆市",
+    "Hebei": "河北省",
+    "Shanxi": "山西省",
+    "Inner Mongolia": "内蒙古自治区",
+    "Liaoning": "辽宁省",
+    "Jilin": "吉林省",
+    "Heilongjiang": "黑龙江省",
+    "Jiangsu": "江苏省",
+    "Zhejiang": "浙江省",
+    "Anhui": "安徽省",
+    "Fujian": "福建省",
+    "Jiangxi": "江西省",
+    "Shandong": "山东省",
+    "Henan": "河南省",
+    "Hubei": "湖北省",
+    "Hunan": "湖南省",
+    "Guangdong": "广东省",
+    "Guangxi": "广西壮族自治区",
+    "Hainan": "海南省",
+    "Sichuan": "四川省",
+    "Guizhou": "贵州省",
+    "Yunnan": "云南省",
+    "Tibet": "西藏自治区",
+    "Shaanxi": "陕西省",
+    "Gansu": "甘肃省",
+    "Qinghai": "青海省",
+    "Ningxia": "宁夏回族自治区",
+    "Xinjiang": "新疆维吾尔自治区",
+    "Hong Kong": "中国香港",
+    "Macau": "中国澳门",
+    "Taiwan": "中国台湾",
+}
+CHINA_CITY_TRANSLATIONS = {
+    "Beijing": "北京市",
+    "Tianjin": "天津市",
+    "Shanghai": "上海市",
+    "Chongqing": "重庆市",
+    "Guangzhou": "广州市",
+    "Shenzhen": "深圳市",
+    "Dongguan": "东莞市",
+    "Foshan": "佛山市",
+    "Zhuhai": "珠海市",
+    "Zhongshan": "中山市",
+    "Huizhou": "惠州市",
+    "Jiangmen": "江门市",
+    "Zhaoqing": "肇庆市",
+    "Shantou": "汕头市",
+    "Ningbo": "宁波市",
+    "Hangzhou": "杭州市",
+    "Wuhan": "武汉市",
+    "Chengdu": "成都市",
+    "Xi'an": "西安市",
+    "Nanjing": "南京市",
+    "Suzhou": "苏州市",
+    "Qingdao": "青岛市",
+    "Xiamen": "厦门市",
+}
+ORG_TRANSLATIONS = {
+    "China Mobile": "中国移动",
+    "China Mobile Communications Corporation": "中国移动通信集团",
+    "China Telecom": "中国电信",
+    "China Telecom Corporation": "中国电信集团",
+    "China Unicom": "中国联通",
+    "China Unicom Communications Corporation": "中国联合网络通信集团",
+    "China Education and Research Network Center": "中国教育和科研计算机网",
+}
 LEGACY_BUSINESS_TABLE_ORDER = [
     "file_type_dict",
     "servers",
@@ -180,6 +271,534 @@ def _clean_placeholder_text(value) -> str:
     if text.lower() in {"", "-", "none", "null", "<nil>", "<none>", "undefined"}:
         return ""
     return text
+
+
+def _ip_local_lookup_enabled() -> bool:
+    value = os.environ.get("SYSTEMWIRE2_IP_LOCAL_LOOKUP", "1")
+    return str(value or "").strip().lower() not in IP_INTEL_DISABLE_VALUES
+
+
+def _normalize_ip_values(value) -> List[str]:
+    values: List[str] = []
+    seen = set()
+
+    def add(item):
+        if item is None:
+            return
+        if isinstance(item, (list, tuple, set)):
+            for child in item:
+                add(child)
+            return
+        text = _clean_placeholder_text(item)
+        if not text:
+            return
+        parts = [part.strip() for part in text.replace(";", ",").split(",")]
+        for part in parts:
+            if not part or part in seen:
+                continue
+            seen.add(part)
+            values.append(part)
+
+    add(value)
+    return values
+
+
+def _parse_ip(value) -> Tuple[Optional[ipaddress._BaseAddress], str]:
+    text = _clean_placeholder_text(value)
+    if not text:
+        return None, ""
+
+    normalized = text
+    if normalized.startswith("[") and normalized.endswith("]"):
+        normalized = normalized[1:-1]
+    if "%" in normalized:
+        normalized = normalized.split("%", 1)[0]
+
+    try:
+        return ipaddress.ip_address(normalized), normalized
+    except ValueError:
+        return None, normalized
+
+
+def _ip_scope(ip_obj: Optional[ipaddress._BaseAddress]) -> str:
+    if ip_obj is None:
+        return "unknown"
+    if ip_obj.is_unspecified:
+        return "unspecified"
+    if ip_obj.is_loopback:
+        return "loopback"
+    if ip_obj.is_private:
+        return "private"
+    if ip_obj.is_link_local:
+        return "link_local"
+    if ip_obj.is_multicast:
+        return "multicast"
+    if getattr(ip_obj, "is_reserved", False):
+        return "reserved"
+    if ip_obj.is_global:
+        return "public"
+    return "special"
+
+
+def _ip_scope_label(scope: str) -> str:
+    labels = {
+        "public": "公网地址",
+        "private": "内网地址 / 实验网络",
+        "loopback": "本机回环地址",
+        "link_local": "链路本地地址",
+        "multicast": "组播地址",
+        "reserved": "保留地址",
+        "unspecified": "未指定地址",
+        "special": "特殊地址",
+        "unknown": "未知地址",
+    }
+    return labels.get(scope, "未知地址")
+
+
+def _is_public_ip(value) -> bool:
+    ip_obj, _ = _parse_ip(value)
+    return _ip_scope(ip_obj) == "public"
+
+
+def _compose_location_summary(country: str, region: str, city: str, fallback: str) -> str:
+    parts = [part for part in [country, region, city] if part]
+    if parts:
+        return " / ".join(parts)
+    return fallback
+
+
+def _guess_geolite2_mmdb_paths(filename: str, env_name: str) -> List[str]:
+    candidates = [
+        os.environ.get(env_name, ""),
+        os.path.join(PROJECT_ROOT, "data", filename),
+        os.path.join(PROJECT_ROOT, "resources", filename),
+        os.path.join(PROJECT_ROOT, "assets", filename),
+        os.path.join(PROJECT_ROOT, filename),
+    ]
+    seen = set()
+    paths = []
+    for item in candidates:
+        path = _clean_placeholder_text(item)
+        if not path:
+            continue
+        normalized = os.path.abspath(path)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        paths.append(normalized)
+    return paths
+
+
+def _localized_geo_name(record) -> str:
+    if record is None:
+        return ""
+    names = getattr(record, "names", None)
+    if isinstance(names, dict):
+        text = _clean_placeholder_text(names.get("zh-CN") or names.get("zh_CN") or names.get("en"))
+        if text:
+            return text
+    return _clean_placeholder_text(getattr(record, "name", ""))
+
+
+def _init_geoip2_backend() -> Dict:
+    city_paths = _guess_geolite2_mmdb_paths("GeoLite2-City.mmdb", "SYSTEMWIRE2_GEOLITE2_CITY_MMDB")
+    city_path = next((path for path in city_paths if os.path.exists(path)), "")
+    if not city_path:
+        return {"enabled": False, "reason": "geolite2_city_mmdb_not_found", "paths": city_paths}
+
+    asn_paths = _guess_geolite2_mmdb_paths("GeoLite2-ASN.mmdb", "SYSTEMWIRE2_GEOLITE2_ASN_MMDB")
+    asn_path = next((path for path in asn_paths if os.path.exists(path)), "")
+
+    try:
+        geoip2_database = importlib.import_module("geoip2.database")
+        city_reader = geoip2_database.Reader(city_path, locales=["zh-CN", "en"], mode=geoip2_database.MODE_FILE)
+        asn_reader = (
+            geoip2_database.Reader(asn_path, locales=["zh-CN", "en"], mode=geoip2_database.MODE_FILE)
+            if asn_path else None
+        )
+    except Exception as exc:
+        return {
+            "enabled": False,
+            "reason": "geoip2_unavailable",
+            "city_path": city_path,
+            "asn_path": asn_path,
+            "error": str(exc),
+        }
+
+    return {
+        "enabled": True,
+        "provider": "geolite2",
+        "city_path": city_path,
+        "asn_path": asn_path,
+        "city_reader": city_reader,
+        "asn_reader": asn_reader,
+    }
+
+
+def _init_local_ip_backend() -> Dict:
+    if not _ip_local_lookup_enabled():
+        return {"enabled": False, "reason": "disabled"}
+
+    geoip2_backend = _init_geoip2_backend()
+    return geoip2_backend
+
+
+def _get_local_ip_backend() -> Dict:
+    global IP_LOCAL_BACKEND
+    if IP_LOCAL_BACKEND is not None:
+        return IP_LOCAL_BACKEND
+    with IP_LOCAL_BACKEND_LOCK:
+        if IP_LOCAL_BACKEND is None:
+            IP_LOCAL_BACKEND = _init_local_ip_backend()
+        return IP_LOCAL_BACKEND
+
+
+def _fetch_local_ip_intel(ip_text: str) -> Dict:
+    intel = {
+        "ip": ip_text,
+        "scope": "public",
+        "scope_label": _ip_scope_label("public"),
+        "is_public": True,
+        "resolved": False,
+        "lookup_source": "local",
+        "location_summary": _ip_scope_label("public"),
+        "country": "",
+        "region": "",
+        "city": "",
+        "continent": "",
+        "isp": "",
+        "org": "",
+        "asn": "",
+        "network_type": "",
+        "proxy": False,
+        "hosting": False,
+        "error": "",
+    }
+
+    backend = _get_local_ip_backend()
+    if not backend.get("enabled"):
+        intel["error"] = backend.get("reason") or "local_lookup_unavailable"
+        return intel
+
+    try:
+        city_response = backend["city_reader"].city(ip_text)
+        asn_reader = backend.get("asn_reader")
+        asn_response = asn_reader.asn(ip_text) if asn_reader else None
+
+        country = _localized_geo_name(getattr(city_response, "country", None))
+        region = ""
+        subdivisions = getattr(city_response, "subdivisions", None)
+        if subdivisions is not None:
+            most_specific = getattr(subdivisions, "most_specific", None)
+            region = _localized_geo_name(most_specific)
+        city = _localized_geo_name(getattr(city_response, "city", None))
+        continent = _localized_geo_name(getattr(city_response, "continent", None))
+
+        isp = _clean_placeholder_text(getattr(asn_response, "autonomous_system_organization", "")) if asn_response else ""
+        org = isp
+        asn = ""
+        if asn_response is not None:
+            asn_number = getattr(asn_response, "autonomous_system_number", None)
+            asn = str(asn_number) if asn_number else ""
+
+        parsed = {
+            "country": country,
+            "region": region,
+            "city": city,
+            "continent": continent,
+            "isp": isp,
+            "org": org,
+            "asn": asn,
+        }
+    except Exception as exc:
+        intel["error"] = str(exc)
+        return intel
+
+    intel.update(
+        {
+            "resolved": any([parsed["country"], parsed["region"], parsed["city"], parsed["isp"]]),
+            "lookup_source": "geolite2",
+            "country": parsed["country"],
+            "region": parsed["region"],
+            "city": parsed["city"],
+            "continent": parsed.get("continent", ""),
+            "isp": parsed["isp"],
+            "org": parsed["org"],
+            "asn": parsed.get("asn", ""),
+            "location_summary": _compose_location_summary(
+                parsed["country"], parsed["region"], parsed["city"], _ip_scope_label("public")
+            ),
+            "error": "",
+        }
+    )
+    return intel
+
+
+def _get_ip_intel(ip_text: str) -> Dict:
+    ip_obj, normalized = _parse_ip(ip_text)
+    scope = _ip_scope(ip_obj)
+    intel = {
+        "ip": normalized,
+        "scope": scope,
+        "scope_label": _ip_scope_label(scope),
+        "is_public": scope == "public",
+        "resolved": scope != "public",
+        "lookup_source": "local",
+        "location_summary": _ip_scope_label(scope),
+        "country": "",
+        "region": "",
+        "city": "",
+        "continent": "",
+        "isp": "",
+        "org": "",
+        "asn": "",
+        "network_type": "",
+        "proxy": False,
+        "hosting": False,
+        "error": "",
+    }
+    if not normalized:
+        intel["resolved"] = False
+        return intel
+    if scope != "public":
+        return intel
+
+    now = time.monotonic()
+    with IP_INTEL_CACHE_LOCK:
+        cached = IP_INTEL_CACHE.get(normalized)
+        if cached and cached.get("expires_at", 0) > now:
+            return dict(cached.get("value") or intel)
+
+    merged = dict(intel)
+    local_intel = _fetch_local_ip_intel(normalized)
+    merged.update(local_intel)
+
+    ttl = IP_INTEL_CACHE_TTL_SECONDS if merged.get("resolved") else IP_INTEL_CACHE_FAILURE_TTL_SECONDS
+
+    with IP_INTEL_CACHE_LOCK:
+        IP_INTEL_CACHE[normalized] = {"value": dict(merged), "expires_at": now + ttl}
+    return merged
+
+
+def _choose_primary_source_ip(alert_type: str, attacker_ip: str, real_ips: List[str]) -> Tuple[str, str]:
+    if alert_type == "parasitic":
+        for ip_value in real_ips:
+            if _is_public_ip(ip_value):
+                return "real_ip", ip_value
+        if _is_public_ip(attacker_ip):
+            return "attacker_ip", attacker_ip
+        if real_ips:
+            return "real_ip", real_ips[0]
+        if attacker_ip:
+            return "attacker_ip", attacker_ip
+        return "", ""
+
+    if attacker_ip:
+        return "attacker_ip", attacker_ip
+    return "", ""
+
+
+def _build_source_intel(alert_row: Dict) -> Dict:
+    details = alert_row.get("details") or {}
+    alert_type = str(alert_row.get("alert_type") or "")
+    attacker_ip = _clean_placeholder_text(alert_row.get("attacker_ip"))
+    real_ips = _normalize_ip_values(details.get("real_ips"))
+    primary_source, primary_ip = _choose_primary_source_ip(alert_type, attacker_ip, real_ips)
+    primary_intel = _get_ip_intel(primary_ip) if primary_ip else _get_ip_intel(attacker_ip)
+    observed_intel = _get_ip_intel(attacker_ip) if attacker_ip else {}
+    real_ip_intels = [dict(_get_ip_intel(ip_value)) for ip_value in real_ips]
+
+    summary_parts = []
+    if primary_intel.get("ip"):
+        summary_parts.append(primary_intel.get("location_summary") or primary_intel.get("scope_label"))
+    org_text = _clean_placeholder_text(primary_intel.get("isp")) or _clean_placeholder_text(primary_intel.get("org"))
+    if org_text:
+        summary_parts.append(org_text)
+    summary = " | ".join(part for part in summary_parts if part) or (primary_intel.get("scope_label") or "未知地址")
+
+    note = ""
+    if (
+        primary_source == "real_ip"
+        and attacker_ip
+        and primary_ip
+        and attacker_ip != primary_ip
+        and _clean_placeholder_text(attacker_ip)
+    ):
+        note = f"观测源 IP {attacker_ip} 与 WebRTC / 真实 IP {primary_ip} 不一致"
+    elif primary_intel.get("proxy"):
+        note = "地理情报判断当前来源疑似代理出口"
+
+    return {
+        "primary_ip": primary_intel.get("ip") or primary_ip or attacker_ip,
+        "primary_source": primary_source or "attacker_ip",
+        "summary": summary,
+        "scope": primary_intel.get("scope") or "unknown",
+        "scope_label": primary_intel.get("scope_label") or _ip_scope_label("unknown"),
+        "country": primary_intel.get("country") or "",
+        "region": primary_intel.get("region") or "",
+        "city": primary_intel.get("city") or "",
+        "isp": primary_intel.get("isp") or "",
+        "org": primary_intel.get("org") or "",
+        "network_type": primary_intel.get("network_type") or "",
+        "proxy": bool(primary_intel.get("proxy")),
+        "hosting": bool(primary_intel.get("hosting")),
+        "lookup_source": primary_intel.get("lookup_source") or "local",
+        "resolved": bool(primary_intel.get("resolved")),
+        "observed_ip": attacker_ip,
+        "observed_summary": observed_intel.get("location_summary") or "",
+        "real_ips": [item.get("ip") or "" for item in real_ip_intels if item.get("ip")],
+        "real_ip_summaries": [
+            {
+                "ip": item.get("ip") or "",
+                "summary": item.get("location_summary") or item.get("scope_label") or "未知地址",
+                "scope": item.get("scope") or "unknown",
+            }
+            for item in real_ip_intels
+            if item.get("ip")
+        ],
+        "note": note,
+        "error": primary_intel.get("error") or "",
+    }
+
+
+def _actor_signal_labels(signals: List[str]) -> List[str]:
+    labels = []
+    for signal in signals[:ACTOR_SIGNAL_LIMIT]:
+        kind, _, value = signal.partition(":")
+        if kind == "public-ip":
+            labels.append(f"公网 IP {value}")
+        elif kind == "fingerprint":
+            labels.append(f"指纹 {value}")
+        elif kind == "session":
+            labels.append(f"会话 {value}")
+        else:
+            labels.append(signal)
+    return labels
+
+
+def _actor_signals_for_alert(alert_row: Dict) -> List[str]:
+    details = alert_row.get("details") or {}
+    signals = []
+
+    attacker_ip = _clean_placeholder_text(alert_row.get("attacker_ip"))
+    if _is_public_ip(attacker_ip):
+        signals.append(f"public-ip:{attacker_ip}")
+
+    for ip_value in _normalize_ip_values(details.get("real_ips")):
+        if _is_public_ip(ip_value):
+            signals.append(f"public-ip:{ip_value}")
+
+    if alert_row.get("alert_type") == "parasitic":
+        fingerprint = _clean_placeholder_text(details.get("fingerprint"))
+        if fingerprint:
+            signals.append(f"fingerprint:{fingerprint}")
+        session_token = _clean_placeholder_text(details.get("session_token"))
+        if session_token:
+            signals.append(f"session:{session_token}")
+
+    ordered = []
+    seen = set()
+    for signal in signals:
+        if signal in seen:
+            continue
+        seen.add(signal)
+        ordered.append(signal)
+    return ordered
+
+
+def _actor_confidence(shared_signals: List[str]) -> str:
+    has_public_ip = any(signal.startswith("public-ip:") for signal in shared_signals)
+    has_fingerprint = any(signal.startswith("fingerprint:") for signal in shared_signals)
+    has_session = any(signal.startswith("session:") for signal in shared_signals)
+    if has_public_ip:
+        return "high"
+    if has_fingerprint and has_session:
+        return "high"
+    if has_fingerprint or has_session:
+        return "medium"
+    return "low"
+
+
+def _compose_actor_summary(alert_count: int, cross_honeypot: bool, shared_labels: List[str]) -> str:
+    if alert_count <= 1:
+        return ACTOR_SIGNAL_NONE
+
+    scope_text = "跨蜜点类型" if cross_honeypot else "同类蜜点内"
+    summary = f"{alert_count} 条关联告警，{scope_text}"
+    if shared_labels:
+        summary += f"，关联依据：{', '.join(shared_labels)}"
+    return summary
+
+
+def _find_group_parent(parents: List[int], index: int) -> int:
+    while parents[index] != index:
+        parents[index] = parents[parents[index]]
+        index = parents[index]
+    return index
+
+
+def _union_group_parent(parents: List[int], left: int, right: int):
+    left_root = _find_group_parent(parents, left)
+    right_root = _find_group_parent(parents, right)
+    if left_root != right_root:
+        parents[right_root] = left_root
+
+
+def _attach_source_and_actor_intel(alert_rows: List[Dict]) -> List[Dict]:
+    if not alert_rows:
+        return alert_rows
+
+    parents = list(range(len(alert_rows)))
+    row_signals: List[List[str]] = []
+    signal_owner: Dict[str, int] = {}
+
+    for index, alert_row in enumerate(alert_rows):
+        source_intel = _build_source_intel(alert_row)
+        alert_row["source_intel"] = source_intel
+        signals = _actor_signals_for_alert(alert_row)
+        row_signals.append(signals)
+        for signal in signals:
+            other_index = signal_owner.get(signal)
+            if other_index is None:
+                signal_owner[signal] = index
+            else:
+                _union_group_parent(parents, other_index, index)
+
+    grouped_indices: Dict[int, List[int]] = {}
+    for index in range(len(alert_rows)):
+        root = _find_group_parent(parents, index)
+        grouped_indices.setdefault(root, []).append(index)
+
+    group_number = 1
+    for _, indices in sorted(grouped_indices.items(), key=lambda item: min(item[1])):
+        alert_types = sorted({str(alert_rows[idx].get("alert_type") or "unknown") for idx in indices})
+        signal_counts: Dict[str, int] = {}
+        for idx in indices:
+            for signal in row_signals[idx]:
+                signal_counts[signal] = signal_counts.get(signal, 0) + 1
+
+        shared_signals = [signal for signal, count in signal_counts.items() if count > 1]
+        shared_labels = _actor_signal_labels(shared_signals)
+        cross_honeypot = len(alert_types) > 1
+        confidence = _actor_confidence(shared_signals) if len(indices) > 1 else "single"
+        group_id = f"actor-{group_number:03d}" if len(indices) > 1 else ""
+        if len(indices) > 1:
+            group_number += 1
+
+        actor_intel = {
+            "group_id": group_id or None,
+            "alert_count": len(indices),
+            "cross_honeypot": cross_honeypot,
+            "alert_types": alert_types,
+            "confidence": confidence,
+            "shared_signals": shared_labels,
+            "summary": _compose_actor_summary(len(indices), cross_honeypot, shared_labels),
+        }
+
+        for idx in indices:
+            alert_rows[idx]["actor_intel"] = dict(actor_intel)
+
+    return alert_rows
 
 
 def _coerce_bool(value) -> Optional[bool]:
@@ -1249,7 +1868,7 @@ def build_unified_alert_api_rows(hours: int = 24, alert_type: Optional[str] = No
                 }
             )
 
-    return alert_rows
+    return _attach_source_and_actor_intel(alert_rows)
 
 
 def build_unified_alert_statistics(hours: int = 24) -> Dict:

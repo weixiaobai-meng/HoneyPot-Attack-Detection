@@ -342,9 +342,34 @@ body,
 .severity-badge.low { background: #bdebd0; }
 .cell-block { display: grid; gap: 6px; }
 .cell-title { font-weight: 900; color: var(--soc-text); word-break: break-word; }
-.cell-sub { color: var(--soc-muted); font-size: 12px; }
+.cell-sub { color: var(--soc-muted); font-size: 12px; white-space: pre-wrap; line-height: 1.55; }
 .mono { font-family: 'JetBrains Mono', 'Cascadia Code', monospace; }
-.evidence-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.cell-block.compact { gap: 4px; }
+.cell-title.ip-title { font-size: 15px; line-height: 1.25; }
+.cell-sub.intel-sub { font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif; }
+.intel-lines { display: grid; gap: 6px; }
+.intel-line { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; align-items: start; }
+.intel-label { color: #c9ddd4; font-weight: 800; font-size: 12px; line-height: 1.45; }
+.intel-value { color: var(--soc-muted); font-size: 12px; line-height: 1.45; word-break: break-word; overflow-wrap: anywhere; }
+.evidence-list { display: grid; gap: 8px; }
+.evidence-primary,
+.evidence-secondary { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.evidence-primary .tag { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.12); }
+.evidence-secondary .tag { opacity: .94; }
+.evidence-summary { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.evidence-extra { display: none; }
+.evidence-list.expanded .evidence-extra { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+.evidence-toggle {
+    justify-self: start;
+    border: 1px solid rgba(148,163,184,.18);
+    background: rgba(255,255,255,.03);
+    color: var(--soc-muted);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font: 800 11px/1 'Noto Sans SC', sans-serif;
+    cursor: pointer;
+}
+.evidence-toggle:hover { border-color: rgba(125,220,139,.4); color: var(--soc-text); }
 .tag { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.08); color: #dfe9e3; max-width: 100%; }
 .tag.file { border-color: rgba(107,168,255,.20); }
 .tag.account { border-color: rgba(245,180,91,.22); }
@@ -423,6 +448,7 @@ let allAlerts = [];
 let visibleAlerts = [];
 let currentPage = 1;
 let currentAlertForCopy = null;
+const expandedEvidence = new Set();
 
 document.addEventListener('DOMContentLoaded', () => {
     loadAlerts();
@@ -617,64 +643,6 @@ function renderAlertRow(alert, visibleIndex) {
     `;
 }
 
-function buildAlertView(alert) {
-    const details = alert.details || {};
-    if (alert.alert_type === 'file') {
-        const spanText = joinParts([
-            details.honeypoint_name || '',
-            details.deployment_summary || ''
-        ]);
-        return {
-            source: block(alert.attacker_ip || '-', details.report_agent || '-'),
-            subject: block(details.filename || details.filename_tag || '-', spanText || details.token_raw || '-'),
-            evidence: tags([
-                ['token', details.token_raw || details.token_url || alert.target_path || '-', 'file'],
-                ['message', details.message || '-', 'file'],
-                ['requests', details.request_count || 1, 'file']
-            ]),
-            environment: block(details.source || 'alert_server', details.token_url || alert.target_path || '-')
-        };
-    }
-
-    if (alert.alert_type === 'account') {
-        return {
-            source: block(details.src_endpoint || alert.attacker_ip || '-', `目标 ${details.dst_endpoint || alert.target_path || '-'}`),
-            subject: block(details.username || '-', `password: ${details.password || '-'}`),
-            evidence: tags([
-                ['attack', details.attack_type || alert.action || '-', 'account'],
-                ['protocol', details.protocol || '-', 'account'],
-                ['message', details.message || '-', 'account']
-            ]),
-            environment: block(details.client_family || '-', details.client_version || '-')
-        };
-    }
-
-    if (alert.alert_type === 'parasitic') {
-        const realIps = Array.isArray(details.real_ips) && details.real_ips.length
-            ? details.real_ips.join(', ')
-            : (details.dst_ip || '-');
-        const proxyText = details.possible_proxy ? '存在代理线索' : '未见代理头';
-        return {
-            source: block(alert.attacker_ip || '-', `真实/WebRTC IP: ${realIps}`),
-            subject: block(alert.target_path || '-', `fingerprint: ${details.fingerprint || '-'}`),
-            evidence: tags([
-                ['session', details.session_token || '-', 'parasitic'],
-                ['bot', Number(details.bot_score || 0), 'parasitic'],
-                ['proxy', proxyText, 'parasitic'],
-                ['reason', details.info && details.info.reason || '-', 'parasitic']
-            ]),
-            environment: block(details.browser || '-', joinParts([`OS: ${details.os || '-'}`, `UA: ${details.user_agent || '-'}`]))
-        };
-    }
-
-    return {
-        source: block(alert.attacker_ip || '-', '-'),
-        subject: block(alert.target_path || '-', alert.action || '-'),
-        evidence: tags([['type', alert.alert_type || '-', '']]),
-        environment: block('未知类型', '-')
-    };
-}
-
 function showDetails(index) {
     const alert = visibleAlerts[index];
     if (!alert) {
@@ -693,80 +661,6 @@ function showDetails(index) {
 
 function closeDetails() {
     document.getElementById('detailModal').style.display = 'none';
-}
-
-function buildDetailBody(alert) {
-    const details = alert.details || {};
-    const mergedIds = Array.isArray(alert._mergedAlertIds) ? alert._mergedAlertIds.join(', ') : '-';
-    const mergedTimes = Array.isArray(alert._mergedAlertTimes) ? alert._mergedAlertTimes.map(formatTime).join('\n') : '-';
-
-    if (alert.alert_type === 'parasitic') {
-        return buildParasiticDetailBody(alert, mergedIds, mergedTimes);
-    }
-
-    const commonRows = [
-        ['alert_id', alert.alert_id],
-        ['alert_type', alert.alert_type],
-        ['timestamp', formatTime(alert.timestamp)],
-        ['attacker_ip', alert.attacker_ip],
-        ['target_path', alert.target_path],
-        ['action', alert.action],
-        ['duplicate_count', alert._duplicateCount || 1],
-        ['merged_alert_ids', mergedIds],
-        ['merged_alert_times', mergedTimes]
-    ];
-
-    let extraRows = [];
-    if (alert.alert_type === 'file') {
-        extraRows = [
-            ['filename', details.filename],
-            ['filename_tag', details.filename_tag],
-            ['honeypoint_name', details.honeypoint_name],
-            ['message', details.message],
-            ['token_raw', details.token_raw],
-            ['token_url', details.token_url],
-            ['report_agent', details.report_agent],
-            ['request_count', details.request_count],
-            ['raw_alert_ids', JSON.stringify(details.raw_alert_ids || [], null, 2)],
-            ['first_trigger_time', details.first_trigger_time ? formatTime(details.first_trigger_time) : '-'],
-            ['last_trigger_time', details.last_trigger_time ? formatTime(details.last_trigger_time) : '-'],
-            ['deployment_summary', details.deployment_summary]
-        ];
-    } else if (alert.alert_type === 'account') {
-        extraRows = [
-            ['attack_type', details.attack_type],
-            ['protocol', details.protocol],
-            ['src_endpoint', details.src_endpoint],
-            ['dst_endpoint', details.dst_endpoint],
-            ['username', details.username],
-            ['password', details.password],
-            ['client_family', details.client_family],
-            ['client_version', details.client_version],
-            ['message', details.message],
-            ['raw_event', JSON.stringify(details.raw_event || {}, null, 2)]
-        ];
-    } else if (alert.alert_type === 'parasitic') {
-        extraRows = [
-            ['fingerprint', details.fingerprint],
-            ['session_token', details.session_token],
-            ['real_ips', JSON.stringify(details.real_ips || [], null, 2)],
-            ['browser', details.browser],
-            ['os', details.os],
-            ['browser_platform', details.browser_platform],
-            ['user_agent', details.user_agent],
-            ['bot_score', details.bot_score],
-            ['possible_proxy', details.possible_proxy ? 'true' : 'false'],
-            ['proxy_note', details.proxy_note],
-            ['proxy_headers', JSON.stringify(details.proxy_headers || {}, null, 2)],
-            ['info', JSON.stringify(details.info || {}, null, 2)]
-        ];
-    }
-
-    return `
-        ${renderSection('通用字段', commonRows)}
-        ${renderSection('重点字段', extraRows)}
-        ${renderSection('原始 JSON', [['payload', JSON.stringify(alert, null, 2)]], true)}
-    `;
 }
 
 function buildParasiticDetailBody(alert, mergedIds, mergedTimes) {
@@ -981,6 +875,167 @@ function fieldLabel(key) {
     return labels[key] || key;
 }
 
+function renderEvidenceTags(items, alertId = '') {
+    const normalized = (items || [])
+        .filter((item) => item[1] !== undefined && item[1] !== null && item[1] !== '')
+        .map((item) => ({
+            label: item[0],
+            value: formatValue(item[1]),
+            cls: item[2] || '',
+            priority: Number(item[3] || 0)
+        }));
+
+    if (!normalized.length) {
+        return '<div class="evidence-list"><div class="evidence-summary"><span class="tag">暂无关键证据</span></div></div>';
+    }
+
+    const summaryItems = normalized.slice(0, 1);
+    const extraItems = normalized.slice(1);
+    const isExpanded = expandedEvidence.has(alertId);
+    const renderTag = (item) => `<span class="tag ${item.cls}">${escapeHtml(item.label)}: ${escapeHtml(item.value)}</span>`;
+
+    return `
+        <div class="evidence-list${isExpanded ? ' expanded' : ''}">
+            <div class="evidence-summary">${summaryItems.map(renderTag).join('')}</div>
+            ${extraItems.length ? `<button class="evidence-toggle" type="button" onclick="toggleEvidence('${escapeHtml(alertId)}')">${isExpanded ? '收起' : `展开证据 (${extraItems.length})`}</button>` : ''}
+            ${extraItems.length ? `<div class="evidence-extra">${extraItems.map(renderTag).join('')}</div>` : ''}
+        </div>
+    `;
+}
+
+function compactInfoBlock(title, subHtml) {
+    return `
+        <div class="cell-block compact">
+            <div class="cell-title ip-title">${escapeHtml(formatValue(title))}</div>
+            <div class="cell-sub intel-sub">${subHtml}</div>
+        </div>
+    `;
+}
+
+function sourceIntelHtml(alert, options = {}) {
+    const intel = isPlainObject(alert && alert.source_intel) ? alert.source_intel : {};
+    const details = isPlainObject(alert && alert.details) ? alert.details : {};
+    const observedIp = String(alert && alert.attacker_ip || '').trim();
+    const primaryIp = String(intel.primary_ip || '').trim();
+    const summary = String(intel.summary || intel.scope_label || '').trim();
+    const isp = String(intel.isp || intel.org || '').trim();
+    const note = String(intel.note || '').trim();
+    const realIps = Array.isArray(details.real_ips) && details.real_ips.length
+        ? details.real_ips.join(', ')
+        : '';
+    const includeRealIp = options.includeRealIp !== false;
+    const extraLines = Array.isArray(options.extraLines) ? options.extraLines : [];
+    const lines = [];
+
+    if (summary) {
+        lines.push(['归属地', summary]);
+    }
+    if (isp) {
+        lines.push(['运营商', isp]);
+    }
+    if (primaryIp && primaryIp !== observedIp) {
+        lines.push(['主判定 IP', primaryIp]);
+    }
+    if (includeRealIp && realIps) {
+        lines.push(['真实/WebRTC IP', realIps]);
+    }
+    for (const line of extraLines) {
+        if (Array.isArray(line) && line[1]) {
+            lines.push(line);
+        }
+    }
+    if (note) {
+        lines.push(['说明', note]);
+    }
+
+    if (!lines.length) {
+        lines.push(['地址情报', '-']);
+    }
+
+    return `<div class="intel-lines">${lines.map(([label, value]) => `
+        <div class="intel-line">
+            <span class="intel-label">${escapeHtml(label)}:</span>
+            <span class="intel-value">${escapeHtml(value)}</span>
+        </div>
+    `).join('')}</div>`;
+}
+
+function buildAlertView(alert) {
+    const details = alert.details || {};
+    if (alert.alert_type === 'file') {
+        const spanText = joinParts([
+            details.honeypoint_name || '',
+            details.deployment_summary || ''
+        ]);
+        return {
+            source: compactInfoBlock(
+                alert.attacker_ip || '-',
+                sourceIntelHtml(alert, {
+                    includeRealIp: false,
+                    extraLines: [['客户端', details.report_agent || '-']]
+                })
+            ),
+            subject: block(details.filename || details.filename_tag || '-', spanText || details.token_raw || '-'),
+            evidence: renderEvidenceTags([
+                ['Token', details.token_raw || details.token_url || alert.target_path || '-', 'file', 1],
+                ['消息', details.message || '-', 'file', 1],
+                ['次数', details.request_count || 1, 'file', 0],
+                ['关联', formatActorIntelLine(alert), 'file', 0]
+            ], alert.alert_id || ''),
+            environment: block(details.source || 'alert_server', details.token_url || alert.target_path || '-')
+        };
+    }
+
+    if (alert.alert_type === 'account') {
+        return {
+            source: compactInfoBlock(
+                details.src_endpoint || alert.attacker_ip || '-',
+                sourceIntelHtml(alert, {
+                    includeRealIp: false,
+                    extraLines: [['目标', details.dst_endpoint || alert.target_path || '-']]
+                })
+            ),
+            subject: block(details.username || '-', `密码: ${details.password || '-'}`),
+            evidence: renderEvidenceTags([
+                ['攻击', details.attack_type || alert.action || '-', 'account', 1],
+                ['协议', details.protocol || '-', 'account', 1],
+                ['消息', details.message || '-', 'account', 0],
+                ['关联', formatActorIntelLine(alert), 'account', 0]
+            ], alert.alert_id || ''),
+            environment: block(details.client_family || '-', details.client_version || '-')
+        };
+    }
+
+    if (alert.alert_type === 'parasitic') {
+        const proxyText = details.possible_proxy ? '疑似存在代理' : '未发现代理头线索';
+        return {
+            source: compactInfoBlock(
+                alert.attacker_ip || '-',
+                sourceIntelHtml(alert, { includeRealIp: true })
+            ),
+            subject: block(alert.target_path || '-', `指纹: ${details.fingerprint || '-'}`),
+            evidence: renderEvidenceTags([
+                ['会话', details.session_token || '-', 'parasitic', 1],
+                ['Bot', Number(details.bot_score || 0), 'parasitic', 1],
+                ['代理', proxyText, 'parasitic', 0],
+                ['原因', details.info && details.info.reason || '-', 'parasitic', 0],
+                ['关联', formatActorIntelLine(alert), 'parasitic', 0]
+            ], alert.alert_id || ''),
+            environment: block(details.browser || '-', joinParts([`OS: ${details.os || '-'}`, `UA: ${details.user_agent || '-'}`]))
+        };
+    }
+
+    return {
+        source: compactInfoBlock(alert.attacker_ip || '-', sourceIntelHtml(alert, { includeRealIp: true })),
+        subject: block(alert.target_path || '-', alert.action || '-'),
+        evidence: renderEvidenceTags([
+            ['类型', alert.alert_type || '-', '', 1],
+            ['关联', formatActorIntelLine(alert), '', 0]
+        ], alert.alert_id || ''),
+        environment: block('未知类型', '-')
+    };
+}
+
 async function copyCurrentAlert() {
     if (!currentAlertForCopy) {
         return;
@@ -1155,11 +1210,24 @@ function changePage(offset) {
     renderAlerts();
 }
 
+function toggleEvidence(alertId) {
+    if (!alertId) {
+        return;
+    }
+    if (expandedEvidence.has(alertId)) {
+        expandedEvidence.delete(alertId);
+    } else {
+        expandedEvidence.add(alertId);
+    }
+    renderAlerts();
+}
+
 function block(title, sub) {
+    const subHtml = typeof sub === 'string' && sub.includes('<') ? sub : escapeHtml(formatValue(sub || '-'));
     return `
         <div class="cell-block">
             <div class="cell-title">${escapeHtml(formatValue(title))}</div>
-            <div class="cell-sub mono">${escapeHtml(formatValue(sub || '-'))}</div>
+            <div class="cell-sub mono">${subHtml}</div>
         </div>
     `;
 }
@@ -1261,6 +1329,184 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function formatSourceIntelLine(alert) {
+    const intel = isPlainObject(alert && alert.source_intel) ? alert.source_intel : {};
+    const summary = String(intel.summary || intel.scope_label || '').trim();
+    const primaryIp = String(intel.primary_ip || '').trim();
+    const observedIp = String(alert && alert.attacker_ip || '').trim();
+    const note = String(intel.note || '').trim();
+    const parts = [];
+    if (summary) {
+        parts.push(summary);
+    }
+    if (primaryIp && primaryIp !== observedIp) {
+        parts.push(`主判定 IP: ${primaryIp}`);
+    }
+    if (note) {
+        parts.push(note);
+    }
+    return parts.join(' | ') || '-';
+}
+
+function formatActorIntelLine(alert) {
+    const intel = isPlainObject(alert && alert.actor_intel) ? alert.actor_intel : {};
+    const summary = String(intel.summary || '').trim();
+    const groupId = String(intel.group_id || '').trim();
+    const sharedSignals = Array.isArray(intel.shared_signals)
+        ? intel.shared_signals.map((item) => String(item || '').trim()).filter(Boolean)
+        : [];
+    const alertCount = Number(intel.alert_count || 0);
+    const confidenceMap = {
+        high: '高',
+        medium: '中',
+        low: '低',
+        single: '单条'
+    };
+    const confidence = confidenceMap[String(intel.confidence || '').trim()] || '';
+
+    if (summary && groupId) {
+        return `${groupId} | ${summary}`;
+    }
+    if (summary) {
+        return summary;
+    }
+
+    const extras = [];
+    if (alertCount > 1) {
+        extras.push(`${alertCount} 条关联告警`);
+    }
+    if (sharedSignals.length) {
+        extras.push(`依据: ${sharedSignals.join('、')}`);
+    }
+    if (confidence && confidence !== '单条') {
+        extras.push(`置信度: ${confidence}`);
+    }
+
+    if (groupId) {
+        return extras.length ? `${groupId} | ${extras.join('，')}` : groupId;
+    }
+
+    return '未发现同源关联';
+}
+
+function buildDetailBody(alert) {
+    const details = alert.details || {};
+    const mergedIds = Array.isArray(alert._mergedAlertIds) ? alert._mergedAlertIds.join(', ') : '-';
+    const mergedTimes = Array.isArray(alert._mergedAlertTimes) ? alert._mergedAlertTimes.map(formatTime).join('\n') : '-';
+
+    if (alert.alert_type === 'parasitic') {
+        return buildParasiticDetailBody(alert, mergedIds, mergedTimes);
+    }
+
+    const commonRows = [
+        ['alert_id', alert.alert_id],
+        ['alert_type', alert.alert_type],
+        ['timestamp', formatTime(alert.timestamp)],
+        ['attacker_ip', alert.attacker_ip],
+        ['source_location', formatSourceIntelLine(alert)],
+        ['actor_group', formatActorIntelLine(alert)],
+        ['target_path', alert.target_path],
+        ['action', alert.action],
+        ['duplicate_count', alert._duplicateCount || 1],
+        ['merged_alert_ids', mergedIds],
+        ['merged_alert_times', mergedTimes]
+    ];
+
+    let extraRows = [];
+    if (alert.alert_type === 'file') {
+        extraRows = [
+            ['filename', details.filename],
+            ['filename_tag', details.filename_tag],
+            ['honeypoint_name', details.honeypoint_name],
+            ['message', details.message],
+            ['token_raw', details.token_raw],
+            ['token_url', details.token_url],
+            ['report_agent', details.report_agent],
+            ['request_count', details.request_count],
+            ['raw_alert_ids', JSON.stringify(details.raw_alert_ids || [], null, 2)],
+            ['first_trigger_time', details.first_trigger_time ? formatTime(details.first_trigger_time) : '-'],
+            ['last_trigger_time', details.last_trigger_time ? formatTime(details.last_trigger_time) : '-'],
+            ['deployment_summary', details.deployment_summary],
+            ['source_intel', JSON.stringify(alert.source_intel || {}, null, 2)],
+            ['actor_intel', JSON.stringify(alert.actor_intel || {}, null, 2)]
+        ];
+    } else if (alert.alert_type === 'account') {
+        extraRows = [
+            ['attack_type', details.attack_type],
+            ['protocol', details.protocol],
+            ['src_endpoint', details.src_endpoint],
+            ['dst_endpoint', details.dst_endpoint],
+            ['username', details.username],
+            ['password', details.password],
+            ['client_family', details.client_family],
+            ['client_version', details.client_version],
+            ['message', details.message],
+            ['raw_event', JSON.stringify(details.raw_event || {}, null, 2)],
+            ['source_intel', JSON.stringify(alert.source_intel || {}, null, 2)],
+            ['actor_intel', JSON.stringify(alert.actor_intel || {}, null, 2)]
+        ];
+    }
+
+    return `
+        ${renderSection('通用字段', commonRows)}
+        ${renderSection('重点字段', extraRows)}
+        ${renderSection('原始 JSON', [['payload', JSON.stringify(alert, null, 2)]], true)}
+    `;
+}
+
+function fieldLabel(key) {
+    const labels = {
+        alert_id: '告警编号',
+        alert_type: '告警类型',
+        timestamp: '触发时间',
+        attacker_ip: '观测源 IP',
+        source_location: '地址归属 / 来源情报',
+        actor_group: '同源攻击者关联',
+        target_path: '目标路径 / URL',
+        action: '动作',
+        duplicate_count: '合并数量',
+        merged_alert_ids: '合并告警 ID',
+        merged_alert_times: '合并时间点',
+        filename: '文件名',
+        filename_tag: '带标签文件名',
+        honeypoint_name: '蜜点名称',
+        message: '告警消息',
+        token_raw: '原始 Token',
+        token_url: '触发 URL',
+        report_agent: '触发 User-Agent',
+        request_count: '请求次数',
+        raw_alert_ids: '原始记录 ID',
+        first_trigger_time: '首次触发时间',
+        last_trigger_time: '最后触发时间',
+        deployment_summary: '部署摘要',
+        attack_type: '攻击类型',
+        protocol: '协议',
+        src_endpoint: '来源地址',
+        dst_endpoint: '目标地址',
+        username: '用户名',
+        password: '密码',
+        client_family: '客户端类型',
+        client_version: '客户端版本',
+        raw_event: '原始事件',
+        fingerprint: '指纹',
+        session_token: '会话 Token',
+        real_ips: '真实 / WebRTC IP',
+        browser: '浏览器',
+        os: '操作系统',
+        browser_platform: '平台',
+        user_agent: 'User-Agent',
+        bot_score: 'Bot 分数',
+        possible_proxy: '疑似代理',
+        proxy_note: '代理说明',
+        proxy_headers: '代理头',
+        info: '寄生蜜点详情',
+        source_intel: '来源情报 JSON',
+        actor_intel: '同源关联 JSON',
+        payload: '原始 JSON'
+    };
+    return labels[key] || key;
 }
 </script>
 {% endblock %}
