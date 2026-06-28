@@ -529,41 +529,67 @@ body,
     background: rgba(3, 10, 9, 0.78);
     padding: 14px;
 }
-.graph-flow {
-    display: grid;
-    gap: 10px;
-    min-width: 760px;
+.graph-svg {
+    display: block;
+    min-width: 980px;
+    width: 100%;
+    font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
 }
-.graph-edge-row {
-    display: grid;
-    grid-template-columns: minmax(190px, 1fr) 170px minmax(190px, 1fr);
-    gap: 10px;
-    align-items: stretch;
+.graph-svg .edge-line {
+    fill: none;
+    stroke: rgba(125, 220, 139, 0.46);
+    stroke-width: 2;
 }
-.graph-node,
-.graph-action {
-    border-radius: 14px;
-    border: 1px solid rgba(148, 163, 184, 0.14);
+.graph-svg .edge-line.correlation {
+    stroke: rgba(91, 214, 214, 0.42);
+    stroke-dasharray: 6 5;
+}
+.graph-svg .node-rect {
+    fill: rgba(12, 28, 26, 0.96);
+    stroke: rgba(148, 163, 184, 0.24);
+    stroke-width: 1.4;
+}
+.graph-svg .node-rect.network,
+.graph-svg .node-rect.browser {
+    stroke: rgba(91, 214, 214, 0.42);
+}
+.graph-svg .node-rect.file,
+.graph-svg .node-rect.url {
+    stroke: rgba(125, 220, 139, 0.42);
+}
+.graph-svg .node-rect.service {
+    stroke: rgba(245, 180, 91, 0.42);
+}
+.graph-svg .node-title {
+    fill: #edf9ef;
+    font-size: 13px;
+    font-weight: 800;
+}
+.graph-svg .node-meta,
+.graph-svg .edge-label {
+    fill: #9aada5;
+    font-size: 11px;
+    font-weight: 700;
+}
+.graph-svg .edge-label-bg {
+    fill: rgba(3, 10, 9, 0.9);
+    stroke: rgba(148, 163, 184, 0.16);
+}
+.graph-legend,
+.graph-edge-samples {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+.graph-legend span,
+.graph-edge-samples span {
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
     background: rgba(255,255,255,.035);
-    padding: 10px 12px;
-    min-height: 68px;
-}
-.graph-node b,
-.graph-action b {
-    display: block;
-    color: #e6f7e9;
-    margin-bottom: 6px;
-}
-.graph-node span,
-.graph-action span {
-    display: block;
     color: var(--muted);
+    padding: 5px 9px;
     font-size: 12px;
-    line-height: 1.45;
-}
-.graph-action {
-    text-align: center;
-    border-color: rgba(125, 220, 139, 0.22);
 }
 .debug-details {
     margin-top: 12px;
@@ -891,34 +917,177 @@ function renderGraphOverview(meta, attackers, paths, edges) {
     `).join('');
 }
 
+function graphNodeKind(type) {
+    if (['network', 'browser'].includes(type)) {
+        return 'source';
+    }
+    if (type === 'event') {
+        return 'event';
+    }
+    return 'target';
+}
+
+function graphNodeColumn(type) {
+    const kind = graphNodeKind(type);
+    if (kind === 'source') {
+        return 0;
+    }
+    if (kind === 'event') {
+        return 1;
+    }
+    return 2;
+}
+
+function buildGraphVisualModel(edges) {
+    const nodes = new Map();
+    const displayEdges = edges
+        .filter(edge => edge.edge_kind === 'event')
+        .slice(-24);
+    const selectedEdges = displayEdges.length ? displayEdges : edges.slice(-24);
+
+    function addNode(id, type, label) {
+        const nodeId = compactValue(id);
+        if (!nodeId || nodeId === '-') {
+            return;
+        }
+        const current = nodes.get(nodeId) || {
+            id: nodeId,
+            type: compactValue(type || 'unknown'),
+            label: compactValue(label || nodeId),
+            degree: 0,
+        };
+        current.degree += 1;
+        nodes.set(nodeId, current);
+    }
+
+    selectedEdges.forEach(edge => {
+        addNode(edge.source, edge.subject_type, edge.subject_label || edge.source);
+        addNode(edge.target, edge.object_type, edge.object_label || edge.target);
+    });
+
+    return {
+        nodes: Array.from(nodes.values()),
+        edges: selectedEdges,
+    };
+}
+
+function layoutGraphNodes(nodes) {
+    const columns = [[], [], []];
+    nodes.forEach(node => {
+        columns[graphNodeColumn(node.type)].push(node);
+    });
+    columns.forEach(column => {
+        column.sort((a, b) => (b.degree || 0) - (a.degree || 0) || String(a.label).localeCompare(String(b.label)));
+    });
+
+    const width = 1120;
+    const nodeWidth = 260;
+    const nodeHeight = 68;
+    const columnX = [40, 430, 820];
+    const maxColumn = Math.max(...columns.map(column => column.length), 1);
+    const rowGap = 26;
+    const height = Math.max(360, maxColumn * (nodeHeight + rowGap) + 54);
+    const positioned = new Map();
+
+    columns.forEach((column, columnIndex) => {
+        const usedHeight = column.length * nodeHeight + Math.max(column.length - 1, 0) * rowGap;
+        const startY = Math.max(28, (height - usedHeight) / 2);
+        column.forEach((node, rowIndex) => {
+            positioned.set(node.id, {
+                ...node,
+                x: columnX[columnIndex],
+                y: startY + rowIndex * (nodeHeight + rowGap),
+                width: nodeWidth,
+                height: nodeHeight,
+            });
+        });
+    });
+
+    return { width, height, nodes: positioned };
+}
+
+function graphNodeTypeLabel(type) {
+    const labels = {
+        network: '网络源',
+        browser: '浏览器指纹',
+        file: '文件蜜点',
+        url: '寄生页面',
+        service: '账户服务',
+        event: '事件',
+    };
+    return labels[type] || type || '未知';
+}
+
+function renderSvgNode(node) {
+    return `
+        <g class="graph-node-svg" transform="translate(${node.x}, ${node.y})">
+            <rect class="node-rect ${escapeHtml(node.type)}" width="${node.width}" height="${node.height}" rx="12"></rect>
+            <text class="node-title" x="14" y="25">${escapeHtml(shortText(node.label, 28))}</text>
+            <text class="node-meta" x="14" y="47">${escapeHtml(graphNodeTypeLabel(node.type))} · ${escapeHtml(shortText(node.id, 34))}</text>
+        </g>
+    `;
+}
+
+function renderSvgEdge(edge, positionedNodes, index) {
+    const source = positionedNodes.get(compactValue(edge.source));
+    const target = positionedNodes.get(compactValue(edge.target));
+    if (!source || !target) {
+        return '';
+    }
+
+    const sx = source.x + source.width;
+    const sy = source.y + source.height / 2;
+    const tx = target.x;
+    const ty = target.y + target.height / 2;
+    const midX = (sx + tx) / 2;
+    const labelY = (sy + ty) / 2 - 7 + ((index % 3) - 1) * 7;
+    const label = actionLabel(edge.action);
+    const stage = edge.stage || edge.tactic || edge.edge_kind || '';
+    const edgeClass = edge.edge_kind === 'correlation' ? 'edge-line correlation' : 'edge-line';
+    const path = `M ${sx} ${sy} C ${midX} ${sy}, ${midX} ${ty}, ${tx} ${ty}`;
+
+    return `
+        <path class="${edgeClass}" d="${path}" marker-end="url(#graph-arrow)"></path>
+        <g transform="translate(${midX - 68}, ${labelY - 15})">
+            <rect class="edge-label-bg" width="136" height="30" rx="10"></rect>
+            <text class="edge-label" x="68" y="13" text-anchor="middle">${escapeHtml(shortText(label, 16))}</text>
+            <text class="edge-label" x="68" y="25" text-anchor="middle">${escapeHtml(shortText(stage, 18))}</text>
+        </g>
+    `;
+}
+
 function renderGraphVisual(edges) {
     const visual = document.getElementById('graphVisual');
-    const eventEdges = edges
-        .filter(edge => edge.edge_kind === 'event')
-        .slice(-18);
-    const displayEdges = eventEdges.length ? eventEdges : edges.slice(-18);
-    if (!displayEdges.length) {
+    const model = buildGraphVisualModel(edges);
+    if (!model.edges.length || !model.nodes.length) {
         visual.innerHTML = '<div class="empty-row">暂无可视化关系边。</div>';
         return;
     }
+    const layout = layoutGraphNodes(model.nodes);
+    const edgeSvg = model.edges.map((edge, index) => renderSvgEdge(edge, layout.nodes, index)).join('');
+    const nodeSvg = Array.from(layout.nodes.values()).map(renderSvgNode).join('');
+    const sampleEdges = model.edges.slice(-8).map(edge => {
+        const source = shortText(edge.subject_label || edge.source, 24);
+        const target = shortText(edge.object_label || edge.target, 24);
+        return `${source} -> ${actionLabel(edge.action)} -> ${target}`;
+    });
     visual.innerHTML = `
-        <div class="graph-flow">
-            ${displayEdges.map(edge => `
-                <div class="graph-edge-row">
-                    <div class="graph-node">
-                        <b>${escapeHtml(shortText(edge.subject_label || edge.source, 72))}</b>
-                        <span>${escapeHtml(edge.subject_type || 'source')} · ${escapeHtml(shortText(edge.source, 72))}</span>
-                    </div>
-                    <div class="graph-action">
-                        <b>${escapeHtml(actionLabel(edge.action))}</b>
-                        <span>${escapeHtml(edge.stage || edge.tactic || edge.edge_kind || '-')}</span>
-                    </div>
-                    <div class="graph-node">
-                        <b>${escapeHtml(shortText(edge.object_label || edge.target, 72))}</b>
-                        <span>${escapeHtml(edge.object_type || 'object')} · ${escapeHtml(shortText(edge.target, 72))}</span>
-                    </div>
-                </div>
-            `).join('')}
+        <svg class="graph-svg" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="攻击图谱节点边可视化">
+            <defs>
+                <marker id="graph-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(125, 220, 139, 0.72)"></path>
+                </marker>
+            </defs>
+            ${edgeSvg}
+            ${nodeSvg}
+        </svg>
+        <div class="graph-legend">
+            <span>左侧：攻击来源/浏览器指纹</span>
+            <span>右侧：文件、URL、服务目标</span>
+            <span>箭头：事件或同源关联方向</span>
+        </div>
+        <div class="graph-edge-samples">
+            ${sampleEdges.map(item => `<span>${escapeHtml(item)}</span>`).join('')}
         </div>
     `;
 }
