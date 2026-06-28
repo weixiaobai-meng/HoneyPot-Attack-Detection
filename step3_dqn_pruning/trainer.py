@@ -193,6 +193,9 @@ class DQNTrainer:
         if best_state:
             self.model.load_state_dict(best_state)
             print(f"  restored best checkpoint (Val F1: {best_val_f1:.3f})")
+        else:
+            torch.save(self.model.state_dict(), save_path)
+            print("  validation did not improve; saved final checkpoint")
 
         return self.model
 

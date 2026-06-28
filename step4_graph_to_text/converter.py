@@ -5,7 +5,7 @@ Step 4: convert provenance graph into thesis-oriented textual narrative.
 import os
 from datetime import datetime
 from typing import List, Dict
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from .prompts import PromptTemplates
 
@@ -38,6 +38,35 @@ class GraphToTextConverter:
         "service": "service entity",
         "url": "URL entity",
         "unknown": "unknown entity",
+    }
+
+    ACTION_DESCRIPTIONS_CN = {
+        "ssh_login": "SSH 弱口令/远程登录尝试",
+        "vpn_connect": "VPN 连接尝试",
+        "file_access": "诱饵文件访问",
+        "url_access": "寄生蜜点页面访问",
+        "openat": "文件打开",
+        "read": "文件读取",
+        "write": "文件写入",
+        "execve": "进程执行",
+        "fork": "进程派生",
+        "connect": "网络连接",
+        "unlink": "文件删除",
+        "rename": "文件重命名",
+        "chmod": "权限修改",
+        "mkdir": "目录创建",
+        "correlates_to": "同源关联",
+    }
+
+    TTP_MAPPING = {
+        "ssh_login": ("Initial Access", "External Remote Services", "T1133"),
+        "vpn_connect": ("Initial Access", "External Remote Services", "T1133"),
+        "url_access": ("Reconnaissance", "Honey Web Resource Access", "custom-parasitic-web"),
+        "file_access": ("Collection", "Honey File Access", "custom-honey-file"),
+        "connect": ("Command and Control", "Application Layer Protocol", "T1071"),
+        "execve": ("Execution", "Command and Scripting Interpreter", "T1059"),
+        "read": ("Collection", "Data from Local System", "T1005"),
+        "openat": ("Collection", "Data from Local System", "T1005"),
     }
 
     STAGE_ORDER = [
@@ -87,6 +116,145 @@ class GraphToTextConverter:
         if task == "report":
             return PromptTemplates.REPORT_GENERATION.format(narrative=narrative)
         return narrative
+
+    def convert_to_thesis_analysis(self, graph_data: Dict) -> str:
+        """Generate a deterministic Chinese thesis-oriented analysis draft."""
+        nodes = graph_data.get("nodes", [])
+        edges = graph_data.get("edges", [])
+        meta = graph_data.get("graph_meta", {})
+        attacker_groups = graph_data.get("attacker_groups", [])
+        attack_paths = graph_data.get("attack_paths", [])
+        pruning_stats = graph_data.get("pruning_stats", {})
+
+        event_edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
+        correlation_edges = [edge for edge in edges if edge.get("edge_kind") == "correlation"]
+        action_counts = Counter(edge.get("action") or "unknown" for edge in event_edges)
+        stage_counts = Counter(edge.get("stage") or "unknown" for edge in event_edges)
+        severity_counts = Counter(edge.get("severity") or "unknown" for edge in event_edges)
+        cross_groups = [
+            group for group in attacker_groups
+            if len(set(group.get("event_types") or [])) >= 2
+        ]
+        three_type_groups = [
+            group for group in attacker_groups
+            if {"account", "file", "parasitic"}.issubset(set(group.get("event_types") or []))
+        ]
+
+        lines = [
+            "# 多蜜点告警关联分析草稿",
+            "",
+            "## 1. 实验输入与图规模",
+            "",
+            (
+                f"本次分析以统一告警事件为输入，构建攻击溯源图。图中包含 "
+                f"{meta.get('node_count', len(nodes))} 个节点、"
+                f"{meta.get('edge_count', len(edges))} 条边，其中事件边 "
+                f"{meta.get('event_edge_count', len(event_edges))} 条，"
+                f"关联边 {meta.get('correlation_edge_count', len(correlation_edges))} 条。"
+            ),
+            (
+                f"系统共重建 {meta.get('attacker_count', len(attacker_groups))} 个攻击者簇和 "
+                f"{meta.get('path_count', len(attack_paths))} 条攻击路径。"
+            ),
+            "",
+            "## 2. 蜜点行为分布",
+            "",
+            self._format_counter("行为类型", action_counts, self.ACTION_DESCRIPTIONS_CN),
+            "",
+            self._format_counter("攻击阶段", stage_counts),
+            "",
+            self._format_counter("告警等级", severity_counts),
+            "",
+            "## 3. 跨蜜点同源证据",
+            "",
+        ]
+
+        if cross_groups:
+            lines.append(
+                f"攻击者聚类结果中有 {len(cross_groups)} 个簇覆盖至少两类蜜点，"
+                f"其中 {len(three_type_groups)} 个簇同时覆盖账户、文件和寄生三类蜜点。"
+            )
+            lines.append("")
+            for group in cross_groups[:5]:
+                lines.append(
+                    f"- {group.get('attacker_id')}: 事件数={group.get('event_count')}, "
+                    f"类型={', '.join(group.get('event_types') or [])}, "
+                    f"锚点={', '.join(group.get('anchors') or []) or '无'}, "
+                    f"时间={group.get('start_time')} -> {group.get('end_time')}"
+                )
+            if len(cross_groups) > 5:
+                lines.append(f"- 其余 {len(cross_groups) - 5} 个跨蜜点攻击者簇已省略。")
+        else:
+            lines.append("当前图中尚未形成覆盖多类蜜点的同源攻击者簇，后续应继续补充文件蜜点和寄生蜜点样本。")
+
+        lines.extend([
+            "",
+            "## 4. 攻击路径还原",
+            "",
+        ])
+        if attack_paths:
+            for path in sorted(attack_paths, key=lambda item: item.get("event_count", 0), reverse=True)[:5]:
+                lines.append(
+                    f"- {path.get('path_id')}: 攻击者={path.get('attacker_id') or 'unknown'}, "
+                    f"事件数={path.get('event_count')}, "
+                    f"类型={', '.join(path.get('event_types') or [])}, "
+                    f"锚点={', '.join(path.get('anchors') or []) or '无'}"
+                )
+        else:
+            lines.append("- 当前剪枝图未保留可还原的攻击路径。")
+
+        lines.extend([
+            "",
+            "## 5. TTP 映射",
+            "",
+            "| 行为 | 战术 | 技术 | 编号 | 样本数 |",
+            "|---|---|---|---|---:|",
+        ])
+        for action, count in sorted(action_counts.items()):
+            tactic, technique, ttp_id = self.TTP_MAPPING.get(
+                action,
+                ("Unknown", self.ACTION_DESCRIPTIONS_CN.get(action, action), "custom-unknown"),
+            )
+            lines.append(
+                f"| {self.ACTION_DESCRIPTIONS_CN.get(action, action)} | {tactic} | {technique} | {ttp_id} | {count} |"
+            )
+
+        lines.extend([
+            "",
+            "## 6. 图剪枝效果",
+            "",
+        ])
+        if pruning_stats:
+            lines.append(
+                f"剪枝模式为 `{pruning_stats.get('mode', 'unknown')}`，原始边数 "
+                f"{pruning_stats.get('original_edges', len(edges))}，保留边数 "
+                f"{pruning_stats.get('kept_edges', len(edges))}，剪除边数 "
+                f"{pruning_stats.get('pruned_edges', 0)}，压缩率 "
+                f"{pruning_stats.get('compression_ratio', '0.0%')}。"
+            )
+            if pruning_stats.get("fallback_reason"):
+                lines.append(f"本轮 DQN 未直接生效，回退原因：`{pruning_stats.get('fallback_reason')}`。")
+        else:
+            lines.append("当前图未记录剪枝统计信息。")
+
+        lines.extend([
+            "",
+            "## 7. 可写入论文的结论表述",
+            "",
+            (
+                "实验表明，统一告警模型能够把账户蜜点、文件蜜点和寄生蜜点产生的异构日志转化为统一事件，"
+                "并进一步构建包含事件边与同源关联边的攻击溯源图。"
+            ),
+            (
+                "当同一来源 IP、浏览器指纹、会话标识或 actor group 在不同蜜点之间重复出现时，"
+                "系统能够将离散告警聚合为攻击者簇，并形成跨蜜点攻击路径，为后续攻击意图推断提供结构化证据。"
+            ),
+            (
+                "需要注意的是，受真实公网暴露面影响，三类蜜点天然存在样本不平衡。论文中应将自然采集集、"
+                "受控触发集和平衡分析集分开描述，避免把受控触发样本表述为自然攻击流量。"
+            ),
+        ])
+        return "\n".join(lines)
 
     def _generate_summary(self, meta: Dict, nodes: List[Dict], edges: List[Dict], triples: List[Dict]) -> str:
         lines = ["## 1. Event Summary", ""]
@@ -276,6 +444,16 @@ class GraphToTextConverter:
         lines.append(f"- Files: {', '.join(sorted(files)) if files else 'None'}")
         lines.append(f"- Processes: {', '.join(sorted(processes)) if processes else 'None'}")
         lines.append(f"- URLs: {', '.join(sorted(urls)) if urls else 'None'}")
+        return "\n".join(lines)
+
+    def _format_counter(self, title: str, counter: Counter, label_map: Dict[str, str] = None) -> str:
+        lines = [f"**{title}：**"]
+        if not counter:
+            lines.append("- 无")
+            return "\n".join(lines)
+        for key, count in sorted(counter.items(), key=lambda item: (-item[1], str(item[0]))):
+            label = label_map.get(key, key) if label_map else key
+            lines.append(f"- {label}: {count}")
         return "\n".join(lines)
 
     def _trace_linear_path(self, start: str, adjacency: Dict[str, List[Dict]], max_depth: int = 8) -> List[str]:

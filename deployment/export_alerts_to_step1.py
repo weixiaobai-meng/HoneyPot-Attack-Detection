@@ -10,8 +10,9 @@ Workflows:`r`n1. simulate: create a reproducible three-honeypot experiment under
 
 import argparse
 import json
+import random
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,14 +26,48 @@ from step1_data_collection import AlertType, DataCollector, UnifiedAlert
 from step2_causal_graph import CausalGraphBuilder, CausalGraphVisualizer
 from step4_graph_to_text import GraphToTextConverter
 
-try:
-    from step3_dqn_pruning import DQNTrainer
-    DQN_IMPORT_ERROR = None
-except ModuleNotFoundError as exc:
-    if getattr(exc, "name", "") != "torch":
-        raise
-    DQNTrainer = None
-    DQN_IMPORT_ERROR = exc
+DQNTrainer = None
+attach_manual_labels = None
+get_graph_statistics = None
+load_graph_from_file = None
+load_graphs_for_training = None
+DQN_IMPORT_ERROR = None
+DQN_TOOLS_LOADED = False
+
+
+def _load_dqn_tools() -> bool:
+    global DQNTrainer
+    global attach_manual_labels
+    global get_graph_statistics
+    global load_graph_from_file
+    global load_graphs_for_training
+    global DQN_IMPORT_ERROR
+    global DQN_TOOLS_LOADED
+
+    if DQN_TOOLS_LOADED:
+        return DQNTrainer is not None
+
+    try:
+        from step3_dqn_pruning import (  # type: ignore
+            DQNTrainer as _DQNTrainer,
+            attach_manual_labels as _attach_manual_labels,
+            get_graph_statistics as _get_graph_statistics,
+            load_graph_from_file as _load_graph_from_file,
+            load_graphs_for_training as _load_graphs_for_training,
+        )
+        DQNTrainer = _DQNTrainer
+        attach_manual_labels = _attach_manual_labels
+        get_graph_statistics = _get_graph_statistics
+        load_graph_from_file = _load_graph_from_file
+        load_graphs_for_training = _load_graphs_for_training
+        DQN_IMPORT_ERROR = None
+    except ModuleNotFoundError as exc:
+        if getattr(exc, "name", "") not in {"torch", "torch_geometric"}:
+            raise
+        DQN_IMPORT_ERROR = exc
+
+    DQN_TOOLS_LOADED = True
+    return DQNTrainer is not None
 
 
 DEFAULT_RUN_DIR = REPO_ROOT / "generated_runs" / "three_honeypot_pipeline"
@@ -283,6 +318,7 @@ def build_default_paths():
         "step4_intent": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_intent_analysis.txt",
         "step4_ttp": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_ttp_mapping.txt",
         "step4_report": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_report.txt",
+        "step4_thesis": REPO_ROOT / "step4_graph_to_text" / "output" / "thesis_analysis.md",
         "summary": REPO_ROOT / "deployment" / "output" / "honeypot_experiment_summary.json",
     }
 
@@ -306,6 +342,7 @@ def build_run_paths(run_dir: Path):
         "step4_intent": run_dir / "step4" / "llm_prompt_intent_analysis.txt",
         "step4_ttp": run_dir / "step4" / "llm_prompt_ttp_mapping.txt",
         "step4_report": run_dir / "step4" / "llm_prompt_report.txt",
+        "step4_thesis": run_dir / "step4" / "thesis_analysis.md",
         "summary": run_dir / "summary.json",
     }
 
@@ -326,6 +363,7 @@ def ensure_dirs(paths):
         "step4_intent",
         "step4_ttp",
         "step4_report",
+        "step4_thesis",
         "summary",
     ]:
         paths[key].parent.mkdir(parents=True, exist_ok=True)
@@ -647,10 +685,108 @@ def _to_alert_objects(alerts):
                     technique=data.get("technique"),
                     confidence=float(data.get("confidence", 0.8)),
                     severity=data.get("severity", "medium"),
+                    source_intel=data.get("source_intel") or {},
+                    actor_intel=data.get("actor_intel") or {},
                     evidence=data.get("evidence") or {},
                 )
             )
     return items
+
+
+def _alert_type_value(alert: UnifiedAlert) -> str:
+    return alert.alert_type.value if isinstance(alert.alert_type, AlertType) else str(alert.alert_type)
+
+
+def _actor_group_id(alert: UnifiedAlert) -> str:
+    actor_intel = alert.actor_intel or {}
+    return str(actor_intel.get("group_id") or "").strip()
+
+
+def _is_cross_honeypot_actor(alert: UnifiedAlert) -> bool:
+    actor_intel = alert.actor_intel or {}
+    return bool(actor_intel.get("cross_honeypot"))
+
+
+def _is_excluded_source(alert: UnifiedAlert, excluded_ips) -> bool:
+    ip = str(alert.attacker_ip or "").strip()
+    return bool(ip and ip in excluded_ips)
+
+
+def build_balanced_alert_subset(live_alerts: List[UnifiedAlert], per_type: int, exclude_ips=None):
+    """Build a real-data balanced analysis subset without fabricating alerts."""
+    if per_type <= 0:
+        return [], {
+            "enabled": False,
+            "reason": "balanced_per_type_not_set",
+        }
+
+    excluded_ips = {str(item).strip() for item in (exclude_ips or []) if str(item).strip()}
+    allowed_types = ["account", "file", "parasitic"]
+    filtered_alerts = [
+        alert for alert in live_alerts
+        if _alert_type_value(alert) in allowed_types and not _is_excluded_source(alert, excluded_ips)
+    ]
+
+    selected = []
+    selected_ids = set()
+    selected_counts = Counter()
+
+    def add_alert(alert: UnifiedAlert) -> bool:
+        alert_type = _alert_type_value(alert)
+        if alert_type not in allowed_types:
+            return False
+        if alert.alert_id in selected_ids:
+            return False
+        if selected_counts[alert_type] >= per_type:
+            return False
+        selected.append(alert)
+        selected_ids.add(alert.alert_id)
+        selected_counts[alert_type] += 1
+        return True
+
+    actor_groups = defaultdict(list)
+    for alert in filtered_alerts:
+        group_id = _actor_group_id(alert)
+        if group_id and _is_cross_honeypot_actor(alert):
+            actor_groups[group_id].append(alert)
+
+    sorted_groups = sorted(
+        actor_groups.values(),
+        key=lambda group: (
+            -len({_alert_type_value(alert) for alert in group}),
+            min(alert.timestamp for alert in group),
+        ),
+    )
+    for group in sorted_groups:
+        for alert in sorted(group, key=lambda item: item.timestamp):
+            add_alert(alert)
+
+    by_type = defaultdict(list)
+    for alert in filtered_alerts:
+        by_type[_alert_type_value(alert)].append(alert)
+
+    for alert_type in allowed_types:
+        for alert in sorted(by_type.get(alert_type, []), key=lambda item: item.timestamp, reverse=True):
+            if selected_counts[alert_type] >= per_type:
+                break
+            add_alert(alert)
+
+    selected.sort(key=lambda item: item.timestamp)
+    available_counts = Counter(_alert_type_value(alert) for alert in filtered_alerts)
+    raw_counts = Counter(_alert_type_value(alert) for alert in live_alerts)
+    metadata = {
+        "enabled": True,
+        "method": "real_alert_downsample_with_cross_honeypot_priority",
+        "per_type_limit": per_type,
+        "exclude_ips": sorted(excluded_ips),
+        "raw_counts": dict(raw_counts),
+        "available_counts_after_exclusion": dict(available_counts),
+        "selected_counts": dict(selected_counts),
+        "selected_total": len(selected),
+        "cross_honeypot_actor_groups": len(actor_groups),
+        "note": "No alerts are fabricated; this subset only filters and samples real collected alerts.",
+    }
+    return selected, metadata
 
 
 def write_split_and_unified(alert_groups, paths, deployments=None):
@@ -717,8 +853,8 @@ def run_dqn_pruning(paths, graph_data):
     if not checkpoint or not checkpoint.exists():
         return None, "dqn_checkpoint_missing"
 
-    if DQNTrainer is None:
-        reason = "torch_not_installed"
+    if not _load_dqn_tools():
+        reason = "dqn_dependencies_unavailable"
         if DQN_IMPORT_ERROR:
             reason = f"{reason}: {DQN_IMPORT_ERROR}"
         return None, reason
@@ -766,10 +902,12 @@ def run_steps_from_unified(alerts, paths):
         "intent_analysis": converter.convert_to_llm_prompt(prompt_graph, "intent_analysis"),
         "ttp_mapping": converter.convert_to_llm_prompt(prompt_graph, "ttp_mapping"),
         "report": converter.convert_to_llm_prompt(prompt_graph, "report"),
+        "thesis_analysis": converter.convert_to_thesis_analysis(prompt_graph),
     }
     converter.save(prompts["intent_analysis"], str(paths["step4_intent"]))
     converter.save(prompts["ttp_mapping"], str(paths["step4_ttp"]))
     converter.save(prompts["report"], str(paths["step4_report"]))
+    converter.save(prompts["thesis_analysis"], str(paths["step4_thesis"]))
     return graph_data, pruned, prompts
 
 
@@ -810,6 +948,7 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "step4_intent_analysis": rel(paths["step4_intent"]),
             "step4_ttp_mapping": rel(paths["step4_ttp"]),
             "step4_report": rel(paths["step4_report"]),
+            "step4_thesis_analysis": rel(paths["step4_thesis"]),
         },
     }
     dump_json(paths["summary"], summary)
@@ -832,6 +971,7 @@ def copy_run_to_defaults(source_paths):
         (source_paths["step4_intent"], default_paths["step4_intent"]),
         (source_paths["step4_ttp"], default_paths["step4_ttp"]),
         (source_paths["step4_report"], default_paths["step4_report"]),
+        (source_paths["step4_thesis"], default_paths["step4_thesis"]),
         (source_paths["summary"], default_paths["summary"]),
     ]
     for name in ["file_alerts.json", "account_alerts.json", "parasitic_alerts.json", "audit_alerts.json"]:
@@ -840,6 +980,248 @@ def copy_run_to_defaults(source_paths):
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
     return default_paths
+
+
+def _resolve_repo_path(path: Path) -> Path:
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
+def _set_reproducible_seed(seed: int) -> None:
+    random.seed(seed)
+    try:
+        import numpy as np
+        np.random.seed(seed)
+    except Exception:
+        pass
+    try:
+        import torch
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except Exception:
+        pass
+
+
+def _split_graphs(graphs, seed: int):
+    graphs = list(graphs)
+    random.Random(seed).shuffle(graphs)
+    total = len(graphs)
+    if total == 0:
+        return [], [], []
+    if total == 1:
+        return graphs, graphs, graphs
+    if total == 2:
+        return graphs[:1], graphs[1:], graphs[1:]
+
+    train_count = max(1, int(total * 0.7))
+    val_count = max(1, int(total * 0.15))
+    if train_count + val_count >= total:
+        train_count = max(1, total - 2)
+        val_count = 1
+    train_graphs = graphs[:train_count]
+    val_graphs = graphs[train_count:train_count + val_count]
+    test_graphs = graphs[train_count + val_count:]
+    return train_graphs, val_graphs, test_graphs or val_graphs
+
+
+def _pruning_metrics_from_actions(actions, labels):
+    pairs = [(int(action), int(label)) for action, label in zip(actions, labels) if int(label) >= 0]
+    if not pairs:
+        return {
+            "accuracy": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "core_recall": 0.0,
+            "ckc": 0.0,
+            "cpr": 0.0,
+            "wpc": 0.0,
+            "wkr": 0.0,
+            "labeled_edges": 0.0,
+            "label_coverage": 0.0,
+        }
+
+    ckc = sum(1 for action, label in pairs if action == 0 and label == 1)
+    cpr = sum(1 for action, label in pairs if action == 1 and label == 0)
+    wpc = sum(1 for action, label in pairs if action == 1 and label == 1)
+    wkr = sum(1 for action, label in pairs if action == 0 and label == 0)
+    total = max(len(pairs), 1)
+    accuracy = (ckc + cpr) / total
+    precision = cpr / max(cpr + wpc, 1)
+    recall = cpr / max(cpr + wkr, 1)
+    f1 = 2 * precision * recall / max(precision + recall, 1e-8)
+    core_recall = ckc / max(ckc + wpc, 1)
+    return {
+        "accuracy": accuracy,
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "core_recall": core_recall,
+        "ckc": float(ckc),
+        "cpr": float(cpr),
+        "wpc": float(wpc),
+        "wkr": float(wkr),
+        "labeled_edges": float(total),
+        "label_coverage": 1.0,
+    }
+
+
+def _evaluate_action_rule_baseline(graphs):
+    important_actions = {"ssh_login", "vpn_connect", "file_access", "url_access", "execve", "connect", "read"}
+    metrics = []
+    for graph in graphs:
+        labels = getattr(graph, "y", None)
+        edges_info = getattr(graph, "edges_info", [])
+        if labels is None:
+            continue
+        label_values = labels.long().cpu().tolist()
+        actions = [
+            0 if edge.get("action") in important_actions else 1
+            for edge in edges_info
+        ]
+        metrics.append(_pruning_metrics_from_actions(actions, label_values))
+    if not metrics:
+        return _pruning_metrics_from_actions([], [])
+    return {key: sum(item[key] for item in metrics) / len(metrics) for key in metrics[0]}
+
+
+def _install_dqn_checkpoint(checkpoint_path: Path):
+    target = build_default_paths()["step3_checkpoint"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    result = {"installed_checkpoint": rel(target)}
+    if target.exists():
+        backup = target.with_name(f"{target.stem}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}{target.suffix}")
+        backup.write_bytes(target.read_bytes())
+        result["previous_checkpoint_backup"] = rel(backup)
+    target.write_bytes(checkpoint_path.read_bytes())
+    return result
+
+
+def train_dqn_experiment(
+    graph_path: Path,
+    output_dir: Path,
+    num_graphs: int,
+    epochs: int,
+    patience: int,
+    lr: float,
+    seed: int,
+    augment: bool,
+    label_file: Path = None,
+    install_checkpoint: bool = False,
+    device: str = "cpu",
+):
+    if not _load_dqn_tools() or load_graphs_for_training is None:
+        reason = f"step3 DQN dependencies unavailable: {DQN_IMPORT_ERROR}"
+        raise RuntimeError(reason)
+
+    graph_path = _resolve_repo_path(graph_path)
+    output_dir = _resolve_repo_path(output_dir)
+    label_file = _resolve_repo_path(label_file) if label_file else None
+    if not graph_path.exists():
+        raise FileNotFoundError(f"graph path not found: {graph_path}")
+    if label_file and not label_file.exists():
+        raise FileNotFoundError(f"label file not found: {label_file}")
+
+    _set_reproducible_seed(seed)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = output_dir / "checkpoints" / "dqn_best.pt"
+    pruned_path = output_dir / "pruned_graph.json"
+    summary_path = output_dir / "dqn_experiment_summary.json"
+    thesis_path = output_dir / "thesis_analysis_after_dqn.md"
+
+    graphs = load_graphs_for_training(
+        str(graph_path),
+        num_graphs=num_graphs,
+        augment=augment,
+        base_seed=seed,
+    )
+    train_graphs, val_graphs, test_graphs = _split_graphs(graphs, seed)
+
+    trainer_device = None if str(device).lower() == "auto" else device
+    trainer = DQNTrainer(lr=lr, epochs=epochs, patience=patience, device=trainer_device)
+    trainer.train(train_graphs, val_graphs, save_path=str(checkpoint_path))
+
+    train_metrics = trainer._evaluate(train_graphs)
+    val_metrics = trainer._evaluate(val_graphs)
+    test_metrics = trainer.evaluate_on_test(test_graphs)
+    baseline_metrics = _evaluate_action_rule_baseline(test_graphs)
+
+    manual_metrics = None
+    manual_label_coverage = None
+    if label_file:
+        manual_graph = attach_manual_labels(load_graph_from_file(str(graph_path)), str(label_file), strict=False)
+        manual_label_coverage = getattr(manual_graph, "manual_label_coverage", None)
+        manual_metrics = trainer.evaluate_on_test([manual_graph])
+
+    pruned = trainer.predict_and_prune(str(graph_path), str(pruned_path))
+    stats = pruned.get("pruning_stats", {})
+    stats["mode"] = "dqn_reproducible_experiment"
+    stats["checkpoint"] = rel(checkpoint_path)
+    pruned["pruning_stats"] = stats
+    dump_json(pruned_path, pruned)
+
+    converter = GraphToTextConverter()
+    converter.save(converter.convert_to_thesis_analysis(pruned), str(thesis_path))
+
+    install_info = _install_dqn_checkpoint(checkpoint_path) if install_checkpoint else {}
+    summary = {
+        "mode": "train-dqn",
+        "generated_at": datetime.now().isoformat(),
+        "graph_path": rel(graph_path),
+        "output_dir": rel(output_dir),
+        "config": {
+            "seed": seed,
+            "num_graphs": num_graphs,
+            "augment": augment,
+            "epochs": epochs,
+            "patience": patience,
+            "lr": lr,
+            "device": device,
+            "label_source": "deterministic_weak_labels",
+            "manual_label_eval_file": rel(label_file) if label_file else "",
+            "manual_labels_used_for_training": False,
+        },
+        "splits": {
+            "train_graphs": len(train_graphs),
+            "validation_graphs": len(val_graphs),
+            "test_graphs": len(test_graphs),
+        },
+        "graph_statistics": get_graph_statistics(str(graph_path)),
+        "metrics": {
+            "train": train_metrics,
+            "validation": val_metrics,
+            "test": test_metrics,
+            "action_rule_baseline_test": baseline_metrics,
+            "manual_label_eval": manual_metrics,
+            "manual_label_coverage": manual_label_coverage,
+        },
+        "outputs": {
+            "checkpoint": rel(checkpoint_path),
+            "pruned_graph": rel(pruned_path),
+            "thesis_analysis_after_dqn": rel(thesis_path),
+            "summary": rel(summary_path),
+            **install_info,
+        },
+        "note": (
+            "The default labels are deterministic weak labels derived from edge actions; "
+            "use --label-file for human-label evaluation before making strong accuracy claims."
+        ),
+    }
+    dump_json(summary_path, summary)
+    print_summary({
+        "mode": "train-dqn",
+        "deployment_count": 0,
+        "total_alerts": 0,
+        "alert_counts": {},
+        "graph": {
+            "nodes": summary["graph_statistics"]["num_nodes"],
+            "edges": summary["graph_statistics"]["num_edges"],
+        },
+        "pruning_stats": pruned.get("pruning_stats", {}),
+        "outputs": summary["outputs"],
+    })
+    print(f"DQN metrics: {json.dumps(summary['metrics'], ensure_ascii=False)}")
+    return summary
 
 
 def simulate(run_dir: Path, write_defaults: bool):
@@ -911,6 +1293,64 @@ def export_live(hours: int, run_dir: Path = None):
     return summary
 
 
+def export_balanced_live(hours: int, run_dir: Path, per_type: int, exclude_ips=None):
+    paths = build_run_paths(run_dir)
+    ensure_dirs(paths)
+    end_time = datetime.now()
+    start_time = None if hours <= 0 else end_time - timedelta(hours=hours)
+    collector = DataCollector(config=build_live_analysis_collector_config())
+    collector_sources = collector.describe_sources()
+    try:
+        live_alerts = collect_live_alerts_from_systemwire2_api(hours)
+        collector_sources["analysis_source_mode"] = "systemwire2_unified_api"
+        collector_sources["analysis_source_detail"] = "flask_server.alert_store.build_unified_alert_api_rows"
+    except Exception as exc:
+        print(f"[-] unified API export path unavailable, fallback to unified store collector: {exc}")
+        live_alerts = collector.collect_all(start_time, end_time)
+        collector_sources["analysis_source_mode"] = "systemwire2_unified_store_fallback"
+        collector_sources["analysis_source_detail"] = str(exc)
+
+    balanced_alerts, balance_metadata = build_balanced_alert_subset(
+        live_alerts,
+        per_type=per_type,
+        exclude_ips=exclude_ips,
+    )
+    alerts = [a.to_dict() for a in balanced_alerts]
+    alerts.sort(key=lambda item: item.get("timestamp") or "")
+
+    groups = {"file": [], "account": [], "parasitic": [], "audit": []}
+    for item in alerts:
+        groups.setdefault(item.get("alert_type", "audit"), []).append(item)
+
+    split_paths = {
+        "file": paths["alerts_dir"] / "file_alerts.json",
+        "account": paths["alerts_dir"] / "account_alerts.json",
+        "parasitic": paths["alerts_dir"] / "parasitic_alerts.json",
+        "audit": paths["alerts_dir"] / "audit_alerts.json",
+    }
+    for name, path in split_paths.items():
+        dump_json(path, groups.get(name, []))
+
+    dump_json(paths["collected_alerts"], alerts)
+    dump_json(paths["step1"], alerts)
+    dump_json(paths["canonical_events"], [alert.to_canonical_event() for alert in balanced_alerts])
+    graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
+    summary = summarize(alerts, graph_data, pruned, split_paths, paths, "export-balanced-live")
+    summary["analysis_window_hours"] = hours
+    summary["analysis_window"] = {
+        "start_time": start_time.isoformat() if start_time else None,
+        "end_time": end_time.isoformat(),
+    }
+    summary["collector_sources"] = collector_sources
+    summary["analysis_source_mode"] = collector_sources.get("analysis_source_mode") or "mixed"
+    summary["analysis_include_alert_types"] = collector_sources.get("analysis_include_alert_types") or []
+    summary["balance"] = balance_metadata
+    dump_json(paths["summary"], summary)
+    print_summary(summary)
+    print(f"Balance: {balance_metadata}")
+    return summary
+
+
 def print_summary(summary):
     print("\n=== Honeypot Experiment Export Summary ===")
     print(f"Mode: {summary['mode']}")
@@ -936,11 +1376,46 @@ def main():
     live_parser.add_argument("--hours", type=int, default=24, help="time window for live collection")
     live_parser.add_argument("--run-dir", type=Path, default=None, help="optional isolated output directory instead of normal output paths")
 
+    balanced_parser = subparsers.add_parser("export-balanced-live", help="collect live logs and export a real-data balanced analysis subset")
+    balanced_parser.add_argument("--hours", type=int, default=24, help="time window for live collection")
+    balanced_parser.add_argument("--run-dir", type=Path, required=True, help="isolated output directory for the balanced subset")
+    balanced_parser.add_argument("--per-type", type=int, default=50, help="maximum real alerts to keep for each honeypot type")
+    balanced_parser.add_argument("--exclude-ip", action="append", default=[], help="source IP to exclude from the balanced subset; repeatable")
+
+    dqn_parser = subparsers.add_parser("train-dqn", help="train and evaluate a reproducible DQN pruning experiment")
+    dqn_parser.add_argument("--graph-path", type=Path, default=build_default_paths()["step2"], help="causal_graph.json used for DQN training/evaluation")
+    dqn_parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "experiments" / "runs" / "dqn_reproducible", help="DQN experiment output directory")
+    dqn_parser.add_argument("--num-graphs", type=int, default=80, help="number of deterministic augmented graphs")
+    dqn_parser.add_argument("--epochs", type=int, default=80, help="training epochs")
+    dqn_parser.add_argument("--patience", type=int, default=15, help="early-stop patience measured in validation checks")
+    dqn_parser.add_argument("--lr", type=float, default=1e-3, help="learning rate")
+    dqn_parser.add_argument("--seed", type=int, default=42, help="reproducibility seed")
+    dqn_parser.add_argument("--no-augment", action="store_true", help="disable graph augmentation")
+    dqn_parser.add_argument("--label-file", type=Path, default=None, help="optional human edge-label JSON for extra evaluation")
+    dqn_parser.add_argument("--install-checkpoint", action="store_true", help="copy the trained checkpoint to the default step3 checkpoint path")
+    dqn_parser.add_argument("--device", default="cpu", help="cpu, cuda, or auto")
+
     args = parser.parse_args()
     if args.mode == "simulate":
         simulate(args.run_dir, args.write_defaults)
-    else:
+    elif args.mode == "export-live":
         export_live(args.hours, args.run_dir)
+    elif args.mode == "export-balanced-live":
+        export_balanced_live(args.hours, args.run_dir, args.per_type, args.exclude_ip)
+    else:
+        train_dqn_experiment(
+            graph_path=args.graph_path,
+            output_dir=args.output_dir,
+            num_graphs=args.num_graphs,
+            epochs=args.epochs,
+            patience=args.patience,
+            lr=args.lr,
+            seed=args.seed,
+            augment=not args.no_augment,
+            label_file=args.label_file,
+            install_checkpoint=args.install_checkpoint,
+            device=args.device,
+        )
 
 
 if __name__ == "__main__":
