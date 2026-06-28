@@ -774,15 +774,26 @@ def build_balanced_alert_subset(live_alerts: List[UnifiedAlert], per_type: int, 
     selected.sort(key=lambda item: item.timestamp)
     available_counts = Counter(_alert_type_value(alert) for alert in filtered_alerts)
     raw_counts = Counter(_alert_type_value(alert) for alert in live_alerts)
+    raw_count_map = {alert_type: raw_counts.get(alert_type, 0) for alert_type in allowed_types}
+    available_count_map = {alert_type: available_counts.get(alert_type, 0) for alert_type in allowed_types}
+    selected_count_map = {alert_type: selected_counts.get(alert_type, 0) for alert_type in allowed_types}
     metadata = {
         "enabled": True,
         "method": "real_alert_downsample_with_cross_honeypot_priority",
         "per_type_limit": per_type,
         "exclude_ips": sorted(excluded_ips),
-        "raw_counts": dict(raw_counts),
-        "available_counts_after_exclusion": dict(available_counts),
-        "selected_counts": dict(selected_counts),
+        "raw_counts": raw_count_map,
+        "available_counts_after_exclusion": available_count_map,
+        "selected_counts": selected_count_map,
         "selected_total": len(selected),
+        "missing_types_after_exclusion": [
+            alert_type for alert_type, count in available_count_map.items() if count == 0
+        ],
+        "underfilled_types": [
+            alert_type for alert_type, count in selected_count_map.items()
+            if 0 < count < per_type
+        ],
+        "is_full_balanced": all(count >= per_type for count in selected_count_map.values()),
         "cross_honeypot_actor_groups": len(actor_groups),
         "note": "No alerts are fabricated; this subset only filters and samples real collected alerts.",
     }
@@ -897,12 +908,14 @@ def run_steps_from_unified(alerts, paths):
     if pruned is None:
         pruned = simulate_pruning(graph_data, paths, fallback_reason=fallback_reason)
     prompt_graph = build_prompt_graph(pruned)
+    thesis_graph = build_prompt_graph(graph_data)
+    thesis_graph["pruning_stats"] = pruned.get("pruning_stats", {})
     converter = GraphToTextConverter()
     prompts = {
         "intent_analysis": converter.convert_to_llm_prompt(prompt_graph, "intent_analysis"),
         "ttp_mapping": converter.convert_to_llm_prompt(prompt_graph, "ttp_mapping"),
         "report": converter.convert_to_llm_prompt(prompt_graph, "report"),
-        "thesis_analysis": converter.convert_to_thesis_analysis(prompt_graph),
+        "thesis_analysis": converter.convert_to_thesis_analysis(thesis_graph),
     }
     converter.save(prompts["intent_analysis"], str(paths["step4_intent"]))
     converter.save(prompts["ttp_mapping"], str(paths["step4_ttp"]))
@@ -913,13 +926,28 @@ def run_steps_from_unified(alerts, paths):
 
 def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=None) -> Dict[str, Any]:
     type_counts = Counter(a.get("alert_type") for a in alerts)
+    for alert_type in ("file", "account", "parasitic"):
+        type_counts.setdefault(alert_type, 0)
     action_counts = Counter(e.get("action") for e in graph_data.get("edges", []))
+    missing_alert_types = [
+        alert_type for alert_type in ("file", "account", "parasitic")
+        if type_counts.get(alert_type, 0) == 0
+    ]
     summary = {
         "mode": mode,
         "generated_at": datetime.now().isoformat(),
         "deployment_count": len(deployments or []),
         "alert_counts": dict(type_counts),
         "total_alerts": len(alerts),
+        "data_quality": {
+            "required_honeypot_types": ["file", "account", "parasitic"],
+            "missing_alert_types": missing_alert_types,
+            "has_all_honeypot_types": len(missing_alert_types) == 0,
+            "note": (
+                "Raw live analysis preserves the real deployment distribution. "
+                "Balanced analysis should be used for fair cross-honeypot evaluation when classes are missing or skewed."
+            ),
+        },
         "graph": {
             "nodes": len(graph_data.get("nodes", [])),
             "edges": len(graph_data.get("edges", [])),
@@ -1288,6 +1316,12 @@ def export_live(hours: int, run_dir: Path = None):
     summary["collector_sources"] = collector_sources
     summary["analysis_source_mode"] = collector_sources.get("analysis_source_mode") or "mixed"
     summary["analysis_include_alert_types"] = collector_sources.get("analysis_include_alert_types") or []
+    summary["experiment_semantics"] = {
+        "dataset_role": "raw_live_observation",
+        "validity": "Use for real-world deployment distribution, attack surface observation, and timeline replay.",
+        "limitation": "Class imbalance is preserved and may not be suitable for fair model comparison by itself.",
+        "fabricated_alerts": False,
+    }
     dump_json(paths["summary"], summary)
     print_summary(summary)
     return summary
@@ -1345,6 +1379,13 @@ def export_balanced_live(hours: int, run_dir: Path, per_type: int, exclude_ips=N
     summary["analysis_source_mode"] = collector_sources.get("analysis_source_mode") or "mixed"
     summary["analysis_include_alert_types"] = collector_sources.get("analysis_include_alert_types") or []
     summary["balance"] = balance_metadata
+    summary["experiment_semantics"] = {
+        "dataset_role": "balanced_real_alert_subset",
+        "validity": "Use for fair cross-honeypot comparison, DQN/pruning ablation, and balanced downstream analysis.",
+        "limitation": "This subset does not represent the natural prevalence of attacks in the public deployment.",
+        "fabricated_alerts": False,
+        "sampling_note": "Only real collected alerts are filtered and sampled; no synthetic alerts are inserted.",
+    }
     dump_json(paths["summary"], summary)
     print_summary(summary)
     print(f"Balance: {balance_metadata}")

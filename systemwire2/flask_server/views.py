@@ -108,6 +108,22 @@ def _resolve_analysis_run_dir(run_dir_value):
     return candidate
 
 
+def _default_balanced_analysis_run_dir():
+    repo_root = _analysis_repo_root()
+    stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
+    return repo_root / "experiments" / "runs" / f"ui_balanced_live_{stamp}"
+
+
+def _analysis_run_dir_text(run_dir_path):
+    if not run_dir_path:
+        return ""
+    repo_root = _analysis_repo_root()
+    try:
+        return str(Path(run_dir_path).resolve().relative_to(repo_root)).replace("\\", "/")
+    except ValueError:
+        return str(run_dir_path)
+
+
 def _analysis_paths(run_dir_value=None):
     _analysis_repo_root()
     from deployment.export_alerts_to_step1 import build_default_paths, build_run_paths, rel
@@ -134,6 +150,77 @@ def _read_analysis_text(path, default=""):
     if not target.exists():
         return default
     return target.read_text(encoding="utf-8")
+
+
+def _compact_analysis_value(value):
+    if isinstance(value, dict):
+        value_type = str(value.get("type") or "").strip()
+        label = str(value.get("label") or value.get("name") or value.get("id") or "").strip()
+        value_id = str(value.get("id") or "").strip()
+        if value_type and label:
+            return f"{value_type}:{label}"
+        if label:
+            return label
+        if value_id:
+            return value_id
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (list, tuple)):
+        return " / ".join(_compact_analysis_value(item) for item in value if item is not None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _normalize_analysis_triple_rows(triples):
+    rows = []
+    for idx, triple in enumerate(triples or [], 1):
+        if isinstance(triple, (list, tuple)) and len(triple) >= 3:
+            subject = triple[0]
+            predicate = triple[1]
+            obj = triple[2]
+            row = {
+                "id": idx,
+                "subject": _compact_analysis_value(subject),
+                "predicate": _compact_analysis_value(predicate),
+                "object": _compact_analysis_value(obj),
+                "subject_type": subject.get("type") if isinstance(subject, dict) else "",
+                "object_type": obj.get("type") if isinstance(obj, dict) else "",
+                "stage": "",
+                "confidence": "",
+                "timestamp": "",
+            }
+        elif isinstance(triple, dict):
+            subject = triple.get("subject") or triple.get("source") or ""
+            obj = triple.get("object") or triple.get("target") or ""
+            row = {
+                "id": idx,
+                "triple_id": triple.get("triple_id") or triple.get("id") or idx,
+                "event_id": triple.get("event_id") or "",
+                "subject": _compact_analysis_value(subject),
+                "predicate": _compact_analysis_value(
+                    triple.get("predicate") or triple.get("relation") or triple.get("action") or ""
+                ),
+                "object": _compact_analysis_value(obj),
+                "subject_type": subject.get("type") if isinstance(subject, dict) else triple.get("subject_type", ""),
+                "object_type": obj.get("type") if isinstance(obj, dict) else triple.get("object_type", ""),
+                "stage": triple.get("stage") or "",
+                "confidence": triple.get("confidence", ""),
+                "timestamp": triple.get("timestamp") or "",
+            }
+        else:
+            row = {
+                "id": idx,
+                "subject": _compact_analysis_value(triple),
+                "predicate": "",
+                "object": "",
+                "subject_type": "",
+                "object_type": "",
+                "stage": "",
+                "confidence": "",
+                "timestamp": "",
+            }
+        rows.append(row)
+    return rows
 
 
 def _analysis_availability(paths):
@@ -2279,10 +2366,10 @@ def api_analysis_live():
     if hours < 0:
         return jsonify({"code": 1, "message": "hours must be >= 0", "data": {}}), 400
 
-    if run_dir:
-        run_dir_path = Path(str(run_dir).strip())
-    else:
-        run_dir_path = None
+    try:
+        run_dir_path = _resolve_analysis_run_dir(run_dir) if run_dir else None
+    except ValueError as e:
+        return jsonify({"code": 1, "message": str(e), "data": {}}), 400
 
     try:
         repo_root = _repo_root_path()
@@ -2298,6 +2385,73 @@ def api_analysis_live():
             "code": 1,
             "message": _analysis_error_message("运行实时分析失败", e),
             "data": {"hours": hours, "run_dir": str(run_dir_path) if run_dir_path else ""},
+        }), 500
+
+
+@api.route("/api/analysis/live/balanced", methods=["POST"])
+def api_analysis_live_balanced():
+    payload = request.get_json(silent=True) or {}
+    hours = payload.get("hours", 24)
+    per_type = payload.get("per_type", 30)
+    run_dir = payload.get("run_dir")
+    exclude_ips = payload.get("exclude_ips", payload.get("exclude_ip", []))
+
+    try:
+        hours = int(hours)
+    except (TypeError, ValueError):
+        return jsonify({"code": 1, "message": "hours must be an integer", "data": {}}), 400
+
+    if hours < 0:
+        return jsonify({"code": 1, "message": "hours must be >= 0", "data": {}}), 400
+
+    try:
+        per_type = int(per_type)
+    except (TypeError, ValueError):
+        return jsonify({"code": 1, "message": "per_type must be an integer", "data": {}}), 400
+
+    if per_type <= 0:
+        return jsonify({"code": 1, "message": "per_type must be > 0", "data": {}}), 400
+    if per_type > 1000:
+        return jsonify({"code": 1, "message": "per_type must be <= 1000", "data": {}}), 400
+
+    if isinstance(exclude_ips, str):
+        exclude_ips = [item.strip() for item in exclude_ips.split(",") if item.strip()]
+    elif isinstance(exclude_ips, (list, tuple, set)):
+        exclude_ips = [str(item).strip() for item in exclude_ips if str(item).strip()]
+    else:
+        exclude_ips = []
+
+    try:
+        run_dir_path = _resolve_analysis_run_dir(run_dir) if run_dir else _default_balanced_analysis_run_dir()
+    except ValueError as e:
+        return jsonify({"code": 1, "message": str(e), "data": {}}), 400
+
+    try:
+        repo_root = _repo_root_path()
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from deployment.export_alerts_to_step1 import export_balanced_live as export_balanced_live_analysis
+
+        summary = export_balanced_live_analysis(
+            hours=hours,
+            run_dir=run_dir_path,
+            per_type=per_type,
+            exclude_ips=exclude_ips,
+        )
+        run_dir_text = _analysis_run_dir_text(run_dir_path)
+        summary["run_dir"] = run_dir_text
+        summary["analysis_result_url"] = url_for("api.manage_analysis_live", run_dir=run_dir_text)
+        return jsonify({"code": 0, "message": "success", "data": summary})
+    except Exception as e:
+        current_app.logger.exception("Run balanced live analysis failed")
+        return jsonify({
+            "code": 1,
+            "message": _analysis_error_message("运行平衡分析失败", e),
+            "data": {
+                "hours": hours,
+                "per_type": per_type,
+                "run_dir": _analysis_run_dir_text(run_dir_path),
+            },
         }), 500
 
 
@@ -2363,7 +2517,7 @@ def api_analysis_live_triples():
         triple_path = Path(paths["step2_triples"])
         if not triple_path.exists():
             return _analysis_not_ready_response(paths, rel_paths, "尚未检测到标准三元组输出，请先运行实时分析。")
-        rows = _normalize_triple_rows(_read_analysis_json(triple_path, default=[]))
+        rows = _normalize_analysis_triple_rows(_read_analysis_json(triple_path, default=[]))
         total = len(rows)
         rows = rows[:limit]
         return jsonify({
@@ -2413,24 +2567,33 @@ def api_analysis_live_text():
     run_dir = request.args.get("run_dir", "", type=str).strip()
     try:
         paths, rel_paths = _analysis_paths(run_dir)
-        files = {
-            "intent_analysis": paths["step4_intent"],
-            "ttp_mapping": paths["step4_ttp"],
-            "report": paths["step4_report"],
+        thesis_text = _read_analysis_text(paths["step4_thesis"], default="")
+        prompt_files = {
+            "intent_prompt": paths["step4_intent"],
+            "ttp_prompt": paths["step4_ttp"],
+            "report_prompt": paths["step4_report"],
         }
-        payload = {}
-        available = False
-        for key, path in files.items():
-            text = _read_analysis_text(path, default="")
-            payload[key] = text
-            available = available or bool(text.strip())
+        prompt_payload = {}
+        for key, path in prompt_files.items():
+            prompt_payload[key] = _read_analysis_text(path, default="")
+
+        payload = {
+            "thesis_analysis": thesis_text,
+            "intent_analysis": thesis_text or prompt_payload.get("intent_prompt", ""),
+            "ttp_mapping": thesis_text or prompt_payload.get("ttp_prompt", ""),
+            "report": thesis_text or prompt_payload.get("report_prompt", ""),
+            "debug_prompts": prompt_payload,
+        }
+        available = bool(thesis_text.strip()) or any(bool(text.strip()) for text in prompt_payload.values())
         if not available:
             return _analysis_not_ready_response(paths, rel_paths, "尚未检测到图转文本结果，请先运行实时分析。")
         payload["paths"] = {
             "step4_intent": rel_paths.get("step4_intent", ""),
             "step4_ttp": rel_paths.get("step4_ttp", ""),
             "step4_report": rel_paths.get("step4_report", ""),
+            "step4_thesis": rel_paths.get("step4_thesis", ""),
         }
+        payload["display_mode"] = "thesis_analysis" if thesis_text.strip() else "debug_prompt_fallback"
         return jsonify({"code": 0, "message": "success", "data": payload})
     except Exception as e:
         current_app.logger.exception("Load analysis texts failed")

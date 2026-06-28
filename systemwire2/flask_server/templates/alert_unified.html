@@ -89,6 +89,7 @@
             <button class="soc-btn secondary" onclick="pullAccountAlerts()"><i class="fas fa-key"></i> 拉取账户告警</button>
             <button class="soc-btn secondary" onclick="pullParasiticAlerts()"><i class="fas fa-code"></i> 拉取寄生告警</button>
             <button class="soc-btn secondary" onclick="runLiveAnalysis()"><i class="fas fa-project-diagram"></i> 运行后续分析</button>
+            <button class="soc-btn balanced" onclick="runBalancedAnalysis()"><i class="fas fa-scale-balanced"></i> 运行平衡分析</button>
             <button class="soc-btn ghost" onclick="loadAlerts()"><i class="fas fa-rotate"></i> 刷新</button>
             <button class="soc-btn primary" onclick="exportAlerts()"><i class="fas fa-download"></i> 导出 JSON</button>
         </div>
@@ -299,6 +300,7 @@ body,
 .soc-btn:hover, .soc-icon-btn:hover { transform: translateY(-1px); border-color: rgba(125,220,139,.55); background: rgba(125,220,139,.08); }
 .soc-btn.primary { background: linear-gradient(135deg, rgba(125,220,139,.95), rgba(91,214,214,.85)); color: #031210; border-color: transparent; }
 .soc-btn.secondary { border-color: rgba(107,168,255,.34); color: #dbeafe; }
+.soc-btn.balanced { border-color: rgba(245,180,91,.42); color: #ffe7bd; background: rgba(245,180,91,.07); }
 .soc-btn.ghost { color: var(--soc-muted); }
 .soc-icon-btn:disabled { opacity: .38; cursor: not-allowed; transform: none; }
 .intel-strip { border-radius: 22px; padding: 8px 10px; margin-bottom: 10px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -312,6 +314,7 @@ body,
 .dedupe-pill { white-space: nowrap; border-radius: 999px; border: 1px solid rgba(125,220,139,.28); color: var(--soc-green); background: rgba(125,220,139,.08); padding: 8px 12px; font: 800 12px/1 'Space Grotesk', sans-serif; }
 .status-banner { margin: 14px 22px 0; border-radius: 16px; padding: 12px 14px; border: 1px solid rgba(91,214,214,.28); background: rgba(91,214,214,.08); color: #c7ffff; line-height: 1.6; }
 .status-banner.ok { border-color: rgba(125,220,139,.32); background: rgba(125,220,139,.08); color: #d9ffe0; }
+.status-banner.warn { border-color: rgba(245,180,91,.38); background: rgba(245,180,91,.09); color: #ffe7bd; }
 .status-banner.error { border-color: rgba(255,107,95,.34); background: rgba(255,107,95,.08); color: #ffd7d2; }
 .soc-table-wrap { overflow-x: auto; overflow-y: visible; max-height: none; min-height: clamp(320px, 56vh, 640px); max-width: 100%; min-width: 0; padding-bottom: 18px; scrollbar-gutter: stable; }
 .soc-table { width: 100%; min-width: 1320px; border-collapse: collapse; }
@@ -443,6 +446,7 @@ const TYPE_META = {
     parasitic: { name: '寄生蜜点', icon: 'fa-fingerprint', severity: 'medium', severityText: 'Medium' }
 };
 
+const HONEYPOT_TYPES = ['file', 'account', 'parasitic'];
 const PAGE_SIZE = 18;
 let allAlerts = [];
 let visibleAlerts = [];
@@ -1068,13 +1072,33 @@ function extractPullCount(result) {
     return Number.isFinite(pulled) ? pulled : 0;
 }
 
+function countAlertsByType(alerts = allAlerts) {
+    return HONEYPOT_TYPES.reduce((acc, type) => {
+        acc[type] = alerts.filter((item) => item.alert_type === type).length;
+        return acc;
+    }, {});
+}
+
+function formatTypeCounts(counts) {
+    return HONEYPOT_TYPES
+        .map((type) => `${TYPE_META[type].name.replace('蜜点', '')} ${Number(counts && counts[type] || 0)}`)
+        .join('、');
+}
+
+function buildMissingTypeNotice(counts, scopeText = '当前窗口') {
+    const missing = HONEYPOT_TYPES.filter((type) => Number(counts && counts[type] || 0) === 0);
+    if (!missing.length) {
+        return '';
+    }
+    const missingText = missing
+        .map((type) => `${type}=0（${TYPE_META[type].name}）`)
+        .join('、');
+    return `${scopeText} ${missingText}，原始后续分析将不会包含这些类别；建议切换全部时间或运行平衡分析。`;
+}
+
 function buildCurrentWindowText() {
-    const counts = {
-        file: allAlerts.filter((item) => item.alert_type === 'file').length,
-        account: allAlerts.filter((item) => item.alert_type === 'account').length,
-        parasitic: allAlerts.filter((item) => item.alert_type === 'parasitic').length
-    };
-    return `当前筛选窗口：文件 ${counts.file}、账户 ${counts.account}、寄生 ${counts.parasitic}，共 ${allAlerts.length} 条。`;
+    const counts = countAlertsByType();
+    return `当前筛选窗口：${formatTypeCounts(counts)}，共 ${allAlerts.length} 条。`;
 }
 
 function buildPullStatusText(name, result) {
@@ -1150,8 +1174,19 @@ async function syncAllAlerts() {
 
 async function runLiveAnalysis() {
     const hours = Number(document.getElementById('timeRange').value || 24);
-    showStatus(`正在基于当前时间窗口运行后续分析...`);
     hideError();
+    const counts = countAlertsByType();
+    const missingNotice = buildMissingTypeNotice(counts);
+    if (missingNotice) {
+        const shouldContinue = window.confirm(
+            `${missingNotice}\n\n这仍然可以作为真实原始态势分析，但不适合作为三类蜜点公平对比实验。是否继续运行原始后续分析？`
+        );
+        if (!shouldContinue) {
+            showStatus(`${missingNotice} 已取消原始后续分析。`, 'warn');
+            return;
+        }
+    }
+    showStatus(`正在基于当前时间窗口运行原始后续分析...${missingNotice ? ` ${missingNotice}` : ''}`, missingNotice ? 'warn' : '');
 
     try {
         const response = await fetch('/api/analysis/live', {
@@ -1168,10 +1203,13 @@ async function runLiveAnalysis() {
         const graph = data.graph || {};
         const pruning = data.pruning_stats || {};
         const outputs = data.outputs || {};
+        const resultCounts = data.alert_counts || {};
+        const resultNotice = buildMissingTypeNotice(resultCounts, '分析结果');
         const windowText = hours === 0 ? '全部时间' : `最近 ${hours} 小时`;
         const lines = [
             `后续分析完成，分析窗口：${windowText}`,
             `处理告警：${data.total_alerts || 0} 条`,
+            `类别分布：${formatTypeCounts(resultCounts)}`,
             `图节点/边：${graph.nodes || 0} / ${graph.edges || 0}`,
             `标准三元组：${graph.triples || 0} 条`,
             `裁剪模式：${pruning.mode || '-'}`,
@@ -1180,10 +1218,67 @@ async function runLiveAnalysis() {
             `事件序列文件：${outputs.step2_event_sequence || '-'}`,
             `文本结果：${outputs.step4_intent_analysis || '-'}`
         ];
-        showStatus(lines.join(' | '), 'ok');
+        if (resultNotice) {
+            lines.push(resultNotice);
+        }
+        showStatus(lines.join(' | '), resultNotice ? 'warn' : 'ok');
         setSummary(`后续分析已完成，当前窗口为 ${windowText}。`);
     } catch (error) {
         showStatus(`后续分析运行失败：${error.message}`, 'error');
+    }
+}
+
+async function runBalancedAnalysis() {
+    const hours = Number(document.getElementById('timeRange').value || 24);
+    const perType = 30;
+    const windowText = hours === 0 ? '全部时间' : `最近 ${hours} 小时`;
+    showStatus(`正在运行平衡分析：窗口 ${windowText}，每类最多抽取 ${perType} 条真实告警；该流程不造数、不覆盖原始分析结果。`, 'warn');
+    hideError();
+
+    try {
+        const response = await fetch('/api/analysis/live/balanced', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hours, per_type: perType })
+        });
+        const result = await response.json();
+        if (!response.ok || result.code !== 0) {
+            throw new Error(result.message || `HTTP ${response.status}`);
+        }
+
+        const data = result.data || {};
+        const graph = data.graph || {};
+        const outputs = data.outputs || {};
+        const balance = data.balance || {};
+        const available = balance.available_counts_after_exclusion || {};
+        const selected = balance.selected_counts || data.alert_counts || {};
+        const missing = Array.isArray(balance.missing_types_after_exclusion) ? balance.missing_types_after_exclusion : [];
+        const underfilled = Array.isArray(balance.underfilled_types) ? balance.underfilled_types : [];
+        const resultUrl = data.analysis_result_url || '';
+        const lines = [
+            `平衡分析完成，分析窗口：${windowText}`,
+            `真实可用：${formatTypeCounts(available)}`,
+            `实际抽样：${formatTypeCounts(selected)}`,
+            `处理告警：${data.total_alerts || 0} 条`,
+            `图节点/边：${graph.nodes || 0} / ${graph.edges || 0}`,
+            `标准三元组：${graph.triples || 0} 条`,
+            `隔离目录：${data.run_dir || '-'}`,
+            `文本结果：${outputs.step4_intent_analysis || '-'}`,
+            '实验语义：仅从真实告警中分层抽样，不写入伪造告警。'
+        ];
+        if (missing.length) {
+            lines.push(`仍缺少真实类别：${missing.join(', ')}；需要延长窗口或补充真实触发。`);
+        }
+        if (underfilled.length) {
+            lines.push(`未达到每类 ${perType} 条的类别：${underfilled.join(', ')}；按真实可用数量保留。`);
+        }
+        if (resultUrl) {
+            lines.push(`结果页：${resultUrl}`);
+        }
+        showStatus(lines.join(' | '), missing.length ? 'warn' : 'ok');
+        setSummary(`平衡分析已完成，结果保存在 ${data.run_dir || '独立运行目录'}。`);
+    } catch (error) {
+        showStatus(`平衡分析运行失败：${error.message}`, 'error');
     }
 }
 
