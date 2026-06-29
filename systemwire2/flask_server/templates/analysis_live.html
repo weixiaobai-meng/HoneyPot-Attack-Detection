@@ -27,21 +27,6 @@
             <button class="analysis-btn secondary" onclick="runBalancedAnalysis()">
                 <i class="fas fa-scale-balanced"></i> 运行平衡分析
             </button>
-            <label>
-                <span>场景开始</span>
-                <input id="scenarioStart" class="analysis-input" type="datetime-local">
-            </label>
-            <label>
-                <span>场景结束</span>
-                <input id="scenarioEnd" class="analysis-input" type="datetime-local">
-            </label>
-            <label>
-                <span>核心 IP / 指纹</span>
-                <input id="scenarioChainKey" class="analysis-input" placeholder="IP 或 Canvas 指纹">
-            </label>
-            <button class="analysis-btn secondary" onclick="runScenarioAnalysis()">
-                <i class="fas fa-diagram-project"></i> 运行受控实验分析
-            </button>
             <button class="analysis-btn secondary" onclick="generateLlmReport()">
                 <i class="fas fa-brain"></i> 生成 LLM 报告
             </button>
@@ -51,6 +36,29 @@
             <a class="analysis-btn secondary" href="{{ url_for('api.manage_alert_unified') }}">
                 <i class="fas fa-bell"></i> 返回告警中心
             </a>
+            <details class="scenario-config">
+                <summary>
+                    <span>受控实验配置</span>
+                    <small>限定真实时间窗与核心主体，用于复现跨蜜点链路</small>
+                </summary>
+                <div class="scenario-fields">
+                    <label>
+                        <span>场景开始</span>
+                        <input id="scenarioStart" class="analysis-input" type="datetime-local">
+                    </label>
+                    <label>
+                        <span>场景结束</span>
+                        <input id="scenarioEnd" class="analysis-input" type="datetime-local">
+                    </label>
+                    <label>
+                        <span>核心主体标识</span>
+                        <input id="scenarioChainKey" class="analysis-input" placeholder="攻击 IP 或 Canvas 指纹">
+                    </label>
+                    <button class="analysis-btn secondary" onclick="runScenarioAnalysis()">
+                        <i class="fas fa-diagram-project"></i> 运行受控实验分析
+                    </button>
+                </div>
+            </details>
         </div>
     </section>
 
@@ -198,6 +206,12 @@
                         <h3>Pruned Graph：裁剪后证据链</h3>
                         <div id="prunedGraphPanel" class="paper-graph-panel">暂无裁剪图输出。</div>
                     </article>
+                </div>
+                <div class="paper-graph-legend" aria-label="裁剪图谱图例">
+                    <span><i class="legend-node noise"></i> 灰色节点/边：背景噪声与未保留关系</span>
+                    <span><i class="legend-line core"></i> 绿色实线：裁剪后保留的核心因果边</span>
+                    <span><i class="legend-line restored"></i> 橙色虚线：证据保护恢复边</span>
+                    <span><i class="legend-line identity"></i> 青色虚线：同源身份/会话关联</span>
                 </div>
                 <div class="graph-card">
                     <h3>DQN 裁剪与受控链路评价</h3>
@@ -386,6 +400,42 @@ body,
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     align-content: start;
+}
+.scenario-config {
+    grid-column: 1 / -1;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 12px;
+    background: rgba(255,255,255,.025);
+    padding: 0;
+}
+.scenario-config summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 40px;
+    padding: 10px 12px;
+    cursor: pointer;
+    list-style: none;
+}
+.scenario-config summary::-webkit-details-marker { display: none; }
+.scenario-config summary span {
+    color: #dcebdc;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: none;
+}
+.scenario-config summary small {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+    text-align: right;
+}
+.scenario-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 0 12px 12px;
 }
 .hero-actions label,
 .table-toolbar label {
@@ -693,6 +743,10 @@ body,
     stroke: rgba(148, 163, 184, 0.18);
     stroke-width: 1;
 }
+.paper-graph-svg .background-node {
+    fill: rgba(148, 163, 184, 0.24);
+    stroke: rgba(238, 247, 238, 0.12);
+}
 .paper-graph-svg .core-edge {
     stroke: rgba(125, 220, 139, 0.74);
     stroke-width: 2.4;
@@ -702,9 +756,26 @@ body,
     stroke-width: 2.4;
     stroke-dasharray: 6 4;
 }
+.paper-graph-svg .identity-edge {
+    stroke: rgba(91, 214, 214, 0.78);
+    stroke-width: 2.2;
+    stroke-dasharray: 5 5;
+}
 .paper-graph-svg .node-dot {
     fill: rgba(91, 214, 214, 0.52);
     stroke: rgba(238, 247, 238, 0.22);
+}
+.paper-graph-svg .core-node {
+    fill: rgba(12, 28, 26, 0.98);
+    stroke: rgba(125, 220, 139, 0.82);
+    stroke-width: 2.2;
+}
+.paper-graph-svg .core-node.account { stroke: rgba(245, 180, 91, 0.86); }
+.paper-graph-svg .core-node.file { stroke: rgba(125, 220, 139, 0.86); }
+.paper-graph-svg .core-node.parasitic { stroke: rgba(91, 214, 214, 0.86); }
+.paper-graph-svg .node-label-bg {
+    fill: rgba(3, 10, 9, 0.84);
+    stroke: rgba(148, 163, 184, 0.12);
 }
 .paper-graph-svg .timeline-node {
     fill: rgba(12, 28, 26, 0.98);
@@ -730,11 +801,62 @@ body,
     stroke: rgba(91, 214, 214, 0.22);
     stroke-dasharray: 7 5;
 }
+.paper-graph-svg .warning-band {
+    fill: rgba(245, 180, 91, 0.08);
+    stroke: rgba(245, 180, 91, 0.26);
+}
+.paper-graph-warning {
+    border: 1px solid rgba(245, 180, 91, 0.28);
+    background: rgba(245, 180, 91, 0.08);
+    color: #ffe4b6;
+    border-radius: 12px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    line-height: 1.55;
+    font-size: 13px;
+}
 .paper-panel-note {
     margin: 8px 0 0;
     color: var(--muted);
     font-size: 12px;
     line-height: 1.55;
+}
+.paper-graph-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -2px 0 12px;
+}
+.paper-graph-legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 999px;
+    background: rgba(255,255,255,.035);
+    color: var(--muted);
+    padding: 6px 10px;
+    font-size: 12px;
+    line-height: 1;
+}
+.legend-node {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.35);
+}
+.legend-line {
+    width: 26px;
+    height: 0;
+    border-top: 2px solid rgba(125, 220, 139, 0.78);
+}
+.legend-line.restored {
+    border-top-color: rgba(245, 180, 91, 0.86);
+    border-top-style: dashed;
+}
+.legend-line.identity {
+    border-top-color: rgba(91, 214, 214, 0.86);
+    border-top-style: dashed;
 }
 .evidence-table {
     min-width: 1180px;
@@ -921,6 +1043,9 @@ body,
     .hero-actions {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+    .scenario-fields {
+        grid-template-columns: 1fr;
+    }
     .metric-grid {
         grid-template-columns: repeat(2, 1fr);
     }
@@ -934,6 +1059,13 @@ body,
     }
     .hero-actions {
         grid-template-columns: 1fr;
+    }
+    .scenario-config summary {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .scenario-config summary small {
+        text-align: left;
     }
 }
 </style>
@@ -1252,12 +1384,53 @@ function eventTypeClass(edge) {
     return 'unknown';
 }
 
+const CORE_RELATION_TYPES = new Set([
+    'web_to_account',
+    'account_to_file',
+    'web_to_file',
+    'stage_transition',
+    'controlled_chain_member',
+    'same_attack_path',
+    'account_to_web_followup',
+    'file_to_account_followup',
+    'file_to_web_followup',
+]);
+const IDENTITY_RELATION_TYPES = new Set(['same_fingerprint', 'same_session']);
+const CORE_ACTION_TYPES = new Set(['url_access', 'ssh_login', 'vpn_connect', 'file_access', 'read', 'openat']);
+
 function relationEdges(graph) {
     return graphEdges(graph).filter(edge => edge.edge_kind === 'correlation');
 }
 
 function eventEdges(graph) {
     return graphEdges(graph).filter(edge => edge.edge_kind === 'event');
+}
+
+function eventNodeId(eventId) {
+    const id = String(eventId || '').replace(/^event:/, '').trim();
+    return id ? `event:${id}` : '';
+}
+
+function eventIdFromNodeRef(ref) {
+    const value = String(ref || '');
+    return value.startsWith('event:') ? value.slice(6) : '';
+}
+
+function sequenceEventId(item) {
+    return String(item.event_id || item.id || (item.canonical_event || {}).event_id || '').trim();
+}
+
+function sequenceEventType(item) {
+    const event = item.canonical_event || {};
+    const direct = compactValue(event.event_type || event.alert_type || item.alert_type || item.event_type || '').toLowerCase();
+    if (['file', 'account', 'parasitic', 'audit'].includes(direct)) {
+        return direct;
+    }
+    const action = compactValue(item.action || event.action || '').toLowerCase();
+    if (action.includes('ssh') || action.includes('vpn')) return 'account';
+    if (action.includes('file') || action === 'read' || action === 'openat') return 'file';
+    if (action.includes('url') || action.includes('web')) return 'parasitic';
+    return 'unknown';
 }
 
 function eventSequenceFromGraph(graph) {
@@ -1280,6 +1453,36 @@ function eventSequenceFromGraph(graph) {
     })).sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
 }
 
+function eventMapFromGraphs(...graphs) {
+    const map = new Map();
+    graphs.forEach(graph => {
+        eventSequenceFromGraph(graph).forEach(item => {
+            const id = sequenceEventId(item);
+            if (id && !map.has(id)) {
+                map.set(id, item);
+            }
+        });
+        graphEdges(graph).forEach(edge => {
+            if (edge.event_id && !map.has(String(edge.event_id))) {
+                map.set(String(edge.event_id), {
+                    event_id: edge.event_id,
+                    timestamp: edge.timestamp,
+                    action: edge.action,
+                    stage: edge.stage,
+                    source_id: edge.source,
+                    object_id: edge.target,
+                    canonical_event: {
+                        event_type: eventTypeClass(edge),
+                        source: { label: edge.subject_label, id: edge.source },
+                        object: { label: edge.object_label, id: edge.target },
+                    },
+                });
+            }
+        });
+    });
+    return map;
+}
+
 function relationBetweenEvents(graph, previousId, currentId) {
     const relation = relationEdges(graph).find(edge => {
         const raw = edge.raw_data || {};
@@ -1291,105 +1494,356 @@ function relationBetweenEvents(graph, previousId, currentId) {
     return relation ? relation.relation_type : '';
 }
 
-function renderRawGraphSvg(graph) {
-    const nodes = graphNodes(graph);
-    const edges = graphEdges(graph);
-    const nodeCount = nodes.length;
-    const edgeCount = edges.length;
-    const width = 720;
-    const height = 300;
-    const centerX = width / 2;
-    const centerY = 160;
-    const sampleNodes = Math.max(8, Math.min(48, nodeCount || 8));
-    const sampleEdges = Math.min(120, edgeCount || 0);
-    const positions = [];
-    for (let i = 0; i < sampleNodes; i += 1) {
-        const ring = i % 3;
-        const radius = 58 + ring * 44 + ((i * 17) % 18);
-        const angle = (i * 137.5 * Math.PI) / 180;
-        positions.push({
-            x: centerX + Math.cos(angle) * radius,
-            y: centerY + Math.sin(angle) * radius * 0.72,
-        });
-    }
-    const lines = [];
-    for (let i = 0; i < sampleEdges; i += 1) {
-        const a = positions[i % sampleNodes];
-        const b = positions[(i * 7 + 5) % sampleNodes];
-        lines.push(`<line class="noise-edge" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"></line>`);
-    }
-    const dots = positions.map((p, idx) => `<circle class="node-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${idx % 5 === 0 ? 5 : 3.5}"></circle>`).join('');
-    return `
-        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪前原始依赖图">
-            <text class="svg-title" x="18" y="28">Raw Graph</text>
-            <text class="svg-subtitle" x="18" y="50">节点 ${escapeHtml(nodeCount)} / 边 ${escapeHtml(edgeCount)} / 含噪声关联</text>
-            <g>${lines.join('')}${dots}</g>
-        </svg>
-        <p class="paper-panel-note">原始图保留全部事件边与关联边，适合展示高噪声背景下的依赖爆炸问题。</p>
-    `;
+function graphNodeId(node) {
+    return String(node.id || node.node_id || node.label || '').trim();
 }
 
-function renderTimelineSvg(graph, title = 'Pruned Graph') {
-    const sequence = eventSequenceFromGraph(graph).slice(0, 7);
-    const edges = graphEdges(graph);
-    if (!sequence.length) {
-        return '<div class="empty-row">暂无可还原的时序事件。</div>';
-    }
-    const width = Math.max(760, sequence.length * 170);
-    const height = 320;
-    const startX = 72;
-    const stepX = sequence.length > 1 ? (width - 144) / (sequence.length - 1) : 0;
-    const nodeY = 172;
-    const lineParts = [];
-    const nodeParts = [];
-    const intentStart = 42;
-    const intentWidth = Math.max(220, width - 84);
+function graphNodeLabel(node) {
+    return compactValue(node.label || node.name || node.id || node.node_id || '-');
+}
 
-    sequence.forEach((item, index) => {
-        const event = item.canonical_event || {};
-        const eventType = event.event_type || event.alert_type || 'unknown';
-        const x = startX + index * stepX;
-        const action = actionLabel(item.action || event.action || '-');
-        const target = shortText((event.object || {}).label || (event.object || {}).path || item.object_id || '-', 24);
-        const time = shortText(String(item.timestamp || '').replace('T', ' '), 19);
-        nodeParts.push(`
-            <g transform="translate(${x - 58}, ${nodeY - 44})">
-                <rect class="timeline-node ${escapeHtml(eventType)}" width="116" height="88" rx="10"></rect>
-                <text class="svg-title" x="12" y="24">${escapeHtml(action)}</text>
-                <text class="svg-label" x="12" y="45">${escapeHtml(typePillText(eventType))}</text>
-                <text class="svg-label" x="12" y="63">${escapeHtml(target)}</text>
-                <text class="svg-label" x="12" y="80">${escapeHtml(time)}</text>
-            </g>
-        `);
-        if (index > 0) {
-            const previous = sequence[index - 1];
-            const relation = relationBetweenEvents(graph, previous.event_id, item.event_id) || 'stage_transition';
-            const x1 = startX + (index - 1) * stepX + 58;
-            const x2 = x - 58;
-            const labelX = (x1 + x2) / 2;
-            lineParts.push(`
-                <line class="${relation.includes('guard') ? 'restored-edge' : 'core-edge'}" x1="${x1}" y1="${nodeY}" x2="${x2}" y2="${nodeY}" marker-end="url(#paper-arrow)"></line>
-                <text class="svg-label" x="${labelX}" y="${nodeY - 18}" text-anchor="middle">${escapeHtml(relationLabel(relation))}</text>
-            `);
+function stableHash(value) {
+    const text = String(value || '');
+    let hash = 0;
+    for (let i = 0; i < text.length; i += 1) {
+        hash = ((hash << 5) - hash + text.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash);
+}
+
+function buildBackgroundLayout(graph, width, height, limit = 56) {
+    const nodeMap = new Map();
+    graphNodes(graph).forEach(node => {
+        const id = graphNodeId(node);
+        if (id) {
+            nodeMap.set(id, node);
+        }
+    });
+    const degree = new Map();
+    graphEdges(graph).forEach(edge => {
+        [edge.source, edge.target].forEach(id => {
+            const key = String(id || '').trim();
+            if (!key) return;
+            degree.set(key, (degree.get(key) || 0) + 1);
+            if (!nodeMap.has(key)) {
+                nodeMap.set(key, { id: key, label: key });
+            }
+        });
+    });
+    const selected = Array.from(nodeMap.values())
+        .sort((a, b) => (degree.get(graphNodeId(b)) || 0) - (degree.get(graphNodeId(a)) || 0) || graphNodeId(a).localeCompare(graphNodeId(b)))
+        .slice(0, limit);
+    const centerX = width / 2;
+    const centerY = height / 2 + 16;
+    const positions = new Map();
+    selected.forEach((node, index) => {
+        const id = graphNodeId(node);
+        const ring = index % 4;
+        const radius = 54 + ring * 38 + (stableHash(id) % 16);
+        const angle = ((index * 137.5 + stableHash(id) % 31) * Math.PI) / 180;
+        positions.set(id, {
+            node,
+            x: centerX + Math.cos(angle) * radius,
+            y: centerY + Math.sin(angle) * radius * 0.68,
+            degree: degree.get(id) || 0,
+        });
+    });
+    return { positions, degree };
+}
+
+function renderBackgroundGraphParts(graph, layout, edgeLimit = 120, withLabels = false) {
+    const positions = layout.positions;
+    const lines = [];
+    for (const edge of graphEdges(graph)) {
+        const source = positions.get(String(edge.source || ''));
+        const target = positions.get(String(edge.target || ''));
+        if (!source || !target || source === target) {
+            continue;
+        }
+        lines.push(`<line class="noise-edge" x1="${source.x.toFixed(1)}" y1="${source.y.toFixed(1)}" x2="${target.x.toFixed(1)}" y2="${target.y.toFixed(1)}"></line>`);
+        if (lines.length >= edgeLimit) {
+            break;
+        }
+    }
+    const dots = Array.from(positions.entries()).map(([id, item], index) => {
+        const r = Math.max(2.8, Math.min(6.2, 2.8 + Math.log2((item.degree || 1) + 1)));
+        const label = withLabels && index < 8
+            ? `<text class="svg-label" x="${(item.x + 7).toFixed(1)}" y="${(item.y - 6).toFixed(1)}">${escapeHtml(shortText(graphNodeLabel(item.node), 18))}</text>`
+            : '';
+        return `<circle class="background-node" cx="${item.x.toFixed(1)}" cy="${item.y.toFixed(1)}" r="${r.toFixed(1)}"></circle>${label}`;
+    }).join('');
+    return `${lines.join('')}${dots}`;
+}
+
+function edgeToEventPair(edge) {
+    const raw = edge.raw_data || {};
+    const previous = raw.previous_event_id || raw.prev_event_id || raw.source_event_id || raw.from_event_id || eventIdFromNodeRef(edge.source);
+    const current = raw.current_event_id || raw.next_event_id || raw.target_event_id || raw.to_event_id || eventIdFromNodeRef(edge.target);
+    const source = eventNodeId(previous);
+    const target = eventNodeId(current);
+    if (!source || !target || source === target) {
+        return null;
+    }
+    return { source, target };
+}
+
+function isIdentityEdge(edge) {
+    return IDENTITY_RELATION_TYPES.has(edge.relation_type);
+}
+
+function isCoreEvidenceEdge(edge) {
+    const edgeId = String(edge.edge_id || '');
+    return (
+        edge.scenario_role === 'controlled_chain' ||
+        CORE_RELATION_TYPES.has(edge.relation_type) ||
+        isIdentityEdge(edge) ||
+        restoredEdgeIdSet().has(edgeId) ||
+        (edge.edge_kind === 'event' && CORE_ACTION_TYPES.has(edge.action))
+    );
+}
+
+function coreEdgeClass(edge) {
+    if (restoredEdgeIdSet().has(String(edge.edge_id || ''))) {
+        return 'restored-edge';
+    }
+    if (isIdentityEdge(edge)) {
+        return 'identity-edge';
+    }
+    return 'core-edge';
+}
+
+function edgeSortTime(edge) {
+    return String(edge.timestamp || (edge.raw_data || {}).timestamp || '');
+}
+
+function buildGoldenPath(rawGraph, prunedGraph) {
+    const eventMap = eventMapFromGraphs(rawGraph, prunedGraph);
+    const prunedEdges = graphEdges(prunedGraph);
+    const prunedIds = new Set(prunedEdges.map(edge => String(edge.edge_id || '')).filter(Boolean));
+    const edgeMap = new Map();
+    prunedEdges.forEach(edge => {
+        const key = String(edge.edge_id || `${edge.source}|${edge.target}|${edge.relation_type || edge.action}`);
+        edgeMap.set(key, edge);
+    });
+    graphEdges(rawGraph).forEach(edge => {
+        const edgeId = String(edge.edge_id || '');
+        if ((edgeId && prunedIds.has(edgeId)) || restoredEdgeIdSet().has(edgeId)) {
+            edgeMap.set(edgeId || `${edge.source}|${edge.target}|${edge.relation_type || edge.action}`, edge);
         }
     });
 
-    const kept = edges.length;
+    const links = Array.from(edgeMap.values())
+        .filter(edge => edge.edge_kind === 'correlation' && isCoreEvidenceEdge(edge))
+        .map(edge => {
+            const pair = edgeToEventPair(edge);
+            return pair ? {
+                ...pair,
+                edge,
+                relation: edge.relation_type || 'stage_transition',
+                label: relationLabel(edge.relation_type || 'stage_transition'),
+                time: edgeSortTime(edge),
+            } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => a.time.localeCompare(b.time));
+
+    const adjacency = new Map();
+    links.forEach(link => {
+        if (!adjacency.has(link.source)) adjacency.set(link.source, new Set());
+        if (!adjacency.has(link.target)) adjacency.set(link.target, new Set());
+        adjacency.get(link.source).add(link.target);
+        adjacency.get(link.target).add(link.source);
+    });
+
+    const components = [];
+    const visited = new Set();
+    adjacency.forEach((_, start) => {
+        if (visited.has(start)) return;
+        const stack = [start];
+        const component = [];
+        visited.add(start);
+        while (stack.length) {
+            const nodeId = stack.pop();
+            component.push(nodeId);
+            (adjacency.get(nodeId) || new Set()).forEach(next => {
+                if (!visited.has(next)) {
+                    visited.add(next);
+                    stack.push(next);
+                }
+            });
+        }
+        components.push(component);
+    });
+
+    const scoreComponent = ids => {
+        const types = new Set(ids.map(id => sequenceEventType(eventMap.get(id.replace(/^event:/, '')) || {})));
+        const typeScore = ['parasitic', 'account', 'file'].filter(type => types.has(type)).length;
+        const edgeScore = links.filter(link => ids.includes(link.source) && ids.includes(link.target)).length;
+        return ids.length * 10 + typeScore * 12 + edgeScore;
+    };
+    const bestIds = (components.length ? components.sort((a, b) => scoreComponent(b) - scoreComponent(a))[0] : [])
+        .slice()
+        .sort((a, b) => {
+            const aItem = eventMap.get(a.replace(/^event:/, '')) || {};
+            const bItem = eventMap.get(b.replace(/^event:/, '')) || {};
+            return String(aItem.timestamp || '').localeCompare(String(bItem.timestamp || ''));
+        });
+    const idSet = new Set(bestIds);
+    const chainLinks = links.filter(link => idSet.has(link.source) && idSet.has(link.target));
+    const nodes = bestIds.map(nodeId => {
+        const eventId = nodeId.replace(/^event:/, '');
+        const item = eventMap.get(eventId) || { event_id: eventId, canonical_event: {} };
+        const event = item.canonical_event || {};
+        const eventType = sequenceEventType(item);
+        return {
+            nodeId,
+            eventId,
+            item,
+            eventType,
+            action: actionLabel(item.action || event.action || '-'),
+            target: shortText((event.object || {}).label || (event.object || {}).path || item.object_id || '-', 26),
+            time: shortText(String(item.timestamp || '').replace('T', ' '), 19),
+        };
+    });
+    const observedTypes = Array.from(new Set(nodes.map(node => node.eventType).filter(type => type !== 'unknown')));
+    const missingTypes = ['parasitic', 'account', 'file'].filter(type => !observedTypes.includes(type));
+    const hasExplicitChain = nodes.length >= 3 && chainLinks.length >= 2;
+    const valid = hasExplicitChain && missingTypes.length === 0;
+    return {
+        valid,
+        nodes,
+        links: chainLinks,
+        observedTypes,
+        missingTypes,
+        relationCount: links.length,
+        reason: valid
+            ? '跨三类蜜点核心链路已形成显式关系边。'
+            : `当前保留证据不足：事件节点 ${nodes.length} 个，显式关系边 ${chainLinks.length} 条，缺失 ${missingTypes.map(typePillText).join(' / ') || '无'}。`,
+    };
+}
+
+function renderRawGraphSvg(graph) {
+    const nodeCount = graphNodes(graph).length;
+    const edgeCount = graphEdges(graph).length;
+    const width = 760;
+    const height = 340;
+    const layout = buildBackgroundLayout(graph, width, height, 58);
+    const background = renderBackgroundGraphParts(graph, layout, 150, true);
     return `
-        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后时序因果链">
+        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪前原始依赖图">
+            <text class="svg-title" x="18" y="28">Raw Graph</text>
+            <text class="svg-subtitle" x="18" y="50">节点 ${escapeHtml(nodeCount)} / 边 ${escapeHtml(edgeCount)} / 全量事件与关联关系</text>
+            <g>${background}</g>
+        </svg>
+        <p class="paper-panel-note">裁剪前视图保留全部事件边与关联边，用于观察高噪声背景下的依赖膨胀；它不直接代表最终攻击链结论。</p>
+    `;
+}
+
+function semanticOverlayLines(golden) {
+    const identity = golden.links.find(link => isIdentityEdge(link.edge));
+    const relationNames = Array.from(new Set(golden.links.map(link => relationLabel(link.relation)))).slice(0, 3);
+    const chain = golden.nodes.map(node => typePillText(node.eventType)).join(' → ');
+    return [
+        `主体关联：${identity ? relationLabel(identity.relation) : '基于时间窗、路径与受控主体锚点关联'}`,
+        `行为链路：${chain || '-'}`,
+        `保留证据：${relationNames.join(' / ') || '-'}；核心边 ${golden.links.length} 条`,
+        '适用边界：受控实验复现结果，不直接等同公网 APT 定性',
+    ];
+}
+
+function renderSemanticOverlay(golden, x, y, width) {
+    const lines = semanticOverlayLines(golden);
+    return `
+        <rect class="intent-band" x="${x}" y="${y}" width="${width}" height="92" rx="15"></rect>
+        <text class="svg-title" x="${x + 14}" y="${y + 24}">Semantic Overlay</text>
+        ${lines.map((line, index) => `<text class="svg-label" x="${x + 14}" y="${y + 45 + index * 15}">${escapeHtml(shortText(line, 92))}</text>`).join('')}
+    `;
+}
+
+function renderGoldenPathWarning(golden) {
+    return `
+        <div class="paper-graph-warning">
+            <strong>当前运行不满足跨三类蜜点因果链展示条件。</strong>
+            已识别 ${escapeHtml(golden.nodes.length)} 个候选事件节点、${escapeHtml(golden.links.length)} 条显式关系边；
+            已覆盖 ${escapeHtml(golden.observedTypes.map(typePillText).join(' / ') || '无')}，
+            缺失 ${escapeHtml(golden.missingTypes.map(typePillText).join(' / ') || '无')}。建议运行受控实验分析，并确认寄生访问 → 账户尝试 → 文件触发在同一时间窗内产生真实告警。
+        </div>
+    `;
+}
+
+function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') {
+    const graph = prunedGraph || rawGraph;
+    const golden = buildGoldenPath(rawGraph, graph);
+    const width = Math.max(780, Math.max(golden.nodes.length, 4) * 156 + 140);
+    const height = golden.valid ? 430 : 320;
+    const layout = buildBackgroundLayout(rawGraph, width, height, golden.valid ? 44 : 58);
+    const background = renderBackgroundGraphParts(rawGraph, layout, golden.valid ? 90 : 130, false);
+    const markerId = title.replace(/\W+/g, '-').toLowerCase() || 'pruned';
+    if (!golden.valid) {
+        return `
+            ${renderGoldenPathWarning(golden)}
+            <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后证据不足提示图">
+                <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
+                <text class="svg-subtitle" x="18" y="50">保留边 ${escapeHtml(graphEdges(graph).length)} / 显式核心关系边 ${escapeHtml(golden.relationCount)} / 未形成跨三类蜜点链</text>
+                <rect class="warning-band" x="42" y="78" width="${width - 84}" height="78" rx="16"></rect>
+                <text class="svg-title" x="60" y="108">Evidence Guard</text>
+                <text class="svg-label" x="60" y="132">${escapeHtml(shortText(golden.reason, 100))}</text>
+                <g opacity="0.72">${background}</g>
+            </svg>
+            <p class="paper-panel-note">这里刻意不把单个告警画成攻击链；只有存在显式关系边并覆盖寄生、账户、文件三类蜜点时，才高亮核心链路。</p>
+        `;
+    }
+
+    const nodeY = 292;
+    const startX = 74;
+    const stepX = golden.nodes.length > 1 ? (width - 148) / (golden.nodes.length - 1) : 0;
+    const positions = new Map();
+    golden.nodes.forEach((node, index) => {
+        positions.set(node.nodeId, { x: startX + index * stepX, y: nodeY, node });
+    });
+    const linkSvg = golden.links.slice(0, 10).map((link, index) => {
+        const source = positions.get(link.source);
+        const target = positions.get(link.target);
+        if (!source || !target) {
+            return '';
+        }
+        const arc = 34 + (index % 3) * 16;
+        const midX = (source.x + target.x) / 2;
+        const path = `M ${source.x} ${source.y} C ${midX} ${source.y - arc}, ${midX} ${target.y - arc}, ${target.x} ${target.y}`;
+        const edgeClass = coreEdgeClass(link.edge);
+        return `
+            <path class="${edgeClass}" d="${path}" fill="none" marker-end="url(#paper-arrow-${markerId})"></path>
+            <rect class="node-label-bg" x="${midX - 58}" y="${source.y - arc - 27}" width="116" height="20" rx="8"></rect>
+            <text class="svg-label" x="${midX}" y="${source.y - arc - 13}" text-anchor="middle">${escapeHtml(shortText(link.label, 18))}</text>
+        `;
+    }).join('');
+    const nodeSvg = golden.nodes.map(node => {
+        const pos = positions.get(node.nodeId);
+        return `
+            <g>
+                <circle class="core-node ${escapeHtml(node.eventType)}" cx="${pos.x}" cy="${pos.y}" r="20"></circle>
+                <text class="svg-title" x="${pos.x}" y="${pos.y + 42}" text-anchor="middle">${escapeHtml(shortText(node.action, 18))}</text>
+                <text class="svg-label" x="${pos.x}" y="${pos.y + 60}" text-anchor="middle">${escapeHtml(typePillText(node.eventType))} · ${escapeHtml(node.time || '-')}</text>
+                <text class="svg-label" x="${pos.x}" y="${pos.y + 76}" text-anchor="middle">${escapeHtml(node.target)}</text>
+            </g>
+        `;
+    }).join('');
+
+    return `
+        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后高亮核心因果链">
             <defs>
-                <marker id="paper-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                <marker id="paper-arrow-${markerId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
                     <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(125, 220, 139, 0.8)"></path>
                 </marker>
             </defs>
             <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
-            <text class="svg-subtitle" x="18" y="50">保留边 ${escapeHtml(kept)} / 展示前 ${escapeHtml(sequence.length)} 个时序事件</text>
-            <rect class="intent-band" x="${intentStart}" y="92" width="${intentWidth}" height="154" rx="18"></rect>
-            <text class="svg-label" x="${intentStart + 14}" y="116">Semantic Overlay：跨蜜点多阶段攻击链，由证据边和裁剪指标共同支撑</text>
-            ${lineParts.join('')}
-            ${nodeParts.join('')}
+            <text class="svg-subtitle" x="18" y="50">灰色为原始噪声底图；高亮部分为裁剪后保留/保护的核心链路</text>
+            <g opacity="0.45">${background}</g>
+            ${renderSemanticOverlay(golden, 42, 72, width - 84)}
+            ${linkSvg}
+            ${nodeSvg}
         </svg>
-        <p class="paper-panel-note">裁剪后视图按时间展开攻击主体生命周期，边标签显示该链路成立的证据类型。</p>
+        <p class="paper-panel-note">裁剪后视图保留原始噪声底图作为参照，只高亮经裁剪保留或证据保护恢复的跨蜜点因果链。</p>
     `;
 }
 
@@ -1406,7 +1860,7 @@ function renderGraphCompare() {
     const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
     const evalData = controlledEval();
     rawPanel.innerHTML = analysisGraph ? renderRawGraphSvg(analysisGraph) : '<div class="empty-row">暂无原始图输出。</div>';
-    prunedPanel.innerHTML = prunedGraph ? renderTimelineSvg(prunedGraph, 'Pruned Graph') : '<div class="empty-row">暂无裁剪图输出。</div>';
+    prunedPanel.innerHTML = prunedGraph ? renderPrunedTopologySvg(analysisGraph, prunedGraph, 'Pruned Graph') : '<div class="empty-row">暂无裁剪图输出。</div>';
     const before = evalData.before_guardrail || {};
     const metrics = [
         ['原始边数', pruning.original_edges ?? graphEdges(analysisGraph).length ?? '-'],
@@ -1430,7 +1884,7 @@ function renderTimelineView() {
     const visual = document.getElementById('timelineVisual');
     const relationList = document.getElementById('relationEvidenceList');
     const prunedGraph = analysisPrunedGraph || analysisGraph;
-    visual.innerHTML = prunedGraph ? renderTimelineSvg(prunedGraph, 'Attacker Timeline') : '<div class="empty-row">暂无时序链路输出。</div>';
+    visual.innerHTML = prunedGraph ? renderPrunedTopologySvg(analysisGraph, prunedGraph, 'Attacker Timeline') : '<div class="empty-row">暂无时序链路输出。</div>';
     const relations = relationEdges(prunedGraph || analysisGraph).slice(0, 12);
     relationList.innerHTML = relations.length ? relations.map(edge => `
         <div class="list-item">
