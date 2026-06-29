@@ -235,6 +235,8 @@ def _analysis_availability(paths):
         "step4_intent": Path(paths["step4_intent"]).exists(),
         "step4_ttp": Path(paths["step4_ttp"]).exists(),
         "step4_report": Path(paths["step4_report"]).exists(),
+        "step4_llm_report": Path(paths["step4_llm_report"]).exists(),
+        "step4_llm_report_meta": Path(paths["step4_llm_report_meta"]).exists(),
     }
 
 
@@ -2455,6 +2457,102 @@ def api_analysis_live_balanced():
         }), 500
 
 
+@api.route("/api/analysis/live/llm-report", methods=["POST"])
+def api_analysis_live_llm_report():
+    payload = request.get_json(silent=True) or {}
+    run_dir = str(payload.get("run_dir") or "").strip()
+    task = str(payload.get("task") or "report").strip().lower()
+    prompt_key_map = {
+        "intent": "step4_intent",
+        "intent_analysis": "step4_intent",
+        "ttp": "step4_ttp",
+        "ttp_mapping": "step4_ttp",
+        "report": "step4_report",
+    }
+    prompt_key = prompt_key_map.get(task)
+    if not prompt_key:
+        return jsonify({"code": 1, "message": "task must be one of: intent, ttp, report", "data": {}}), 400
+
+    try:
+        paths, rel_paths = _analysis_paths(run_dir)
+    except ValueError as e:
+        return jsonify({"code": 1, "message": str(e), "data": {}}), 400
+
+    prompt_path = Path(paths[prompt_key])
+    if not prompt_path.exists():
+        return _analysis_not_ready_response(
+            paths,
+            rel_paths,
+            "尚未检测到 LLM prompt，请先运行实时分析或平衡分析。",
+        )
+
+    try:
+        repo_root = _repo_root_path()
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from step4_graph_to_text.llm_client import generate_deepseek_report, load_deepseek_config
+
+        config = load_deepseek_config()
+        override_model = str(payload.get("model") or "").strip()
+        if override_model:
+            config.model = override_model
+        if "temperature" in payload:
+            try:
+                config.temperature = max(0.0, min(1.5, float(payload.get("temperature"))))
+            except (TypeError, ValueError):
+                return jsonify({"code": 1, "message": "temperature must be a number", "data": {}}), 400
+        if "max_tokens" in payload:
+            try:
+                config.max_tokens = max(256, min(12000, int(payload.get("max_tokens"))))
+            except (TypeError, ValueError):
+                return jsonify({"code": 1, "message": "max_tokens must be an integer", "data": {}}), 400
+
+        prompt_text = _read_analysis_text(prompt_path, default="")
+        result = generate_deepseek_report(prompt_text, config=config)
+        meta = result.get("meta") or {}
+        meta.update({
+            "task": task,
+            "prompt_path": rel_paths.get(prompt_key, ""),
+            "report_path": rel_paths.get("step4_llm_report", ""),
+            "meta_path": rel_paths.get("step4_llm_report_meta", ""),
+            "run_dir": run_dir,
+            "experiment_role": "llm_assisted_interpretation",
+            "data_integrity_note": "LLM output is generated from Step4 prompt only and is not used as raw alert data or model-training label.",
+        })
+
+        if not result.get("ok"):
+            status = result.get("status") or "llm_error"
+            http_status = 400 if status in {"llm_config_missing", "prompt_missing"} else 502
+            return jsonify({
+                "code": 1,
+                "message": result.get("message") or "Generate LLM report failed",
+                "data": {"status": status, "meta": meta},
+            }), http_status
+
+        report_path = Path(paths["step4_llm_report"])
+        report_meta_path = Path(paths["step4_llm_report_meta"])
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(result.get("content") or "", encoding="utf-8")
+        report_meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        return jsonify({
+            "code": 0,
+            "message": "success",
+            "data": {
+                "llm_report": result.get("content") or "",
+                "llm_report_meta": meta,
+                "paths": {
+                    "prompt": rel_paths.get(prompt_key, ""),
+                    "llm_report": rel_paths.get("step4_llm_report", ""),
+                    "llm_report_meta": rel_paths.get("step4_llm_report_meta", ""),
+                },
+            },
+        })
+    except Exception as e:
+        current_app.logger.exception("Generate LLM analysis report failed")
+        return jsonify({"code": 1, "message": _analysis_error_message("生成 LLM 告警分析报告失败", e), "data": {}}), 500
+
+
 @api.route("/api/analysis/live/summary", methods=["GET"])
 def api_analysis_live_summary():
     run_dir = request.args.get("run_dir", "", type=str).strip()
@@ -2568,6 +2666,8 @@ def api_analysis_live_text():
     try:
         paths, rel_paths = _analysis_paths(run_dir)
         thesis_text = _read_analysis_text(paths["step4_thesis"], default="")
+        llm_report_text = _read_analysis_text(paths["step4_llm_report"], default="")
+        llm_report_meta = _read_analysis_json(paths["step4_llm_report_meta"], default={}) or {}
         prompt_files = {
             "intent_prompt": paths["step4_intent"],
             "ttp_prompt": paths["step4_ttp"],
@@ -2578,13 +2678,15 @@ def api_analysis_live_text():
             prompt_payload[key] = _read_analysis_text(path, default="")
 
         payload = {
+            "llm_report": llm_report_text,
+            "llm_report_meta": llm_report_meta,
             "thesis_analysis": thesis_text,
-            "intent_analysis": thesis_text or prompt_payload.get("intent_prompt", ""),
-            "ttp_mapping": thesis_text or prompt_payload.get("ttp_prompt", ""),
-            "report": thesis_text or prompt_payload.get("report_prompt", ""),
+            "intent_analysis": thesis_text or llm_report_text or prompt_payload.get("intent_prompt", ""),
+            "ttp_mapping": thesis_text or llm_report_text or prompt_payload.get("ttp_prompt", ""),
+            "report": llm_report_text or thesis_text or prompt_payload.get("report_prompt", ""),
             "debug_prompts": prompt_payload,
         }
-        available = bool(thesis_text.strip()) or any(bool(text.strip()) for text in prompt_payload.values())
+        available = bool(llm_report_text.strip()) or bool(thesis_text.strip()) or any(bool(text.strip()) for text in prompt_payload.values())
         if not available:
             return _analysis_not_ready_response(paths, rel_paths, "尚未检测到图转文本结果，请先运行实时分析。")
         payload["paths"] = {
@@ -2592,8 +2694,15 @@ def api_analysis_live_text():
             "step4_ttp": rel_paths.get("step4_ttp", ""),
             "step4_report": rel_paths.get("step4_report", ""),
             "step4_thesis": rel_paths.get("step4_thesis", ""),
+            "step4_llm_report": rel_paths.get("step4_llm_report", ""),
+            "step4_llm_report_meta": rel_paths.get("step4_llm_report_meta", ""),
         }
-        payload["display_mode"] = "thesis_analysis" if thesis_text.strip() else "debug_prompt_fallback"
+        if llm_report_text.strip():
+            payload["display_mode"] = "llm_report"
+        elif thesis_text.strip():
+            payload["display_mode"] = "thesis_analysis"
+        else:
+            payload["display_mode"] = "debug_prompt_fallback"
         return jsonify({"code": 0, "message": "success", "data": payload})
     except Exception as e:
         current_app.logger.exception("Load analysis texts failed")

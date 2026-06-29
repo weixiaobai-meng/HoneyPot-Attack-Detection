@@ -319,6 +319,8 @@ def build_default_paths():
         "step4_ttp": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_ttp_mapping.txt",
         "step4_report": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_report.txt",
         "step4_thesis": REPO_ROOT / "step4_graph_to_text" / "output" / "thesis_analysis.md",
+        "step4_llm_report": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_report.md",
+        "step4_llm_report_meta": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_report_meta.json",
         "summary": REPO_ROOT / "deployment" / "output" / "honeypot_experiment_summary.json",
     }
 
@@ -343,6 +345,8 @@ def build_run_paths(run_dir: Path):
         "step4_ttp": run_dir / "step4" / "llm_prompt_ttp_mapping.txt",
         "step4_report": run_dir / "step4" / "llm_prompt_report.txt",
         "step4_thesis": run_dir / "step4" / "thesis_analysis.md",
+        "step4_llm_report": run_dir / "step4" / "llm_report.md",
+        "step4_llm_report_meta": run_dir / "step4" / "llm_report_meta.json",
         "summary": run_dir / "summary.json",
     }
 
@@ -364,6 +368,8 @@ def ensure_dirs(paths):
         "step4_ttp",
         "step4_report",
         "step4_thesis",
+        "step4_llm_report",
+        "step4_llm_report_meta",
         "summary",
     ]:
         paths[key].parent.mkdir(parents=True, exist_ok=True)
@@ -977,6 +983,8 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "step4_ttp_mapping": rel(paths["step4_ttp"]),
             "step4_report": rel(paths["step4_report"]),
             "step4_thesis_analysis": rel(paths["step4_thesis"]),
+            "step4_llm_report": rel(paths["step4_llm_report"]),
+            "step4_llm_report_meta": rel(paths["step4_llm_report_meta"]),
         },
     }
     dump_json(paths["summary"], summary)
@@ -1002,11 +1010,19 @@ def copy_run_to_defaults(source_paths):
         (source_paths["step4_thesis"], default_paths["step4_thesis"]),
         (source_paths["summary"], default_paths["summary"]),
     ]
+    optional_mapping = [
+        (source_paths.get("step4_llm_report"), default_paths.get("step4_llm_report")),
+        (source_paths.get("step4_llm_report_meta"), default_paths.get("step4_llm_report_meta")),
+    ]
     for name in ["file_alerts.json", "account_alerts.json", "parasitic_alerts.json", "audit_alerts.json"]:
         mapping.append((source_paths["alerts_dir"] / name, default_paths["alerts_dir"] / name))
     for src, dst in mapping:
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(src.read_bytes())
+    for src, dst in optional_mapping:
+        if src and dst and src.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
     return default_paths
 
 

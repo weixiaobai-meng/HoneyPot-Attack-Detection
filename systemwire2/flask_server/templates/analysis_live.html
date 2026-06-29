@@ -27,6 +27,9 @@
             <button class="analysis-btn secondary" onclick="runBalancedAnalysis()">
                 <i class="fas fa-scale-balanced"></i> 运行平衡分析
             </button>
+            <button class="analysis-btn secondary" onclick="generateLlmReport()">
+                <i class="fas fa-brain"></i> 生成 LLM 报告
+            </button>
             <button class="analysis-btn ghost" onclick="refreshAnalysis()">
                 <i class="fas fa-rotate"></i> 读取最新结果
             </button>
@@ -184,7 +187,10 @@
         <div class="tab-content" id="tab-text">
             <div class="thesis-layout">
                 <article class="text-card thesis-main-card">
-                    <h3>论文式综合分析</h3>
+                    <div class="text-title-row">
+                        <h3 id="textMainTitle">论文式综合分析</h3>
+                        <span id="llmMetaChip" class="llm-meta-chip">确定性图转文本</span>
+                    </div>
                     <pre id="textThesis">暂无文本输出。</pre>
                 </article>
                 <article class="text-card">
@@ -495,6 +501,27 @@ body,
 }
 .graph-card h3,
 .text-card h3 { margin: 0 0 10px; font-size: 16px; }
+.text-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+.text-title-row h3 { margin: 0; }
+.llm-meta-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 6px 10px;
+    border: 1px solid rgba(125, 220, 139, 0.24);
+    border-radius: 999px;
+    color: #bdf4c5;
+    background: rgba(125, 220, 139, 0.08);
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+}
 .graph-overview-card,
 .graph-render-card,
 .thesis-main-card {
@@ -782,7 +809,7 @@ function updateSummaryCards(summary) {
         `模式：${summary.mode || '-'}；数据源：${sourceMode}；范围：${includeTypes.length ? includeTypes.join(' / ') : '全部'}；生成时间：${summary.generated_at || '-'}；总告警数：${summary.total_alerts || 0}${runDirText}${balanceText}`;
     document.getElementById('summaryPath').textContent = (summary.paths || {}).summary || outputs.summary || '-';
     document.getElementById('graphPath').textContent = (summary.paths || {}).step2 || outputs.step2_causal_graph || '-';
-    document.getElementById('textPath').textContent = (summary.paths || {}).step4_thesis || outputs.step4_thesis_analysis || (summary.paths || {}).step4_intent || outputs.step4_intent_analysis || outputs.step4_llm_prompt || '-';
+    document.getElementById('textPath').textContent = (summary.paths || {}).step4_llm_report || outputs.step4_llm_report || (summary.paths || {}).step4_thesis || outputs.step4_thesis_analysis || (summary.paths || {}).step4_intent || outputs.step4_intent_analysis || outputs.step4_llm_prompt || '-';
 }
 
 function typePill(type) {
@@ -1303,17 +1330,31 @@ function renderReportItems(targetId, items) {
 }
 
 function renderTexts() {
-    const thesis = (analysisTexts && (analysisTexts.thesis_analysis || analysisTexts.report || analysisTexts.intent_analysis)) || '';
-    document.getElementById('textThesis').textContent = thesis || '暂无文本输出。';
+    const llmReport = (analysisTexts && analysisTexts.llm_report) || '';
+    const deterministicText = (analysisTexts && (analysisTexts.thesis_analysis || analysisTexts.report || analysisTexts.intent_analysis)) || '';
+    const mainText = llmReport || deterministicText;
+    const sectionSource = deterministicText || mainText;
+    const meta = (analysisTexts && analysisTexts.llm_report_meta) || {};
+    const title = document.getElementById('textMainTitle');
+    const chip = document.getElementById('llmMetaChip');
+    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '论文式综合分析';
+    if (llmReport) {
+        const model = meta.model || 'deepseek';
+        const generatedAt = meta.generated_at ? String(meta.generated_at).replace('T', ' ').slice(0, 19) : '已生成';
+        chip.textContent = `${model} · ${generatedAt}`;
+    } else {
+        chip.textContent = analysisTexts && analysisTexts.display_mode === 'debug_prompt_fallback' ? 'Prompt 调试输出' : '确定性图转文本';
+    }
+    document.getElementById('textThesis').textContent = mainText || '暂无文本输出。';
     renderReportItems('ttpSummary', [
-        { title: 'TTP 映射', body: extractSection(thesis, '5. TTP 映射') },
-        { title: '跨蜜点同源证据', body: extractSection(thesis, '3. 跨蜜点同源证据') },
-        { title: '攻击路径还原', body: extractSection(thesis, '4. 攻击路径还原') },
+        { title: 'TTP 映射', body: extractSection(sectionSource, '5. TTP 映射') },
+        { title: '跨蜜点同源证据', body: extractSection(sectionSource, '3. 跨蜜点同源证据') },
+        { title: '攻击路径还原', body: extractSection(sectionSource, '4. 攻击路径还原') },
     ]);
     renderReportItems('reportSummary', [
-        { title: '实验输入与图规模', body: extractSection(thesis, '1. 实验输入与图规模') },
-        { title: '蜜点行为分布', body: extractSection(thesis, '2. 蜜点行为分布') },
-        { title: '可写入论文的结论表述', body: extractSection(thesis, '7. 可写入论文的结论表述') },
+        { title: '实验输入与图规模', body: extractSection(sectionSource, '1. 实验输入与图规模') },
+        { title: '蜜点行为分布', body: extractSection(sectionSource, '2. 蜜点行为分布') },
+        { title: '可写入论文的结论表述', body: extractSection(sectionSource, '7. 可写入论文的结论表述') },
     ]);
 }
 
@@ -1390,6 +1431,27 @@ async function runBalancedAnalysis() {
         setStatus(`平衡分析已完成，运行目录：${summary.run_dir || '-'}。`);
     } catch (error) {
         setStatus(error.message || '运行平衡分析失败。', true);
+    }
+}
+
+async function generateLlmReport() {
+    setStatus('正在调用 DeepSeek 生成 LLM 辅助告警分析报告...');
+    try {
+        await fetchJson('/api/analysis/live/llm-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ run_dir: analysisRunDir, task: 'report' })
+        });
+        await loadTexts();
+        await loadSummary();
+        switchTab('text');
+        setStatus('DeepSeek LLM 告警分析报告已生成；该报告作为辅助解释层，不改变原始告警与训练数据。');
+    } catch (error) {
+        const message = error.message || '生成 LLM 告警分析报告失败。';
+        const hint = message.includes('DEEPSEEK_API_KEY')
+            ? '服务器尚未配置 DEEPSEEK_API_KEY；配置后重启 systemwire2 再生成报告。'
+            : message;
+        setStatus(hint, true);
     }
 }
 
