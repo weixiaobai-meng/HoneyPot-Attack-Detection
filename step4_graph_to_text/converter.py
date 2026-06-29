@@ -91,11 +91,15 @@ class GraphToTextConverter:
         meta = graph_data.get("graph_meta", {})
         attack_paths = graph_data.get("attack_paths", [])
         attacker_groups = graph_data.get("attacker_groups", [])
+        controlled_scenarios = graph_data.get("controlled_scenarios", [])
+        controlled_label_eval = graph_data.get("controlled_label_eval", {})
+        pruning_stats = graph_data.get("pruning_stats", {})
         node_map = {node["id"]: node for node in nodes}
         sorted_edges = sorted(edges, key=lambda e: e.get("timestamp", ""))
 
         sections = [
             self._generate_summary(meta, nodes, edges, triples),
+            self._generate_controlled_scenarios(controlled_scenarios, controlled_label_eval, pruning_stats),
             self._generate_attackers(attacker_groups),
             self._generate_attack_paths(attack_paths, node_map),
             self._generate_stage_view(sorted_edges, node_map),
@@ -105,6 +109,48 @@ class GraphToTextConverter:
             self._generate_iocs(sorted_edges, node_map),
         ]
         return "\n\n".join(section for section in sections if section.strip())
+
+    def _generate_controlled_scenarios(self, scenarios: List[Dict], controlled_eval: Dict, pruning_stats: Dict) -> str:
+        lines = ["## Controlled Experiment Evidence", ""]
+        if not scenarios and not controlled_eval:
+            lines.append("- No controlled-scenario annotations are present in this graph.")
+            return "\n".join(lines)
+
+        if scenarios:
+            for scenario in scenarios[:5]:
+                lines.append(
+                    f"- scenario={scenario.get('scenario_id')}: "
+                    f"events={scenario.get('event_count', 0)}, "
+                    f"types={', '.join(scenario.get('event_types') or []) or 'unknown'}, "
+                    f"roles={', '.join(scenario.get('roles') or []) or 'unknown'}, "
+                    f"has_all_honeypots={scenario.get('has_all_honeypots')}, "
+                    f"time={scenario.get('start_time')} -> {scenario.get('end_time')}, "
+                    f"attackers={', '.join(scenario.get('attacker_ids') or []) or 'unknown'}"
+                )
+
+        if controlled_eval:
+            lines.append("")
+            lines.append(
+                "Controlled pruning metrics: "
+                f"core_chain_recall={controlled_eval.get('core_chain_recall', 0):.3f}, "
+                f"noise_filter_rate={controlled_eval.get('noise_filter_rate', 0):.3f}, "
+                f"kept_precision={controlled_eval.get('kept_edge_precision_on_labels', 0):.3f}, "
+                f"core_edges={controlled_eval.get('core_edges', 0)}, "
+                f"noise_edges={controlled_eval.get('noise_edges', 0)}."
+            )
+            lines.append(
+                "Metric boundary: these values evaluate the controlled scenario labels only; "
+                "they must not be interpreted as natural public-Internet attack prevalence."
+            )
+
+        if pruning_stats:
+            lines.append(
+                f"Pruning mode={pruning_stats.get('mode', 'unknown')}, "
+                f"original_edges={pruning_stats.get('original_edges', '-')}, "
+                f"kept_edges={pruning_stats.get('kept_edges', '-')}, "
+                f"compression_ratio={pruning_stats.get('compression_ratio', '-')}."
+            )
+        return "\n".join(lines)
 
     def convert_to_llm_prompt(self, graph_data: Dict, task: str = "intent_analysis") -> str:
         narrative = self.convert(graph_data, include_timestamps=True)
@@ -125,6 +171,9 @@ class GraphToTextConverter:
         attacker_groups = graph_data.get("attacker_groups", [])
         attack_paths = graph_data.get("attack_paths", [])
         pruning_stats = graph_data.get("pruning_stats", {})
+        controlled_label_eval = graph_data.get("controlled_label_eval", {})
+        controlled_scenarios = graph_data.get("controlled_scenarios", [])
+        relation_counts = meta.get("relation_counts", {})
 
         event_edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
         correlation_edges = [edge for edge in edges if edge.get("edge_kind") == "correlation"]
@@ -155,6 +204,18 @@ class GraphToTextConverter:
             (
                 f"系统共重建 {meta.get('attacker_count', len(attacker_groups))} 个攻击者簇和 "
                 f"{meta.get('path_count', len(attack_paths))} 条攻击路径。"
+            ),
+            "",
+            "### 受控实验与关系边说明",
+            "",
+            (
+                f"本轮图谱包含 {len(controlled_scenarios)} 个受控实验场景标注；"
+                f"关系边分布为 {dict(relation_counts)}。这些标注只存在于实验导出目录中，"
+                "不回写原始告警数据库。"
+            ),
+            (
+                "跨蜜点关系边用于解释攻击链路，例如 web_to_account 表示寄生蜜点探测后进入账户尝试，"
+                "account_to_file 表示账户阶段后触发文件蜜点，stage_transition 表示攻击阶段递进。"
             ),
             "",
             "## 2. 蜜点行为分布",
@@ -236,6 +297,24 @@ class GraphToTextConverter:
                 lines.append(f"本轮 DQN 未直接生效，回退原因：`{pruning_stats.get('fallback_reason')}`。")
         else:
             lines.append("当前图未记录剪枝统计信息。")
+
+        if controlled_label_eval and controlled_label_eval.get("enabled"):
+            lines.extend([
+                "",
+                "### 受控链路标签评价",
+                "",
+                (
+                    f"核心攻击链边数 {controlled_label_eval.get('core_edges', 0)}，"
+                    f"背景噪声边数 {controlled_label_eval.get('noise_edges', 0)}；"
+                    f"核心链保留率 {controlled_label_eval.get('core_chain_recall', 0):.3f}，"
+                    f"噪声过滤率 {controlled_label_eval.get('noise_filter_rate', 0):.3f}，"
+                    f"标签内保留精度 {controlled_label_eval.get('kept_edge_precision_on_labels', 0):.3f}。"
+                ),
+                (
+                    "该评价只针对受控实验场景中的人工标签边有效，用于验证图裁剪是否保留核心攻击链，"
+                    "不用于声称公网真实攻击的总体准确率。"
+                ),
+            ])
 
         lines.extend([
             "",

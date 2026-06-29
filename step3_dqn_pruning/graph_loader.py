@@ -21,7 +21,8 @@ NODE_TYPE_MAP = {
     "browser": 3,
     "url": 4,
     "service": 5,
-    "unknown": 6
+    "event": 6,
+    "unknown": 7
 }
 
 # 边类型映射
@@ -40,7 +41,8 @@ EDGE_ACTION_MAP = {
     "chmod": 11,
     "vpn_connect": 12,
     "mkdir": 13,
-    "unknown": 14
+    "correlates_to": 14,
+    "unknown": 15
 }
 
 NUM_NODE_TYPES = len(NODE_TYPE_MAP)
@@ -127,9 +129,20 @@ def generate_synthetic_labels(data: Data, core_ratio: float = 0.25,
 
     for i, edge in enumerate(edges_info):
         action = edge.get("action", "unknown")
+        relation_type = edge.get("relation_type", "")
         r = _edge_hash(seed, i)
 
         if action in ["ssh_login", "file_access", "url_access"]:
+            labels[i] = 1.0
+        elif relation_type in {
+            "web_to_account",
+            "account_to_file",
+            "web_to_file",
+            "stage_transition",
+            "controlled_chain_member",
+            "same_fingerprint",
+            "same_session",
+        }:
             labels[i] = 1.0
         elif action in ["execve", "fork", "connect"]:
             if r < 0.3:

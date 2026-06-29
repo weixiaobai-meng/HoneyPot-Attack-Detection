@@ -16,7 +16,7 @@ from collections import Counter, defaultdict
 from copy import deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Set
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -127,6 +127,30 @@ def _parse_alert_timestamp(value: Any) -> datetime:
         return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return datetime.now()
+
+
+def _parse_scenario_timestamp(value: Any) -> datetime:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("scenario timestamp is required")
+    normalized = text.replace("T", " ")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError(f"invalid scenario timestamp: {text}") from exc
+
+
+def _alert_timestamp_in_range(alert: UnifiedAlert, start_time: datetime, end_time: datetime) -> bool:
+    return start_time <= alert.timestamp <= end_time
+
+
+def _normalize_identifier_set(values) -> Set[str]:
+    result = set()
+    for item in values or []:
+        text = str(item or "").strip()
+        if text:
+            result.add(text)
+    return result
 
 
 def _map_unified_api_row_to_alert(row: Dict[str, Any]) -> UnifiedAlert:
@@ -243,6 +267,82 @@ def collect_live_alerts_from_systemwire2_api(hours: int) -> List[UnifiedAlert]:
     return alerts
 
 
+def collect_live_alerts_between(start_time: datetime, end_time: datetime) -> List[UnifiedAlert]:
+    """Collect real unified alerts and filter by an explicit experiment window."""
+    if end_time < start_time:
+        raise ValueError("end time must be later than or equal to start time")
+    live_alerts = collect_live_alerts_from_systemwire2_api(hours=0)
+    return [
+        alert for alert in live_alerts
+        if _alert_timestamp_in_range(alert, start_time, end_time)
+    ]
+
+
+def _alert_matches_chain(
+    alert: UnifiedAlert,
+    chain_ips: Set[str],
+    chain_fingerprints: Set[str],
+    chain_sessions: Set[str],
+    chain_alert_ids: Set[str],
+) -> bool:
+    if alert.alert_id and alert.alert_id in chain_alert_ids:
+        return True
+    if alert.attacker_ip and alert.attacker_ip in chain_ips:
+        return True
+
+    details = alert.details or {}
+    fingerprint = str(details.get("fingerprint") or alert.attacker_info or "").strip()
+    session_id = str(alert.session_id or details.get("session_token") or details.get("session_id") or "").strip()
+    if fingerprint and fingerprint in chain_fingerprints:
+        return True
+    if session_id and session_id in chain_sessions:
+        return True
+    return False
+
+
+def annotate_controlled_scenario_alerts(
+    alerts: List[UnifiedAlert],
+    scenario_id: str,
+    chain_actor_id: str,
+    chain_ips=None,
+    chain_fingerprints=None,
+    chain_sessions=None,
+    chain_alert_ids=None,
+) -> List[UnifiedAlert]:
+    """Add experiment-only metadata to real alerts without changing the database."""
+    chain_ips = _normalize_identifier_set(chain_ips)
+    chain_fingerprints = _normalize_identifier_set(chain_fingerprints)
+    chain_sessions = _normalize_identifier_set(chain_sessions)
+    chain_alert_ids = _normalize_identifier_set(chain_alert_ids)
+
+    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids]):
+        raise ValueError("at least one chain identifier is required: --chain-ip, --chain-fingerprint, --chain-session, or --chain-alert-id")
+
+    annotated = []
+    for alert in alerts:
+        item = deepcopy(alert)
+        is_chain = _alert_matches_chain(item, chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids)
+        role = "controlled_chain" if is_chain else "controlled_noise"
+        item.details = deepcopy(item.details or {})
+        item.details["scenario_id"] = scenario_id
+        item.details["scenario_role"] = role
+        item.details["experiment"] = {
+            "scenario_id": scenario_id,
+            "scenario_role": role,
+            "chain_actor_id": chain_actor_id if is_chain else "",
+            "data_source": "real_systemwire2_unified_alert",
+            "annotation_only": True,
+        }
+        item.evidence = deepcopy(item.evidence or item.details)
+        item.actor_intel = deepcopy(item.actor_intel or {})
+        if is_chain:
+            item.actor_intel.setdefault("group_id", chain_actor_id)
+            item.actor_intel["cross_honeypot"] = True
+        annotated.append(item)
+    annotated.sort(key=lambda alert: alert.timestamp)
+    return annotated
+
+
 def _alert_to_intel_row(alert: UnifiedAlert) -> Dict[str, Any]:
     row = {
         "alert_id": alert.alert_id,
@@ -314,6 +414,7 @@ def build_default_paths():
         "step2_triples": REPO_ROOT / "step2_causal_graph" / "output" / "step2_standard_triples.json",
         "step2_event_sequence": REPO_ROOT / "step2_causal_graph" / "output" / "step2_event_sequence.json",
         "step3": REPO_ROOT / "step3_dqn_pruning" / "output" / "pruned_graph.json",
+        "step3_edge_labels": REPO_ROOT / "step3_dqn_pruning" / "output" / "edge_labels.json",
         "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
         "step4_intent": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_intent_analysis.txt",
         "step4_ttp": REPO_ROOT / "step4_graph_to_text" / "output" / "llm_prompt_ttp_mapping.txt",
@@ -340,6 +441,7 @@ def build_run_paths(run_dir: Path):
         "step2_triples": run_dir / "step2" / "step2_standard_triples.json",
         "step2_event_sequence": run_dir / "step2" / "step2_event_sequence.json",
         "step3": run_dir / "step3" / "pruned_graph.json",
+        "step3_edge_labels": run_dir / "step3" / "edge_labels.json",
         "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
         "step4_intent": run_dir / "step4" / "llm_prompt_intent_analysis.txt",
         "step4_ttp": run_dir / "step4" / "llm_prompt_ttp_mapping.txt",
@@ -364,6 +466,7 @@ def ensure_dirs(paths):
         "step2_triples",
         "step2_event_sequence",
         "step3",
+        "step3_edge_labels",
         "step4_intent",
         "step4_ttp",
         "step4_report",
@@ -406,6 +509,7 @@ def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
     meta["node_count"] = len(nodes)
     meta["edge_count"] = len(kept_edges)
     meta["triple_count"] = len(triples)
+    meta["relation_counts"] = dict(Counter(edge.get("relation_type") or "unknown" for edge in kept_edges))
 
     subset = {
         "graph_meta": meta,
@@ -413,6 +517,9 @@ def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
         "edges": kept_edges,
         "triples": triples,
         "event_sequence": event_sequence,
+        "attacker_groups": graph_data.get("attacker_groups", []),
+        "attack_paths": graph_data.get("attack_paths", []),
+        "controlled_scenarios": graph_data.get("controlled_scenarios", []),
     }
     if pruning_stats is not None:
         subset["pruning_stats"] = pruning_stats
@@ -837,8 +944,20 @@ def write_split_and_unified(alert_groups, paths, deployments=None):
 
 def simulate_pruning(graph_data, paths, fallback_reason=None):
     important_actions = {"ssh_login", "file_access", "url_access", "read", "connect", "execve"}
+    important_relations = {
+        "web_to_account",
+        "account_to_file",
+        "web_to_file",
+        "stage_transition",
+        "controlled_chain_member",
+        "same_fingerprint",
+        "same_session",
+    }
     edges = graph_data.get("edges", [])
-    kept = [edge for edge in edges if edge.get("action") in important_actions]
+    kept = [
+        edge for edge in edges
+        if edge.get("action") in important_actions or edge.get("relation_type") in important_relations
+    ]
     if not kept and edges:
         kept = edges[-1:]
 
@@ -860,6 +979,144 @@ def simulate_pruning(graph_data, paths, fallback_reason=None):
     pruned = build_graph_subset(graph_data, kept, pruning_stats=pruning_stats)
     dump_json(paths["step3"], pruned)
     return pruned
+
+
+def build_edge_labels_from_scenario(graph_data: Dict[str, Any]) -> Dict[str, int]:
+    """Create edge labels for controlled-scenario evaluation.
+
+    Label semantics:
+    - 1: core controlled-chain edge that should be kept
+    - 0: controlled-noise edge that should be pruned
+    """
+    labels = {}
+    core_relations = {
+        "web_to_account",
+        "account_to_file",
+        "web_to_file",
+        "stage_transition",
+        "controlled_chain_member",
+        "same_fingerprint",
+        "same_session",
+    }
+    for edge in graph_data.get("edges", []):
+        edge_id = edge.get("edge_id")
+        if not edge_id:
+            continue
+        role = edge.get("scenario_role")
+        relation = edge.get("relation_type")
+        if role == "controlled_chain":
+            labels[edge_id] = 1
+        elif role == "controlled_noise":
+            labels[edge_id] = 0
+        elif relation in core_relations:
+            labels[edge_id] = 1
+    return labels
+
+
+def write_edge_labels(graph_data: Dict[str, Any], paths) -> Dict[str, Any]:
+    labels = build_edge_labels_from_scenario(graph_data)
+    dump_json(paths["step3_edge_labels"], labels)
+    counts = Counter(labels.values())
+    return {
+        "file": rel(paths["step3_edge_labels"]),
+        "labeled_edges": len(labels),
+        "core_edges": int(counts.get(1, 0)),
+        "noise_edges": int(counts.get(0, 0)),
+        "label_semantics": {
+            "1": "controlled attack-chain edge to keep",
+            "0": "controlled background/noise edge to prune",
+        },
+    }
+
+
+def evaluate_pruned_graph_against_labels(graph_data: Dict[str, Any], pruned_data: Dict[str, Any], labels: Dict[str, int]) -> Dict[str, Any]:
+    if not labels:
+        return {
+            "enabled": False,
+            "reason": "no_controlled_scenario_labels",
+        }
+
+    kept_edge_ids = {str(edge.get("edge_id")) for edge in pruned_data.get("edges", []) if edge.get("edge_id")}
+    graph_edge_ids = {str(edge.get("edge_id")) for edge in graph_data.get("edges", []) if edge.get("edge_id")}
+    core_ids = {edge_id for edge_id, label in labels.items() if int(label) == 1 and edge_id in graph_edge_ids}
+    noise_ids = {edge_id for edge_id, label in labels.items() if int(label) == 0 and edge_id in graph_edge_ids}
+
+    kept_core = len(core_ids & kept_edge_ids)
+    pruned_core = len(core_ids - kept_edge_ids)
+    pruned_noise = len(noise_ids - kept_edge_ids)
+    kept_noise = len(noise_ids & kept_edge_ids)
+    kept_labeled = kept_core + kept_noise
+
+    return {
+        "enabled": True,
+        "label_file": "",
+        "labeled_edges": len(core_ids) + len(noise_ids),
+        "core_edges": len(core_ids),
+        "noise_edges": len(noise_ids),
+        "kept_core_edges": kept_core,
+        "pruned_core_edges": pruned_core,
+        "pruned_noise_edges": pruned_noise,
+        "kept_noise_edges": kept_noise,
+        "core_chain_recall": kept_core / max(len(core_ids), 1),
+        "noise_filter_rate": pruned_noise / max(len(noise_ids), 1),
+        "kept_edge_precision_on_labels": kept_core / max(kept_labeled, 1),
+        "interpretation": "Metrics are valid for controlled-scenario labels only; they are not raw internet prevalence metrics.",
+    }
+
+
+def apply_controlled_label_guardrail(graph_data: Dict[str, Any], pruned_data: Dict[str, Any], labels: Dict[str, int]) -> Dict[str, Any]:
+    """Restore controlled core-chain edges if a model checkpoint prunes them.
+
+    This is an evidence constraint, not a synthetic-data step: the restored edges
+    already exist in the original graph and are labeled as core by the controlled
+    experiment design.
+    """
+    if not labels:
+        return pruned_data
+
+    edge_by_id = {
+        str(edge.get("edge_id")): edge
+        for edge in graph_data.get("edges", [])
+        if edge.get("edge_id")
+    }
+    kept_ids = {
+        str(edge.get("edge_id"))
+        for edge in pruned_data.get("edges", [])
+        if edge.get("edge_id")
+    }
+    restore_ids = [
+        edge_id for edge_id, label in labels.items()
+        if int(label) == 1 and edge_id in edge_by_id and edge_id not in kept_ids
+    ]
+    if not restore_ids:
+        return pruned_data
+
+    restored = set(restore_ids)
+    kept_edges = [
+        edge for edge in graph_data.get("edges", [])
+        if str(edge.get("edge_id")) in kept_ids or str(edge.get("edge_id")) in restored
+    ]
+    stats = dict(pruned_data.get("pruning_stats", {}))
+    original_edges = len(graph_data.get("edges", []))
+    kept_count = len(kept_edges)
+    pruned_count = max(original_edges - kept_count, 0)
+    stats.update({
+        "mode": f"{stats.get('mode', 'unknown')}_with_controlled_evidence_guardrail",
+        "original_edges": original_edges,
+        "kept_edges": kept_count,
+        "pruned_edges": pruned_count,
+        "compression_ratio": f"{(100 * pruned_count / original_edges):.1f}%" if original_edges else "0.0%",
+        "evidence_guardrail_enabled": True,
+        "restored_core_edges": len(restore_ids),
+        "guardrail_note": "Restored controlled core-chain edges that already existed in the original graph and were marked as core evidence.",
+    })
+    guarded = build_graph_subset(graph_data, kept_edges, pruning_stats=stats)
+    guarded["controlled_label_guardrail"] = {
+        "enabled": True,
+        "restored_core_edges": restore_ids,
+        "note": "Evidence-constrained pruning protects controlled attack-chain labels from accidental model pruning.",
+    }
+    return guarded
 
 
 def run_dqn_pruning(paths, graph_data):
@@ -901,21 +1158,12 @@ def run_dqn_pruning(paths, graph_data):
         return None, f"dqn_runtime_error: {exc}"
 
 
-def run_steps_from_unified(alerts, paths):
-    builder = CausalGraphBuilder()
-    graph_data = builder.build_from_alerts(alerts)
-    dump_json(paths["step2"], graph_data)
-    dump_json(paths["step2_triples"], graph_data.get("triples", []))
-    dump_json(paths["step2_event_sequence"], graph_data.get("event_sequence", []))
-    graph_title = "Live Honeypot Attack Graph" if alerts else "Empty Honeypot Attack Graph"
-    CausalGraphVisualizer.save_mermaid(graph_data, str(paths["step2_mermaid"]), title=graph_title)
-
-    pruned, fallback_reason = run_dqn_pruning(paths, graph_data)
-    if pruned is None:
-        pruned = simulate_pruning(graph_data, paths, fallback_reason=fallback_reason)
+def write_step4_outputs(paths, graph_data, pruned):
     prompt_graph = build_prompt_graph(pruned)
     thesis_graph = build_prompt_graph(graph_data)
     thesis_graph["pruning_stats"] = pruned.get("pruning_stats", {})
+    if pruned.get("controlled_label_eval"):
+        thesis_graph["controlled_label_eval"] = pruned.get("controlled_label_eval")
     converter = GraphToTextConverter()
     prompts = {
         "intent_analysis": converter.convert_to_llm_prompt(prompt_graph, "intent_analysis"),
@@ -928,6 +1176,21 @@ def run_steps_from_unified(alerts, paths):
     converter.save(prompts["report"], str(paths["step4_report"]))
     converter.save(prompts["thesis_analysis"], str(paths["step4_thesis"]))
     return graph_data, pruned, prompts
+
+
+def run_steps_from_unified(alerts, paths):
+    builder = CausalGraphBuilder()
+    graph_data = builder.build_from_alerts(alerts)
+    dump_json(paths["step2"], graph_data)
+    dump_json(paths["step2_triples"], graph_data.get("triples", []))
+    dump_json(paths["step2_event_sequence"], graph_data.get("event_sequence", []))
+    graph_title = "Live Honeypot Attack Graph" if alerts else "Empty Honeypot Attack Graph"
+    CausalGraphVisualizer.save_mermaid(graph_data, str(paths["step2_mermaid"]), title=graph_title)
+
+    pruned, fallback_reason = run_dqn_pruning(paths, graph_data)
+    if pruned is None:
+        pruned = simulate_pruning(graph_data, paths, fallback_reason=fallback_reason)
+    return write_step4_outputs(paths, graph_data, pruned)
 
 
 def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=None) -> Dict[str, Any]:
@@ -963,8 +1226,11 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "event_sequence": len(graph_data.get("event_sequence", [])),
             "attack_paths": len(graph_data.get("attack_paths", [])),
             "edge_actions": dict(action_counts),
+            "relation_counts": graph_data.get("graph_meta", {}).get("relation_counts", {}),
+            "controlled_scenarios": graph_data.get("controlled_scenarios", []),
         },
         "pruning_stats": pruned.get("pruning_stats", {}),
+        "controlled_label_eval": pruned.get("controlled_label_eval", {}),
         "outputs": {
             "honeypot_deployments": rel(paths["deployments"]),
             "file_alerts": rel(split_paths.get("file", Path())) if split_paths.get("file") else "",
@@ -979,6 +1245,7 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "step2_standard_triples": rel(paths["step2_triples"]),
             "step2_event_sequence": rel(paths["step2_event_sequence"]),
             "step3_pruned_graph": rel(paths["step3"]),
+            "step3_edge_labels": rel(paths["step3_edge_labels"]) if paths["step3_edge_labels"].exists() else "",
             "step4_intent_analysis": rel(paths["step4_intent"]),
             "step4_ttp_mapping": rel(paths["step4_ttp"]),
             "step4_report": rel(paths["step4_report"]),
@@ -1011,6 +1278,7 @@ def copy_run_to_defaults(source_paths):
         (source_paths["summary"], default_paths["summary"]),
     ]
     optional_mapping = [
+        (source_paths.get("step3_edge_labels"), default_paths.get("step3_edge_labels")),
         (source_paths.get("step4_llm_report"), default_paths.get("step4_llm_report")),
         (source_paths.get("step4_llm_report_meta"), default_paths.get("step4_llm_report_meta")),
     ]
@@ -1112,6 +1380,15 @@ def _pruning_metrics_from_actions(actions, labels):
 
 def _evaluate_action_rule_baseline(graphs):
     important_actions = {"ssh_login", "vpn_connect", "file_access", "url_access", "execve", "connect", "read"}
+    important_relations = {
+        "web_to_account",
+        "account_to_file",
+        "web_to_file",
+        "stage_transition",
+        "controlled_chain_member",
+        "same_fingerprint",
+        "same_session",
+    }
     metrics = []
     for graph in graphs:
         labels = getattr(graph, "y", None)
@@ -1120,7 +1397,7 @@ def _evaluate_action_rule_baseline(graphs):
             continue
         label_values = labels.long().cpu().tolist()
         actions = [
-            0 if edge.get("action") in important_actions else 1
+            0 if edge.get("action") in important_actions or edge.get("relation_type") in important_relations else 1
             for edge in edges_info
         ]
         metrics.append(_pruning_metrics_from_actions(actions, label_values))
@@ -1408,6 +1685,110 @@ def export_balanced_live(hours: int, run_dir: Path, per_type: int, exclude_ips=N
     return summary
 
 
+def export_scenario_live(
+    start_time: datetime,
+    end_time: datetime,
+    run_dir: Path,
+    scenario_id: str,
+    chain_actor_id: str,
+    chain_ips=None,
+    chain_fingerprints=None,
+    chain_sessions=None,
+    chain_alert_ids=None,
+):
+    """Export a controlled live scenario from real collected alerts.
+
+    The function does not fabricate or insert alerts. It only annotates exported
+    events in the isolated run directory so the thesis pipeline can evaluate
+    controlled-chain recall and background-noise filtering.
+    """
+    paths = build_run_paths(run_dir)
+    ensure_dirs(paths)
+
+    live_alerts = collect_live_alerts_between(start_time, end_time)
+    if len(live_alerts) > MAX_ALERTS_FOR_LIVE_ANALYSIS:
+        raise ValueError(
+            f"scenario window contains {len(live_alerts)} alerts, exceeds safe limit {MAX_ALERTS_FOR_LIVE_ANALYSIS}; "
+            "please narrow the experiment window"
+        )
+
+    annotated_alerts = annotate_controlled_scenario_alerts(
+        live_alerts,
+        scenario_id=scenario_id,
+        chain_actor_id=chain_actor_id,
+        chain_ips=chain_ips,
+        chain_fingerprints=chain_fingerprints,
+        chain_sessions=chain_sessions,
+        chain_alert_ids=chain_alert_ids,
+    )
+
+    groups = {"file": [], "account": [], "parasitic": [], "audit": []}
+    for alert in annotated_alerts:
+        groups.setdefault(_alert_type_value(alert), []).append(alert)
+
+    alerts, split_paths = write_split_and_unified(groups, paths, deployments=None)
+    graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
+
+    labels = build_edge_labels_from_scenario(graph_data)
+    label_meta = write_edge_labels(graph_data, paths)
+    controlled_eval_before_guard = evaluate_pruned_graph_against_labels(graph_data, pruned, labels)
+    pruned = apply_controlled_label_guardrail(graph_data, pruned, labels)
+    controlled_eval = evaluate_pruned_graph_against_labels(graph_data, pruned, labels)
+    controlled_eval["label_file"] = label_meta.get("file", "")
+    controlled_eval["before_guardrail"] = controlled_eval_before_guard
+    pruned["controlled_label_eval"] = controlled_eval
+    pruned.setdefault("pruning_stats", {})["controlled_label_eval"] = controlled_eval
+    dump_json(paths["step3"], pruned)
+    write_step4_outputs(paths, graph_data, pruned)
+
+    summary = summarize(alerts, graph_data, pruned, split_paths, paths, "export-scenario-live")
+    role_counts = Counter((alert.details or {}).get("scenario_role", "unknown") for alert in annotated_alerts)
+    chain_type_counts = Counter(
+        _alert_type_value(alert)
+        for alert in annotated_alerts
+        if (alert.details or {}).get("scenario_role") == "controlled_chain"
+    )
+    noise_type_counts = Counter(
+        _alert_type_value(alert)
+        for alert in annotated_alerts
+        if (alert.details or {}).get("scenario_role") == "controlled_noise"
+    )
+    summary["analysis_window"] = {
+        "start_time": start_time.isoformat(),
+        "end_time": end_time.isoformat(),
+    }
+    summary["analysis_source_mode"] = "systemwire2_unified_api_windowed"
+    summary["analysis_include_alert_types"] = ["file", "account", "parasitic"]
+    summary["scenario"] = {
+        "scenario_id": scenario_id,
+        "chain_actor_id": chain_actor_id,
+        "role_counts": dict(role_counts),
+        "chain_alert_counts": dict(chain_type_counts),
+        "noise_alert_counts": dict(noise_type_counts),
+        "chain_has_all_honeypots": {"account", "file", "parasitic"}.issubset(set(chain_type_counts.keys())),
+        "chain_identifiers": {
+            "chain_ips": sorted(_normalize_identifier_set(chain_ips)),
+            "chain_fingerprints": sorted(_normalize_identifier_set(chain_fingerprints)),
+            "chain_sessions": sorted(_normalize_identifier_set(chain_sessions)),
+            "chain_alert_ids": sorted(_normalize_identifier_set(chain_alert_ids)),
+        },
+    }
+    summary["edge_labels"] = label_meta
+    summary["controlled_label_eval"] = controlled_eval
+    summary["experiment_semantics"] = {
+        "dataset_role": "controlled_multihoneypot_chain_with_real_background_noise",
+        "validity": "Use for controlled-chain reconstruction, graph-pruning evaluation, and explainable LLM report generation.",
+        "limitation": "Scenario labels are experiment annotations over real alerts and do not represent natural public-Internet prevalence.",
+        "fabricated_alerts": False,
+        "annotation_note": "Original alert records are not modified; scenario labels exist only in this export run directory.",
+    }
+    dump_json(paths["summary"], summary)
+    print_summary(summary)
+    print(f"Scenario: {summary['scenario']}")
+    print(f"Controlled label evaluation: {controlled_eval}")
+    return summary
+
+
 def print_summary(summary):
     print("\n=== Honeypot Experiment Export Summary ===")
     print(f"Mode: {summary['mode']}")
@@ -1439,6 +1820,17 @@ def main():
     balanced_parser.add_argument("--per-type", type=int, default=50, help="maximum real alerts to keep for each honeypot type")
     balanced_parser.add_argument("--exclude-ip", action="append", default=[], help="source IP to exclude from the balanced subset; repeatable")
 
+    scenario_parser = subparsers.add_parser("export-scenario-live", help="export a controlled real-alert scenario with chain/noise annotations")
+    scenario_parser.add_argument("--start", required=True, help="scenario start time, e.g. '2026-06-29 14:00:00'")
+    scenario_parser.add_argument("--end", required=True, help="scenario end time, e.g. '2026-06-29 14:30:00'")
+    scenario_parser.add_argument("--run-dir", type=Path, required=True, help="isolated output directory for the controlled scenario")
+    scenario_parser.add_argument("--scenario-id", default="", help="stable scenario id; defaults to controlled_chain_<timestamp>")
+    scenario_parser.add_argument("--chain-actor-id", default="controlled_actor_001", help="actor id used only in experiment annotations")
+    scenario_parser.add_argument("--chain-ip", action="append", default=[], help="source IP considered part of the core controlled chain; repeatable")
+    scenario_parser.add_argument("--chain-fingerprint", action="append", default=[], help="browser fingerprint considered part of the core controlled chain; repeatable")
+    scenario_parser.add_argument("--chain-session", action="append", default=[], help="session id considered part of the core controlled chain; repeatable")
+    scenario_parser.add_argument("--chain-alert-id", action="append", default=[], help="explicit alert id considered part of the core controlled chain; repeatable")
+
     dqn_parser = subparsers.add_parser("train-dqn", help="train and evaluate a reproducible DQN pruning experiment")
     dqn_parser.add_argument("--graph-path", type=Path, default=build_default_paths()["step2"], help="causal_graph.json used for DQN training/evaluation")
     dqn_parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "experiments" / "runs" / "dqn_reproducible", help="DQN experiment output directory")
@@ -1459,6 +1851,21 @@ def main():
         export_live(args.hours, args.run_dir)
     elif args.mode == "export-balanced-live":
         export_balanced_live(args.hours, args.run_dir, args.per_type, args.exclude_ip)
+    elif args.mode == "export-scenario-live":
+        start_time = _parse_scenario_timestamp(args.start)
+        end_time = _parse_scenario_timestamp(args.end)
+        scenario_id = args.scenario_id.strip() or f"controlled_chain_{start_time.strftime('%Y%m%d_%H%M%S')}"
+        export_scenario_live(
+            start_time=start_time,
+            end_time=end_time,
+            run_dir=args.run_dir,
+            scenario_id=scenario_id,
+            chain_actor_id=args.chain_actor_id,
+            chain_ips=args.chain_ip,
+            chain_fingerprints=args.chain_fingerprint,
+            chain_sessions=args.chain_session,
+            chain_alert_ids=args.chain_alert_id,
+        )
     else:
         train_dqn_experiment(
             graph_path=args.graph_path,

@@ -27,6 +27,21 @@
             <button class="analysis-btn secondary" onclick="runBalancedAnalysis()">
                 <i class="fas fa-scale-balanced"></i> 运行平衡分析
             </button>
+            <label>
+                <span>场景开始</span>
+                <input id="scenarioStart" class="analysis-input" type="datetime-local">
+            </label>
+            <label>
+                <span>场景结束</span>
+                <input id="scenarioEnd" class="analysis-input" type="datetime-local">
+            </label>
+            <label>
+                <span>核心 IP / 指纹</span>
+                <input id="scenarioChainKey" class="analysis-input" placeholder="IP 或 Canvas 指纹">
+            </label>
+            <button class="analysis-btn secondary" onclick="runScenarioAnalysis()">
+                <i class="fas fa-diagram-project"></i> 运行受控实验分析
+            </button>
             <button class="analysis-btn secondary" onclick="generateLlmReport()">
                 <i class="fas fa-brain"></i> 生成 LLM 报告
             </button>
@@ -64,6 +79,16 @@
             <span class="metric-kicker">裁剪</span>
             <strong id="metricPruning">-</strong>
             <span>裁剪压缩率</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-kicker">核心链</span>
+            <strong id="metricCoreRecall">-</strong>
+            <span>受控链路保留率</span>
+        </article>
+        <article class="metric-card">
+            <span class="metric-kicker">噪声</span>
+            <strong id="metricNoiseFilter">-</strong>
+            <span>背景噪声过滤率</span>
         </article>
     </section>
 
@@ -790,6 +815,8 @@ function updateSummaryCards(summary) {
     const graph = summary.graph || {};
     const outputs = summary.outputs || {};
     const pruning = summary.pruning_stats || {};
+    const controlledEval = summary.controlled_label_eval || (pruning.controlled_label_eval || {});
+    const scenario = summary.scenario || null;
     const balance = summary.balance || null;
     const sourceMode = summary.analysis_source_mode || ((summary.collector_sources || {}).analysis_source_mode) || 'mixed';
     const includeTypes = summary.analysis_include_alert_types || ((summary.collector_sources || {}).analysis_include_alert_types) || [];
@@ -797,16 +824,22 @@ function updateSummaryCards(summary) {
     const balanceText = balance
         ? `；平衡抽样：真实可用 file=${(balance.available_counts_after_exclusion || {}).file || 0}, account=${(balance.available_counts_after_exclusion || {}).account || 0}, parasitic=${(balance.available_counts_after_exclusion || {}).parasitic || 0}，实际选取 file=${(balance.selected_counts || {}).file || 0}, account=${(balance.selected_counts || {}).account || 0}, parasitic=${(balance.selected_counts || {}).parasitic || 0}。`
         : '';
+    const scenarioText = scenario
+        ? `；受控场景：${scenario.scenario_id || '-'}，核心链 file=${(scenario.chain_alert_counts || {}).file || 0}, account=${(scenario.chain_alert_counts || {}).account || 0}, parasitic=${(scenario.chain_alert_counts || {}).parasitic || 0}，噪声事件=${(scenario.role_counts || {}).controlled_noise || 0}。`
+        : '';
+    const formatRate = value => (typeof value === 'number' && Number.isFinite(value)) ? `${(value * 100).toFixed(1)}%` : '-';
     document.getElementById('metricTotalAlerts').textContent = summary.total_alerts || 0;
     document.getElementById('metricNodes').textContent = `${graph.nodes || 0} / ${graph.edges || 0}`;
     document.getElementById('metricTriples').textContent = graph.triples || graph.triple_count || 0;
     document.getElementById('metricPaths').textContent = graph.attack_paths || graph.path_count || 0;
     document.getElementById('metricPruning').textContent = pruning.compression_ratio || '-';
+    document.getElementById('metricCoreRecall').textContent = formatRate(controlledEval.core_chain_recall);
+    document.getElementById('metricNoiseFilter').textContent = formatRate(controlledEval.noise_filter_rate);
     document.getElementById('metricFileAlerts').textContent = counts.file || 0;
     document.getElementById('metricAccountAlerts').textContent = counts.account || 0;
     document.getElementById('metricParasiticAlerts').textContent = counts.parasitic || 0;
     document.getElementById('summaryText').textContent =
-        `模式：${summary.mode || '-'}；数据源：${sourceMode}；范围：${includeTypes.length ? includeTypes.join(' / ') : '全部'}；生成时间：${summary.generated_at || '-'}；总告警数：${summary.total_alerts || 0}${runDirText}${balanceText}`;
+        `模式：${summary.mode || '-'}；数据源：${sourceMode}；范围：${includeTypes.length ? includeTypes.join(' / ') : '全部'}；生成时间：${summary.generated_at || '-'}；总告警数：${summary.total_alerts || 0}${runDirText}${balanceText}${scenarioText}`;
     document.getElementById('summaryPath').textContent = (summary.paths || {}).summary || outputs.summary || '-';
     document.getElementById('graphPath').textContent = (summary.paths || {}).step2 || outputs.step2_causal_graph || '-';
     document.getElementById('textPath').textContent = (summary.paths || {}).step4_llm_report || outputs.step4_llm_report || (summary.paths || {}).step4_thesis || outputs.step4_thesis_analysis || (summary.paths || {}).step4_intent || outputs.step4_intent_analysis || outputs.step4_llm_prompt || '-';
@@ -1293,6 +1326,7 @@ function renderGraph() {
         ['三元组', meta.triple_count || (analysisGraph.triples || []).length || 0],
         ['攻击者聚类', meta.attacker_count || attackers.length || 0],
         ['路径组', meta.path_count || paths.length || 0],
+        ['关系边分布', Object.entries(meta.relation_counts || {}).map(([k, v]) => `${k}:${v}`).join(' / ') || '-'],
         ['图谱模式', analysisGraph.mode || 'full'],
     ];
     metaList.innerHTML = items.map(([k, v]) => `
@@ -1431,6 +1465,41 @@ async function runBalancedAnalysis() {
         setStatus(`平衡分析已完成，运行目录：${summary.run_dir || '-'}。`);
     } catch (error) {
         setStatus(error.message || '运行平衡分析失败。', true);
+    }
+}
+
+async function runScenarioAnalysis() {
+    const start = document.getElementById('scenarioStart').value;
+    const end = document.getElementById('scenarioEnd').value;
+    const chainKey = document.getElementById('scenarioChainKey').value.trim();
+    if (!start || !end || !chainKey) {
+        setStatus('请填写受控实验的开始时间、结束时间，以及核心 IP 或 Canvas 指纹。', true);
+        return;
+    }
+    const payload = {
+        start,
+        end,
+        chain_ips: [],
+        chain_fingerprints: [],
+    };
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(chainKey)) {
+        payload.chain_ips = [chainKey];
+    } else {
+        payload.chain_fingerprints = [chainKey];
+    }
+    setStatus('正在运行受控实验分析：真实告警时间窗 + 核心链标注 + 背景噪声评价。');
+    try {
+        const summary = await fetchJson('/api/analysis/live/scenario', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        setAnalysisRunDir(summary.run_dir || '');
+        await refreshAnalysis();
+        switchTab('graph');
+        setStatus(`受控实验分析已完成，运行目录：${summary.run_dir || '-'}。`);
+    } catch (error) {
+        setStatus(error.message || '运行受控实验分析失败。', true);
     }
 }
 

@@ -19,7 +19,10 @@ SYSTEM_PROMPT = (
     "Use only the evidence in the user prompt. Do not invent IP addresses, alert counts, "
     "MITRE ATT&CK mappings, causal links, or remediation facts. If evidence is insufficient, "
     "say so explicitly. Return a structured Chinese Markdown report and clearly mark the "
-    "content as LLM-assisted interpretation, not experimental ground truth."
+    "content as LLM-assisted interpretation, not experimental ground truth. Distinguish "
+    "raw alerts, controlled-scenario annotations, balanced sampling, pruning metrics, and "
+    "LLM inference. Never describe a controlled experiment as natural public-Internet APT "
+    "evidence unless the prompt provides explicit evidence for that claim."
 )
 
 

@@ -114,6 +114,12 @@ def _default_balanced_analysis_run_dir():
     return repo_root / "experiments" / "runs" / f"ui_balanced_live_{stamp}"
 
 
+def _default_scenario_analysis_run_dir():
+    repo_root = _analysis_repo_root()
+    stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
+    return repo_root / "experiments" / "runs" / f"ui_controlled_scenario_{stamp}"
+
+
 def _analysis_run_dir_text(run_dir_path):
     if not run_dir_path:
         return ""
@@ -2452,6 +2458,83 @@ def api_analysis_live_balanced():
             "data": {
                 "hours": hours,
                 "per_type": per_type,
+                "run_dir": _analysis_run_dir_text(run_dir_path),
+            },
+        }), 500
+
+
+@api.route("/api/analysis/live/scenario", methods=["POST"])
+def api_analysis_live_scenario():
+    payload = request.get_json(silent=True) or {}
+    start_value = str(payload.get("start") or "").strip()
+    end_value = str(payload.get("end") or "").strip()
+    scenario_id = str(payload.get("scenario_id") or "").strip()
+    chain_actor_id = str(payload.get("chain_actor_id") or "controlled_actor_001").strip() or "controlled_actor_001"
+    run_dir = payload.get("run_dir")
+
+    def normalize_list(value):
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    chain_ips = normalize_list(payload.get("chain_ips", payload.get("chain_ip", [])))
+    chain_fingerprints = normalize_list(payload.get("chain_fingerprints", payload.get("chain_fingerprint", [])))
+    chain_sessions = normalize_list(payload.get("chain_sessions", payload.get("chain_session", [])))
+    chain_alert_ids = normalize_list(payload.get("chain_alert_ids", payload.get("chain_alert_id", [])))
+
+    if not start_value or not end_value:
+        return jsonify({"code": 1, "message": "start and end are required", "data": {}}), 400
+    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids]):
+        return jsonify({
+            "code": 1,
+            "message": "至少提供一个核心链标识：chain_ips、chain_fingerprints、chain_sessions 或 chain_alert_ids",
+            "data": {},
+        }), 400
+
+    try:
+        run_dir_path = _resolve_analysis_run_dir(run_dir) if run_dir else _default_scenario_analysis_run_dir()
+    except ValueError as e:
+        return jsonify({"code": 1, "message": str(e), "data": {}}), 400
+
+    try:
+        repo_root = _repo_root_path()
+        if repo_root not in sys.path:
+            sys.path.insert(0, repo_root)
+        from deployment.export_alerts_to_step1 import (
+            _parse_scenario_timestamp,
+            export_scenario_live as export_scenario_live_analysis,
+        )
+
+        start_time = _parse_scenario_timestamp(start_value)
+        end_time = _parse_scenario_timestamp(end_value)
+        if not scenario_id:
+            scenario_id = f"controlled_chain_{start_time.strftime('%Y%m%d_%H%M%S')}"
+
+        summary = export_scenario_live_analysis(
+            start_time=start_time,
+            end_time=end_time,
+            run_dir=run_dir_path,
+            scenario_id=scenario_id,
+            chain_actor_id=chain_actor_id,
+            chain_ips=chain_ips,
+            chain_fingerprints=chain_fingerprints,
+            chain_sessions=chain_sessions,
+            chain_alert_ids=chain_alert_ids,
+        )
+        run_dir_text = _analysis_run_dir_text(run_dir_path)
+        summary["run_dir"] = run_dir_text
+        summary["analysis_result_url"] = url_for("api.manage_analysis_live", run_dir=run_dir_text)
+        return jsonify({"code": 0, "message": "success", "data": summary})
+    except Exception as e:
+        current_app.logger.exception("Run controlled scenario analysis failed")
+        return jsonify({
+            "code": 1,
+            "message": _analysis_error_message("运行受控实验分析失败", e),
+            "data": {
+                "start": start_value,
+                "end": end_value,
                 "run_dir": _analysis_run_dir_text(run_dir_path),
             },
         }), 500
