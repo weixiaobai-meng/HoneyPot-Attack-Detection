@@ -1431,6 +1431,26 @@ def _install_dqn_checkpoint(checkpoint_path: Path):
     return result
 
 
+def _read_label_class_counts(label_file: Path) -> Dict[str, int]:
+    with open(label_file, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    values = []
+    if isinstance(payload, dict):
+        values = list(payload.values())
+    elif isinstance(payload, list):
+        values = [item.get("label") for item in payload if isinstance(item, dict) and item.get("label") is not None]
+
+    counts = Counter()
+    for value in values:
+        try:
+            label = str(int(float(value)))
+        except (TypeError, ValueError):
+            label = "other"
+        counts[label] += 1
+    return {key: int(counts.get(key, 0)) for key in ["1", "0", "other"]}
+
+
 def _apply_manual_labels_to_training_graphs(graphs, label_file: Path):
     """Overlay controlled-scenario labels onto weak labels for DQN training."""
     labeled_graphs = []
@@ -1460,6 +1480,7 @@ def train_dqn_experiment(
     augment: bool,
     label_file: Path = None,
     train_with_manual_labels: bool = False,
+    require_label_balance: bool = False,
     install_checkpoint: bool = False,
     device: str = "cpu",
 ):
@@ -1474,6 +1495,20 @@ def train_dqn_experiment(
         raise FileNotFoundError(f"graph path not found: {graph_path}")
     if label_file and not label_file.exists():
         raise FileNotFoundError(f"label file not found: {label_file}")
+    manual_label_class_counts = _read_label_class_counts(label_file) if label_file else {}
+    label_balance_warning = ""
+    if train_with_manual_labels:
+        if not label_file:
+            raise ValueError("--train-with-manual-labels requires --label-file")
+        has_core = manual_label_class_counts.get("1", 0) > 0
+        has_noise = manual_label_class_counts.get("0", 0) > 0
+        if not has_core or not has_noise:
+            label_balance_warning = (
+                "manual labels do not contain both core edges (1) and noise edges (0); "
+                "this run can validate chain retention but should not be claimed as a full pruning experiment"
+            )
+            if require_label_balance:
+                raise ValueError(label_balance_warning)
 
     _set_reproducible_seed(seed)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1490,8 +1525,6 @@ def train_dqn_experiment(
     )
     training_manual_label_coverage = None
     if train_with_manual_labels:
-        if not label_file:
-            raise ValueError("--train-with-manual-labels requires --label-file")
         graphs, training_manual_label_coverage = _apply_manual_labels_to_training_graphs(graphs, label_file)
     train_graphs, val_graphs, test_graphs = _split_graphs(graphs, seed)
 
@@ -1543,6 +1576,9 @@ def train_dqn_experiment(
             "manual_label_eval_file": rel(label_file) if label_file else "",
             "manual_labels_used_for_training": bool(train_with_manual_labels),
             "training_manual_label_coverage": training_manual_label_coverage,
+            "manual_label_class_counts": manual_label_class_counts,
+            "label_balance_warning": label_balance_warning,
+            "require_label_balance": bool(require_label_balance),
         },
         "splits": {
             "train_graphs": len(train_graphs),
@@ -1885,6 +1921,7 @@ def main():
     dqn_parser.add_argument("--no-augment", action="store_true", help="disable graph augmentation")
     dqn_parser.add_argument("--label-file", type=Path, default=None, help="optional human edge-label JSON for extra evaluation")
     dqn_parser.add_argument("--train-with-manual-labels", action="store_true", help="use --label-file labels during training; matching edge_ids override weak labels")
+    dqn_parser.add_argument("--require-label-balance", action="store_true", help="fail when manual labels lack either keep/core edges or prune/noise edges")
     dqn_parser.add_argument("--install-checkpoint", action="store_true", help="copy the trained checkpoint to the default step3 checkpoint path")
     dqn_parser.add_argument("--device", default="cpu", help="cpu, cuda, or auto")
 
@@ -1922,6 +1959,7 @@ def main():
             augment=not args.no_augment,
             label_file=args.label_file,
             train_with_manual_labels=args.train_with_manual_labels,
+            require_label_balance=args.require_label_balance,
             install_checkpoint=args.install_checkpoint,
             device=args.device,
         )
