@@ -560,6 +560,13 @@ body,
 .graph-svg .node-rect.service {
     stroke: rgba(245, 180, 91, 0.42);
 }
+.graph-svg .node-rect.behavior {
+    stroke: rgba(245, 180, 91, 0.52);
+    fill: rgba(20, 24, 14, 0.96);
+}
+.graph-svg .node-rect.other {
+    stroke: rgba(148, 163, 184, 0.32);
+}
 .graph-svg .node-title {
     fill: #edf9ef;
     font-size: 13px;
@@ -574,6 +581,12 @@ body,
 .graph-svg .edge-label-bg {
     fill: rgba(3, 10, 9, 0.9);
     stroke: rgba(148, 163, 184, 0.16);
+}
+.graph-caption {
+    margin: 0 0 10px;
+    color: #b8c9c1;
+    font-size: 13px;
+    line-height: 1.55;
 }
 .graph-legend,
 .graph-edge-samples {
@@ -917,75 +930,193 @@ function renderGraphOverview(meta, attackers, paths, edges) {
     `).join('');
 }
 
-function graphNodeKind(type) {
-    if (['network', 'browser'].includes(type)) {
-        return 'source';
-    }
-    if (type === 'event') {
-        return 'event';
-    }
-    return 'target';
-}
-
-function graphNodeColumn(type) {
-    const kind = graphNodeKind(type);
-    if (kind === 'source') {
+function graphNodeColumn(node) {
+    if (node.kind === 'source') {
         return 0;
     }
-    if (kind === 'event') {
+    if (node.kind === 'behavior') {
         return 1;
     }
     return 2;
 }
 
-function buildGraphVisualModel(edges) {
-    const nodes = new Map();
-    const displayEdges = edges
-        .filter(edge => edge.edge_kind === 'event')
-        .slice(-24);
-    const selectedEdges = displayEdges.length ? displayEdges : edges.slice(-24);
-
-    function addNode(id, type, label) {
-        const nodeId = compactValue(id);
-        if (!nodeId || nodeId === '-') {
-            return;
-        }
-        const current = nodes.get(nodeId) || {
-            id: nodeId,
-            type: compactValue(type || 'unknown'),
-            label: compactValue(label || nodeId),
-            degree: 0,
+function targetGroup(edge) {
+    const type = compactValue(edge.object_type || 'unknown');
+    const rawLabel = compactValue(edge.object_label || edge.target || 'unknown');
+    const rawId = compactValue(edge.target || rawLabel);
+    if (type === 'file') {
+        return {
+            id: 'target:file-honeypot-docs',
+            type: 'file',
+            label: '文件蜜点文档组',
+            detail: '按文件蜜点类型聚合',
         };
-        current.degree += 1;
-        nodes.set(nodeId, current);
     }
+    if (type === 'url') {
+        let label = rawLabel;
+        try {
+            const parsed = new URL(rawLabel);
+            label = parsed.pathname || rawLabel;
+        } catch (error) {
+            const match = rawLabel.match(/https?:\/\/[^/]+(\/[^?#]*)/);
+            label = match ? match[1] : rawLabel;
+        }
+        return {
+            id: `target:url:${label}`,
+            type: 'url',
+            label: `寄生页面 ${label}`,
+            detail: rawId,
+        };
+    }
+    if (type === 'service') {
+        return {
+            id: 'target:service-account',
+            type: 'service',
+            label: '账户服务蜜点',
+            detail: rawId,
+        };
+    }
+    return {
+        id: `target:${type}:${rawId}`,
+        type,
+        label: rawLabel,
+        detail: rawId,
+    };
+}
 
-    selectedEdges.forEach(edge => {
-        addNode(edge.source, edge.subject_type, edge.subject_label || edge.source);
-        addNode(edge.target, edge.object_type, edge.object_label || edge.target);
+function sourceGroup(edge) {
+    const type = compactValue(edge.subject_type || 'unknown');
+    const rawLabel = compactValue(edge.subject_label || edge.source || 'unknown');
+    const rawId = compactValue(edge.source || rawLabel);
+    if (type === 'browser') {
+        return {
+            id: `source:browser:${rawId}`,
+            type: 'browser',
+            label: `浏览器指纹 ${shortText(rawLabel, 16)}`,
+            detail: rawId,
+        };
+    }
+    if (type === 'network') {
+        return {
+            id: `source:network:${rawLabel}`,
+            type: 'network',
+            label: rawLabel,
+            detail: rawId,
+        };
+    }
+    return {
+        id: `source:${type}:${rawId}`,
+        type,
+        label: rawLabel,
+        detail: rawId,
+    };
+}
+
+function behaviorGroup(edge) {
+    const action = compactValue(edge.action || 'unknown');
+    const stage = compactValue(edge.stage || edge.tactic || '');
+    return {
+        id: `behavior:${action}:${stage}`,
+        type: 'behavior',
+        label: actionLabel(action),
+        detail: stage && stage !== '-' ? stage : '行为聚合',
+        action,
+        stage,
+    };
+}
+
+function addAggregatedNode(map, node, count) {
+    const current = map.get(node.id) || {
+        ...node,
+        count: 0,
+        degree: 0,
+    };
+    current.count += count;
+    current.degree += 1;
+    map.set(node.id, current);
+}
+
+function buildGraphVisualModel(edges) {
+    const eventEdges = edges.filter(edge => edge.edge_kind === 'event');
+    const sourceEdges = eventEdges.length ? eventEdges : edges;
+    const relationMap = new Map();
+
+    sourceEdges.forEach(edge => {
+        const source = sourceGroup(edge);
+        const behavior = behaviorGroup(edge);
+        const target = targetGroup(edge);
+        const key = `${source.id}|${behavior.id}|${target.id}`;
+        const current = relationMap.get(key) || {
+            source,
+            behavior,
+            target,
+            count: 0,
+            stages: new Set(),
+            samples: [],
+        };
+        current.count += 1;
+        if (behavior.stage && behavior.stage !== '-') {
+            current.stages.add(behavior.stage);
+        }
+        if (current.samples.length < 3) {
+            current.samples.push(edge);
+        }
+        relationMap.set(key, current);
+    });
+
+    const relations = Array.from(relationMap.values())
+        .sort((a, b) => b.count - a.count || a.source.label.localeCompare(b.source.label))
+        .slice(0, 10);
+    const nodes = new Map();
+    const links = [];
+
+    relations.forEach((relation, index) => {
+        addAggregatedNode(nodes, { ...relation.source, kind: 'source' }, relation.count);
+        addAggregatedNode(nodes, { ...relation.behavior, kind: 'behavior' }, relation.count);
+        addAggregatedNode(nodes, { ...relation.target, kind: 'target' }, relation.count);
+        links.push({
+            id: `source-link-${index}`,
+            source: relation.source.id,
+            target: relation.behavior.id,
+            count: relation.count,
+            label: `n=${relation.count}`,
+            stage: relation.behavior.detail,
+            relation: relation,
+        });
+        links.push({
+            id: `target-link-${index}`,
+            source: relation.behavior.id,
+            target: relation.target.id,
+            count: relation.count,
+            label: `n=${relation.count}`,
+            stage: relation.behavior.detail,
+            relation: relation,
+        });
     });
 
     return {
         nodes: Array.from(nodes.values()),
-        edges: selectedEdges,
+        links,
+        relations,
+        rawEventCount: sourceEdges.length,
     };
 }
 
 function layoutGraphNodes(nodes) {
     const columns = [[], [], []];
     nodes.forEach(node => {
-        columns[graphNodeColumn(node.type)].push(node);
+        columns[graphNodeColumn(node)].push(node);
     });
     columns.forEach(column => {
-        column.sort((a, b) => (b.degree || 0) - (a.degree || 0) || String(a.label).localeCompare(String(b.label)));
+        column.sort((a, b) => (b.count || 0) - (a.count || 0) || String(a.label).localeCompare(String(b.label)));
     });
 
     const width = 1120;
-    const nodeWidth = 260;
-    const nodeHeight = 68;
-    const columnX = [40, 430, 820];
+    const nodeWidth = 270;
+    const nodeHeight = 72;
+    const columnX = [40, 425, 810];
     const maxColumn = Math.max(...columns.map(column => column.length), 1);
-    const rowGap = 26;
+    const rowGap = 30;
     const height = Math.max(360, maxColumn * (nodeHeight + rowGap) + 54);
     const positioned = new Map();
 
@@ -1013,7 +1144,8 @@ function graphNodeTypeLabel(type) {
         file: '文件蜜点',
         url: '寄生页面',
         service: '账户服务',
-        event: '事件',
+        behavior: '行为阶段',
+        other: '聚合节点',
     };
     return labels[type] || type || '未知';
 }
@@ -1023,14 +1155,15 @@ function renderSvgNode(node) {
         <g class="graph-node-svg" transform="translate(${node.x}, ${node.y})">
             <rect class="node-rect ${escapeHtml(node.type)}" width="${node.width}" height="${node.height}" rx="12"></rect>
             <text class="node-title" x="14" y="25">${escapeHtml(shortText(node.label, 28))}</text>
-            <text class="node-meta" x="14" y="47">${escapeHtml(graphNodeTypeLabel(node.type))} · ${escapeHtml(shortText(node.id, 34))}</text>
+            <text class="node-meta" x="14" y="47">${escapeHtml(graphNodeTypeLabel(node.type))} · ${escapeHtml(shortText(node.detail || node.id, 34))}</text>
+            <text class="node-meta" x="14" y="63">聚合事件数 ${escapeHtml(node.count || 0)}</text>
         </g>
     `;
 }
 
-function renderSvgEdge(edge, positionedNodes, index) {
-    const source = positionedNodes.get(compactValue(edge.source));
-    const target = positionedNodes.get(compactValue(edge.target));
+function renderSvgLink(link, positionedNodes, index) {
+    const source = positionedNodes.get(link.source);
+    const target = positionedNodes.get(link.target);
     if (!source || !target) {
         return '';
     }
@@ -1040,18 +1173,16 @@ function renderSvgEdge(edge, positionedNodes, index) {
     const tx = target.x;
     const ty = target.y + target.height / 2;
     const midX = (sx + tx) / 2;
-    const labelY = (sy + ty) / 2 - 7 + ((index % 3) - 1) * 7;
-    const label = actionLabel(edge.action);
-    const stage = edge.stage || edge.tactic || edge.edge_kind || '';
-    const edgeClass = edge.edge_kind === 'correlation' ? 'edge-line correlation' : 'edge-line';
+    const labelY = (sy + ty) / 2 - 7 + ((index % 2) ? 8 : -8);
+    const edgeClass = 'edge-line';
+    const strokeWidth = Math.min(7, 1.6 + Math.log2((link.count || 1) + 1));
     const path = `M ${sx} ${sy} C ${midX} ${sy}, ${midX} ${ty}, ${tx} ${ty}`;
 
     return `
-        <path class="${edgeClass}" d="${path}" marker-end="url(#graph-arrow)"></path>
-        <g transform="translate(${midX - 68}, ${labelY - 15})">
-            <rect class="edge-label-bg" width="136" height="30" rx="10"></rect>
-            <text class="edge-label" x="68" y="13" text-anchor="middle">${escapeHtml(shortText(label, 16))}</text>
-            <text class="edge-label" x="68" y="25" text-anchor="middle">${escapeHtml(shortText(stage, 18))}</text>
+        <path class="${edgeClass}" d="${path}" marker-end="url(#graph-arrow)" style="stroke-width:${strokeWidth.toFixed(1)}"></path>
+        <g transform="translate(${midX - 48}, ${labelY - 11})">
+            <rect class="edge-label-bg" width="96" height="22" rx="9"></rect>
+            <text class="edge-label" x="48" y="15" text-anchor="middle">${escapeHtml(link.label)}</text>
         </g>
     `;
 }
@@ -1059,19 +1190,18 @@ function renderSvgEdge(edge, positionedNodes, index) {
 function renderGraphVisual(edges) {
     const visual = document.getElementById('graphVisual');
     const model = buildGraphVisualModel(edges);
-    if (!model.edges.length || !model.nodes.length) {
+    if (!model.links.length || !model.nodes.length) {
         visual.innerHTML = '<div class="empty-row">暂无可视化关系边。</div>';
         return;
     }
     const layout = layoutGraphNodes(model.nodes);
-    const edgeSvg = model.edges.map((edge, index) => renderSvgEdge(edge, layout.nodes, index)).join('');
+    const edgeSvg = model.links.map((link, index) => renderSvgLink(link, layout.nodes, index)).join('');
     const nodeSvg = Array.from(layout.nodes.values()).map(renderSvgNode).join('');
-    const sampleEdges = model.edges.slice(-8).map(edge => {
-        const source = shortText(edge.subject_label || edge.source, 24);
-        const target = shortText(edge.object_label || edge.target, 24);
-        return `${source} -> ${actionLabel(edge.action)} -> ${target}`;
-    });
+    const sampleEdges = model.relations.map(relation => (
+        `${shortText(relation.source.label, 18)} -> ${relation.behavior.label} -> ${shortText(relation.target.label, 22)}，n=${relation.count}`
+    ));
     visual.innerHTML = `
+        <p class="graph-caption">论文聚合视图：将 ${escapeHtml(model.rawEventCount)} 条事件边按“攻击实体 - 行为阶段 - 蜜点目标”聚合，默认展示 Top ${escapeHtml(model.relations.length)} 组关系；边宽和 n 值表示触发次数。</p>
         <svg class="graph-svg" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="攻击图谱节点边可视化">
             <defs>
                 <marker id="graph-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -1082,9 +1212,10 @@ function renderGraphVisual(edges) {
             ${nodeSvg}
         </svg>
         <div class="graph-legend">
-            <span>左侧：攻击来源/浏览器指纹</span>
-            <span>右侧：文件、URL、服务目标</span>
-            <span>箭头：事件或同源关联方向</span>
+            <span>左侧：攻击实体</span>
+            <span>中间：行为/阶段</span>
+            <span>右侧：蜜点目标</span>
+            <span>边宽：聚合触发次数</span>
         </div>
         <div class="graph-edge-samples">
             ${sampleEdges.map(item => `<span>${escapeHtml(item)}</span>`).join('')}
