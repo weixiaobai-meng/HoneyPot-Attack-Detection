@@ -114,10 +114,56 @@ def _default_balanced_analysis_run_dir():
     return repo_root / "experiments" / "runs" / f"ui_balanced_live_{stamp}"
 
 
+def _default_live_analysis_run_dir():
+    repo_root = _analysis_repo_root()
+    stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
+    return repo_root / "experiments" / "runs" / f"ui_live_{stamp}"
+
+
 def _default_scenario_analysis_run_dir():
     repo_root = _analysis_repo_root()
     stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
     return repo_root / "experiments" / "runs" / f"ui_controlled_scenario_{stamp}"
+
+
+def _latest_analysis_pointer_path():
+    repo_root = _analysis_repo_root()
+    return repo_root / "deployment" / "output" / "latest_analysis_run.json"
+
+
+def _write_latest_analysis_run(run_dir_path, summary=None):
+    if not run_dir_path:
+        return
+    pointer_path = _latest_analysis_pointer_path()
+    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_dir": _analysis_run_dir_text(run_dir_path),
+        "updated_at": datetime.now(pytz.timezone("Asia/Shanghai")).isoformat(),
+        "mode": (summary or {}).get("mode", ""),
+        "generated_at": (summary or {}).get("generated_at", ""),
+        "total_alerts": (summary or {}).get("total_alerts", 0),
+    }
+    pointer_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _latest_analysis_run_dir():
+    pointer_path = _latest_analysis_pointer_path()
+    if not pointer_path.exists():
+        return None
+    try:
+        payload = json.loads(pointer_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    run_dir = str(payload.get("run_dir") or "").strip()
+    if not run_dir:
+        return None
+    try:
+        resolved = _resolve_analysis_run_dir(run_dir)
+    except ValueError:
+        return None
+    if not resolved.exists():
+        return None
+    return resolved
 
 
 def _analysis_run_dir_text(run_dir_path):
@@ -134,7 +180,7 @@ def _analysis_paths(run_dir_value=None):
     _analysis_repo_root()
     from deployment.export_alerts_to_step1 import build_default_paths, build_run_paths, rel
 
-    run_dir = _resolve_analysis_run_dir(run_dir_value)
+    run_dir = _resolve_analysis_run_dir(run_dir_value) if run_dir_value else _latest_analysis_run_dir()
     paths = build_run_paths(run_dir) if run_dir else build_default_paths()
     rel_paths = {}
     for key, value in paths.items():
@@ -2375,7 +2421,7 @@ def api_analysis_live():
         return jsonify({"code": 1, "message": "hours must be >= 0", "data": {}}), 400
 
     try:
-        run_dir_path = _resolve_analysis_run_dir(run_dir) if run_dir else None
+        run_dir_path = _resolve_analysis_run_dir(run_dir) if run_dir else _default_live_analysis_run_dir()
     except ValueError as e:
         return jsonify({"code": 1, "message": str(e), "data": {}}), 400
 
@@ -2386,6 +2432,10 @@ def api_analysis_live():
         from deployment.export_alerts_to_step1 import export_live as export_live_analysis
 
         summary = export_live_analysis(hours=hours, run_dir=run_dir_path)
+        run_dir_text = _analysis_run_dir_text(run_dir_path)
+        summary["run_dir"] = run_dir_text
+        summary["analysis_result_url"] = url_for("api.manage_analysis_live", run_dir=run_dir_text)
+        _write_latest_analysis_run(run_dir_path, summary)
         return jsonify({"code": 0, "message": "success", "data": summary})
     except Exception as e:
         current_app.logger.exception("Run live analysis failed")
@@ -2449,6 +2499,7 @@ def api_analysis_live_balanced():
         run_dir_text = _analysis_run_dir_text(run_dir_path)
         summary["run_dir"] = run_dir_text
         summary["analysis_result_url"] = url_for("api.manage_analysis_live", run_dir=run_dir_text)
+        _write_latest_analysis_run(run_dir_path, summary)
         return jsonify({"code": 0, "message": "success", "data": summary})
     except Exception as e:
         current_app.logger.exception("Run balanced live analysis failed")
@@ -2526,6 +2577,7 @@ def api_analysis_live_scenario():
         run_dir_text = _analysis_run_dir_text(run_dir_path)
         summary["run_dir"] = run_dir_text
         summary["analysis_result_url"] = url_for("api.manage_analysis_live", run_dir=run_dir_text)
+        _write_latest_analysis_run(run_dir_path, summary)
         return jsonify({"code": 0, "message": "success", "data": summary})
     except Exception as e:
         current_app.logger.exception("Run controlled scenario analysis failed")
@@ -2646,6 +2698,8 @@ def api_analysis_live_summary():
         summary = _read_analysis_json(paths["summary"], default={}) or {}
         summary.setdefault("outputs", {})
         summary["paths"] = rel_paths
+        if rel_paths.get("base_dir") and rel_paths.get("base_dir") != ".":
+            summary.setdefault("run_dir", rel_paths.get("base_dir"))
         summary["available"] = _analysis_availability(paths)
         return jsonify({"code": 0, "message": "success", "data": summary})
     except Exception as e:

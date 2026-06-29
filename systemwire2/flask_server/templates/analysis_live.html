@@ -8,7 +8,7 @@
             <h1>实时分析结果页</h1>
             <p>
                 基于当前统一告警库，触发 Step1-Step4 原型流水线，展示统一事件、标准三元组、攻击图谱与图转文本输出。
-                本页面用于支撑论文中期答辩与后续实验验证，不影响原有告警产生与展示链路。
+                本页面用于受控实验复现、结果追踪与证据链验证，不影响原有告警产生与展示链路。
             </p>
         </div>
         <div class="hero-actions">
@@ -97,7 +97,7 @@
 
     <section class="summary-panel">
         <div class="summary-left">
-            <h2>运行摘要</h2>
+            <h2>当前结果</h2>
             <p id="summaryText">尚未运行分析。</p>
             <div class="summary-chips">
                 <span class="summary-chip">摘要文件: <code id="summaryPath">-</code></span>
@@ -181,30 +181,89 @@
         </div>
 
         <div class="tab-content" id="tab-graph">
-            <div class="graph-grid">
-                <div class="graph-card graph-overview-card">
-                    <h3>攻击图谱摘要</h3>
-                    <div id="graphOverview" class="graph-overview"></div>
-                </div>
-                <div class="graph-card graph-render-card">
-                    <h3>攻击图谱可视化</h3>
-                    <div id="graphVisual" class="graph-visual">暂无图谱输出。</div>
-                    <details class="debug-details">
-                        <summary>查看 Mermaid 源码</summary>
-                        <pre id="mermaidText" class="graph-code">暂无图谱输出。</pre>
-                    </details>
-                </div>
-                <div class="graph-card">
-                    <h3>攻击者聚类</h3>
-                    <div id="attackerGroupsList" class="list-stack"></div>
-                </div>
-                <div class="graph-card">
-                    <h3>攻击路径组</h3>
-                    <div id="attackPathsList" class="list-stack"></div>
+            <div class="graph-view-switch">
+                <button class="graph-view-btn active" data-graph-view="compare" onclick="switchGraphView('compare')">裁剪对比</button>
+                <button class="graph-view-btn" data-graph-view="timeline" onclick="switchGraphView('timeline')">时序因果链</button>
+                <button class="graph-view-btn" data-graph-view="evidence" onclick="switchGraphView('evidence')">证据边表</button>
+                <button class="graph-view-btn" data-graph-view="aggregate" onclick="switchGraphView('aggregate')">聚合总览</button>
+            </div>
+
+            <div class="graph-view active" id="graph-view-compare">
+                <div class="compare-grid">
+                    <article class="graph-card">
+                        <h3>Raw Graph：裁剪前依赖图</h3>
+                        <div id="rawGraphPanel" class="paper-graph-panel">暂无原始图输出。</div>
+                    </article>
+                    <article class="graph-card">
+                        <h3>Pruned Graph：裁剪后证据链</h3>
+                        <div id="prunedGraphPanel" class="paper-graph-panel">暂无裁剪图输出。</div>
+                    </article>
                 </div>
                 <div class="graph-card">
-                    <h3>图谱元信息</h3>
-                    <div id="graphMetaList" class="kv-grid"></div>
+                    <h3>DQN 裁剪与受控链路评价</h3>
+                    <div id="pruningEvidenceGrid" class="kv-grid"></div>
+                </div>
+            </div>
+
+            <div class="graph-view" id="graph-view-timeline">
+                <div class="graph-grid">
+                    <div class="graph-card graph-render-card">
+                        <h3>Attacker 时序因果链</h3>
+                        <div id="timelineVisual" class="graph-visual">暂无时序链路输出。</div>
+                    </div>
+                    <div class="graph-card">
+                        <h3>关系边说明</h3>
+                        <div id="relationEvidenceList" class="list-stack"></div>
+                    </div>
+                    <div class="graph-card">
+                        <h3>攻击者聚类</h3>
+                        <div id="attackerGroupsList" class="list-stack"></div>
+                    </div>
+                    <div class="graph-card">
+                        <h3>攻击路径组</h3>
+                        <div id="attackPathsList" class="list-stack"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="graph-view" id="graph-view-evidence">
+                <div class="table-wrap">
+                    <table class="analysis-table evidence-table">
+                        <thead>
+                            <tr>
+                                <th>时间</th>
+                                <th>边类型</th>
+                                <th>关系/动作</th>
+                                <th>主体</th>
+                                <th>客体</th>
+                                <th>置信度</th>
+                                <th>裁剪状态</th>
+                                <th>证据说明</th>
+                            </tr>
+                        </thead>
+                        <tbody id="evidenceTable"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="graph-view" id="graph-view-aggregate">
+                <div class="graph-grid">
+                    <div class="graph-card graph-overview-card">
+                        <h3>聚合图谱摘要</h3>
+                        <div id="graphOverview" class="graph-overview"></div>
+                    </div>
+                    <div class="graph-card graph-render-card">
+                        <h3>多源蜜点告警聚合视图</h3>
+                        <div id="graphVisual" class="graph-visual">暂无图谱输出。</div>
+                        <details class="debug-details">
+                            <summary>查看 Mermaid 源码</summary>
+                            <pre id="mermaidText" class="graph-code">暂无图谱输出。</pre>
+                        </details>
+                    </div>
+                    <div class="graph-card">
+                        <h3>图谱元信息</h3>
+                        <div id="graphMetaList" class="kv-grid"></div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -213,7 +272,7 @@
             <div class="thesis-layout">
                 <article class="text-card thesis-main-card">
                     <div class="text-title-row">
-                        <h3 id="textMainTitle">论文式综合分析</h3>
+                        <h3 id="textMainTitle">实验综合分析</h3>
                         <span id="llmMetaChip" class="llm-meta-chip">确定性图转文本</span>
                     </div>
                     <pre id="textThesis">暂无文本输出。</pre>
@@ -261,6 +320,9 @@ body,
     --text: #eef7ee;
     --muted: #95a79f;
     --green: #7ddc8b;
+    --cyan: #5bd6d6;
+    --amber: #f5b45b;
+    --rose: #f08aa5;
     --bg: #07100f;
     height: auto;
     min-height: 100%;
@@ -290,10 +352,11 @@ body,
 }
 .analysis-hero {
     display: grid;
-    grid-template-columns: minmax(420px, 1fr) 360px;
-    gap: 12px;
-    padding: 18px 22px;
-    border-radius: 24px;
+    grid-template-columns: minmax(360px, 1fr) minmax(480px, 660px);
+    align-items: start;
+    gap: 14px;
+    padding: 16px 18px;
+    border-radius: 18px;
     margin-bottom: 12px;
 }
 .eyebrow {
@@ -314,13 +377,14 @@ body,
 }
 .hero-copy h1 {
     margin: 10px 0 8px;
-    font: 800 clamp(28px, 3.2vw, 44px)/.98 'Space Grotesk', 'Noto Sans SC', sans-serif;
-    letter-spacing: -.04em;
+    font: 800 clamp(26px, 2.8vw, 38px)/1.04 'Space Grotesk', 'Noto Sans SC', sans-serif;
+    letter-spacing: 0;
 }
 .hero-copy p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.68; }
 .hero-actions {
     display: grid;
-    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
     align-content: start;
 }
 .hero-actions label,
@@ -341,9 +405,9 @@ body,
     border: 1px solid rgba(148, 163, 184, 0.24);
     background: rgba(5, 13, 12, 0.85);
     color: var(--text);
-    border-radius: 14px;
-    padding: 10px 12px;
-    font-size: 14px;
+    border-radius: 10px;
+    padding: 9px 10px;
+    font-size: 13px;
 }
 .analysis-input::placeholder { color: #70817b; }
 .analysis-btn {
@@ -351,8 +415,9 @@ body,
     align-items: center;
     justify-content: center;
     gap: 8px;
-    border-radius: 14px;
-    padding: 10px 14px;
+    min-height: 38px;
+    border-radius: 10px;
+    padding: 9px 12px;
     font-weight: 700;
     text-decoration: none;
     border: 1px solid rgba(148, 163, 184, 0.24);
@@ -365,14 +430,14 @@ body,
 .analysis-btn.ghost { background: rgba(255,255,255,.03); }
 .metric-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 10px;
     margin-bottom: 12px;
 }
 .metric-card {
-    min-height: 96px;
-    border-radius: 20px;
-    padding: 14px 16px;
+    min-height: 86px;
+    border-radius: 14px;
+    padding: 12px 14px;
 }
 .metric-kicker {
     display: block;
@@ -384,7 +449,7 @@ body,
 .metric-card strong {
     display: block;
     margin-top: 10px;
-    font: 800 30px/1 'Space Grotesk', sans-serif;
+    font: 800 27px/1 'Space Grotesk', sans-serif;
 }
 .metric-card span:last-child { display: block; margin-top: 8px; }
 .status-banner {
@@ -399,7 +464,7 @@ body,
     background: linear-gradient(145deg, rgba(60, 17, 31, .92), rgba(38, 10, 18, .82));
 }
 .summary-panel {
-    display: grid;
+    display: none;
     grid-template-columns: 1fr 320px;
     gap: 12px;
     border-radius: 22px;
@@ -519,9 +584,38 @@ body,
     grid-template-columns: 1.3fr 1fr;
     gap: 12px;
 }
+.graph-view-switch {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.graph-view-btn {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 999px;
+    background: rgba(255,255,255,.03);
+    color: var(--text);
+    min-height: 36px;
+    padding: 8px 13px;
+    cursor: pointer;
+    font-weight: 800;
+}
+.graph-view-btn.active {
+    border-color: rgba(125, 220, 139, 0.34);
+    background: linear-gradient(135deg, rgba(125,220,139,.2), rgba(91,214,214,.14));
+    color: #edfff1;
+}
+.graph-view { display: none; }
+.graph-view.active { display: block; }
+.compare-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
 .graph-card,
 .text-card {
-    border-radius: 18px;
+    border-radius: 14px;
     padding: 14px;
 }
 .graph-card h3,
@@ -580,6 +674,91 @@ body,
     border: 1px solid rgba(148, 163, 184, 0.12);
     background: rgba(3, 10, 9, 0.78);
     padding: 14px;
+}
+.paper-graph-panel {
+    min-height: 360px;
+    overflow: auto;
+    border-radius: 14px;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    background: rgba(3, 10, 9, 0.78);
+    padding: 12px;
+}
+.paper-graph-svg {
+    display: block;
+    min-width: 620px;
+    width: 100%;
+    font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+.paper-graph-svg .noise-edge {
+    stroke: rgba(148, 163, 184, 0.18);
+    stroke-width: 1;
+}
+.paper-graph-svg .core-edge {
+    stroke: rgba(125, 220, 139, 0.74);
+    stroke-width: 2.4;
+}
+.paper-graph-svg .restored-edge {
+    stroke: rgba(245, 180, 91, 0.8);
+    stroke-width: 2.4;
+    stroke-dasharray: 6 4;
+}
+.paper-graph-svg .node-dot {
+    fill: rgba(91, 214, 214, 0.52);
+    stroke: rgba(238, 247, 238, 0.22);
+}
+.paper-graph-svg .timeline-node {
+    fill: rgba(12, 28, 26, 0.98);
+    stroke: rgba(125, 220, 139, 0.44);
+    stroke-width: 1.4;
+}
+.paper-graph-svg .timeline-node.account { stroke: rgba(245, 180, 91, 0.62); }
+.paper-graph-svg .timeline-node.file { stroke: rgba(125, 220, 139, 0.62); }
+.paper-graph-svg .timeline-node.parasitic { stroke: rgba(91, 214, 214, 0.62); }
+.paper-graph-svg .svg-title {
+    fill: #eef7ee;
+    font-size: 13px;
+    font-weight: 800;
+}
+.paper-graph-svg .svg-subtitle,
+.paper-graph-svg .svg-label {
+    fill: #a8b9b1;
+    font-size: 11px;
+    font-weight: 700;
+}
+.paper-graph-svg .intent-band {
+    fill: rgba(91, 214, 214, 0.08);
+    stroke: rgba(91, 214, 214, 0.22);
+    stroke-dasharray: 7 5;
+}
+.paper-panel-note {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+}
+.evidence-table {
+    min-width: 1180px;
+}
+.evidence-status {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 800;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+}
+.evidence-status.kept { color: #bcf5c4; background: rgba(125, 220, 139, 0.08); }
+.evidence-status.pruned { color: #c8d0cc; background: rgba(148, 163, 184, 0.08); }
+.evidence-status.restored { color: #ffe0a8; background: rgba(245, 180, 91, 0.1); }
+.relation-pill {
+    display: inline-flex;
+    border-radius: 999px;
+    padding: 4px 9px;
+    background: rgba(91, 214, 214, 0.08);
+    border: 1px solid rgba(91, 214, 214, 0.22);
+    color: #bff4ef;
+    font-size: 12px;
+    font-weight: 800;
 }
 .graph-svg {
     display: block;
@@ -733,11 +912,14 @@ body,
 }
 @media (max-width: 1200px) {
     .analysis-hero,
-    .summary-panel,
     .graph-grid,
+    .compare-grid,
     .text-grid,
     .thesis-layout {
         grid-template-columns: 1fr;
+    }
+    .hero-actions {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
     .metric-grid {
         grid-template-columns: repeat(2, 1fr);
@@ -750,6 +932,9 @@ body,
     .metric-grid {
         grid-template-columns: 1fr;
     }
+    .hero-actions {
+        grid-template-columns: 1fr;
+    }
 }
 </style>
 {% endblock %}
@@ -760,8 +945,10 @@ let analysisSummary = null;
 let analysisEvents = [];
 let analysisTriples = [];
 let analysisGraph = null;
+let analysisPrunedGraph = null;
 let analysisTexts = null;
 let activeTab = 'events';
+let activeGraphView = 'compare';
 let analysisRunDir = new URLSearchParams(window.location.search).get('run_dir') || '';
 
 function withAnalysisRunDir(url) {
@@ -799,6 +986,12 @@ function switchTab(name) {
     activeTab = name;
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === name));
     document.querySelectorAll('.tab-content').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${name}`));
+}
+
+function switchGraphView(name) {
+    activeGraphView = name;
+    document.querySelectorAll('.graph-view-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.graphView === name));
+    document.querySelectorAll('.graph-view').forEach(panel => panel.classList.toggle('active', panel.id === `graph-view-${name}`));
 }
 
 async function fetchJson(url, options = {}) {
@@ -967,6 +1160,313 @@ function renderTriples() {
             <td>${formatTripleCell(item.object)}</td>
         </tr>
     `).join('');
+}
+
+function relationLabel(relation) {
+    const labels = {
+        subject_action_object: '标准三元组',
+        same_source_ip: '同源 IP',
+        same_fingerprint: '同浏览器指纹',
+        same_session: '同会话',
+        same_account_probe: '同账户探测',
+        same_attack_path: '同攻击路径',
+        controlled_chain_member: '受控链路成员',
+        stage_transition: '阶段递进',
+        web_to_account: 'Web 探测到账号尝试',
+        account_to_file: '账号阶段到文件访问',
+        web_to_file: 'Web 探测到文件访问',
+        account_to_web_followup: '账号后续 Web 活动',
+        file_to_account_followup: '文件后续账号活动',
+        file_to_web_followup: '文件后续 Web 活动',
+    };
+    return labels[relation] || relation || '-';
+}
+
+function relationExplanation(relation) {
+    const explanations = {
+        same_source_ip: '源 IP 一致，只能作为弱关联证据。',
+        same_fingerprint: 'Canvas/浏览器指纹一致，说明不同阶段可能来自同一浏览器实体。',
+        same_session: '会话标识一致，说明访问链路具有连续性。',
+        controlled_chain_member: '该边属于受控实验核心链路标注，不回写原始数据库。',
+        stage_transition: '攻击阶段按侦察、初始访问、收集等顺序递进。',
+        web_to_account: '寄生蜜点探测后出现账号/服务尝试，构成跨蜜点阶段转换。',
+        account_to_file: '账号阶段后触发文件蜜点，体现从访问尝试到数据目标的推进。',
+        web_to_file: 'Web 探测后直接触发文件蜜点，可能体现诱饵资源访问链路。',
+        same_attack_path: '时间窗与攻击者聚类共同指向同一攻击路径。',
+    };
+    return explanations[relation] || '由图构建阶段根据时间、主体锚点和事件语义生成。';
+}
+
+function graphMeta(graph) {
+    return (graph && graph.graph_meta) || {};
+}
+
+function graphEdges(graph) {
+    return (graph && graph.edges) || [];
+}
+
+function graphNodes(graph) {
+    return (graph && graph.nodes) || [];
+}
+
+function controlledEval() {
+    const pruning = (analysisSummary && analysisSummary.pruning_stats) || {};
+    return (analysisSummary && analysisSummary.controlled_label_eval) || pruning.controlled_label_eval || {};
+}
+
+function formatPercentValue(value) {
+    return (typeof value === 'number' && Number.isFinite(value)) ? `${(value * 100).toFixed(1)}%` : '-';
+}
+
+function prunedEdgeIdSet() {
+    return new Set(graphEdges(analysisPrunedGraph || analysisGraph).map(edge => String(edge.edge_id || '')).filter(Boolean));
+}
+
+function restoredEdgeIdSet() {
+    const guardrail = (analysisPrunedGraph && analysisPrunedGraph.controlled_label_guardrail) || {};
+    return new Set((guardrail.restored_core_edges || []).map(String));
+}
+
+function edgePruningStatus(edge) {
+    const edgeId = String(edge.edge_id || '');
+    const restoredIds = restoredEdgeIdSet();
+    const keptIds = prunedEdgeIdSet();
+    if (restoredIds.has(edgeId)) {
+        return { key: 'restored', label: '证据保护恢复' };
+    }
+    if (keptIds.has(edgeId)) {
+        return { key: 'kept', label: '裁剪后保留' };
+    }
+    return { key: 'pruned', label: '裁剪删除' };
+}
+
+function eventTypeClass(edge) {
+    const type = compactValue(edge.object_type || edge.subject_type || '').toLowerCase();
+    if (type.includes('service')) return 'account';
+    if (type.includes('file')) return 'file';
+    if (type.includes('url') || type.includes('browser')) return 'parasitic';
+    const action = compactValue(edge.action || '').toLowerCase();
+    if (action.includes('ssh') || action.includes('vpn')) return 'account';
+    if (action.includes('file') || action === 'read' || action === 'openat') return 'file';
+    if (action.includes('url')) return 'parasitic';
+    return 'unknown';
+}
+
+function relationEdges(graph) {
+    return graphEdges(graph).filter(edge => edge.edge_kind === 'correlation');
+}
+
+function eventEdges(graph) {
+    return graphEdges(graph).filter(edge => edge.edge_kind === 'event');
+}
+
+function eventSequenceFromGraph(graph) {
+    const sequence = (graph && graph.event_sequence) || [];
+    if (sequence.length) {
+        return sequence.slice().sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+    }
+    return eventEdges(graph).map(edge => ({
+        event_id: edge.event_id,
+        timestamp: edge.timestamp,
+        action: edge.action,
+        stage: edge.stage,
+        source_id: edge.source,
+        object_id: edge.target,
+        canonical_event: {
+            event_type: eventTypeClass(edge),
+            source: { label: edge.subject_label, id: edge.source },
+            object: { label: edge.object_label, id: edge.target },
+        },
+    })).sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+}
+
+function relationBetweenEvents(graph, previousId, currentId) {
+    const relation = relationEdges(graph).find(edge => {
+        const raw = edge.raw_data || {};
+        return (
+            (raw.previous_event_id === previousId && raw.current_event_id === currentId) ||
+            (edge.source === `event:${previousId}` && edge.target === `event:${currentId}`)
+        );
+    });
+    return relation ? relation.relation_type : '';
+}
+
+function renderRawGraphSvg(graph) {
+    const nodes = graphNodes(graph);
+    const edges = graphEdges(graph);
+    const nodeCount = nodes.length;
+    const edgeCount = edges.length;
+    const width = 720;
+    const height = 300;
+    const centerX = width / 2;
+    const centerY = 160;
+    const sampleNodes = Math.max(8, Math.min(48, nodeCount || 8));
+    const sampleEdges = Math.min(120, edgeCount || 0);
+    const positions = [];
+    for (let i = 0; i < sampleNodes; i += 1) {
+        const ring = i % 3;
+        const radius = 58 + ring * 44 + ((i * 17) % 18);
+        const angle = (i * 137.5 * Math.PI) / 180;
+        positions.push({
+            x: centerX + Math.cos(angle) * radius,
+            y: centerY + Math.sin(angle) * radius * 0.72,
+        });
+    }
+    const lines = [];
+    for (let i = 0; i < sampleEdges; i += 1) {
+        const a = positions[i % sampleNodes];
+        const b = positions[(i * 7 + 5) % sampleNodes];
+        lines.push(`<line class="noise-edge" x1="${a.x.toFixed(1)}" y1="${a.y.toFixed(1)}" x2="${b.x.toFixed(1)}" y2="${b.y.toFixed(1)}"></line>`);
+    }
+    const dots = positions.map((p, idx) => `<circle class="node-dot" cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${idx % 5 === 0 ? 5 : 3.5}"></circle>`).join('');
+    return `
+        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪前原始依赖图">
+            <text class="svg-title" x="18" y="28">Raw Graph</text>
+            <text class="svg-subtitle" x="18" y="50">节点 ${escapeHtml(nodeCount)} / 边 ${escapeHtml(edgeCount)} / 含噪声关联</text>
+            <g>${lines.join('')}${dots}</g>
+        </svg>
+        <p class="paper-panel-note">原始图保留全部事件边与关联边，适合展示高噪声背景下的依赖爆炸问题。</p>
+    `;
+}
+
+function renderTimelineSvg(graph, title = 'Pruned Graph') {
+    const sequence = eventSequenceFromGraph(graph).slice(0, 7);
+    const edges = graphEdges(graph);
+    if (!sequence.length) {
+        return '<div class="empty-row">暂无可还原的时序事件。</div>';
+    }
+    const width = Math.max(760, sequence.length * 170);
+    const height = 320;
+    const startX = 72;
+    const stepX = sequence.length > 1 ? (width - 144) / (sequence.length - 1) : 0;
+    const nodeY = 172;
+    const lineParts = [];
+    const nodeParts = [];
+    const intentStart = 42;
+    const intentWidth = Math.max(220, width - 84);
+
+    sequence.forEach((item, index) => {
+        const event = item.canonical_event || {};
+        const eventType = event.event_type || event.alert_type || 'unknown';
+        const x = startX + index * stepX;
+        const action = actionLabel(item.action || event.action || '-');
+        const target = shortText((event.object || {}).label || (event.object || {}).path || item.object_id || '-', 24);
+        const time = shortText(String(item.timestamp || '').replace('T', ' '), 19);
+        nodeParts.push(`
+            <g transform="translate(${x - 58}, ${nodeY - 44})">
+                <rect class="timeline-node ${escapeHtml(eventType)}" width="116" height="88" rx="10"></rect>
+                <text class="svg-title" x="12" y="24">${escapeHtml(action)}</text>
+                <text class="svg-label" x="12" y="45">${escapeHtml(typePillText(eventType))}</text>
+                <text class="svg-label" x="12" y="63">${escapeHtml(target)}</text>
+                <text class="svg-label" x="12" y="80">${escapeHtml(time)}</text>
+            </g>
+        `);
+        if (index > 0) {
+            const previous = sequence[index - 1];
+            const relation = relationBetweenEvents(graph, previous.event_id, item.event_id) || 'stage_transition';
+            const x1 = startX + (index - 1) * stepX + 58;
+            const x2 = x - 58;
+            const labelX = (x1 + x2) / 2;
+            lineParts.push(`
+                <line class="${relation.includes('guard') ? 'restored-edge' : 'core-edge'}" x1="${x1}" y1="${nodeY}" x2="${x2}" y2="${nodeY}" marker-end="url(#paper-arrow)"></line>
+                <text class="svg-label" x="${labelX}" y="${nodeY - 18}" text-anchor="middle">${escapeHtml(relationLabel(relation))}</text>
+            `);
+        }
+    });
+
+    const kept = edges.length;
+    return `
+        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后时序因果链">
+            <defs>
+                <marker id="paper-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(125, 220, 139, 0.8)"></path>
+                </marker>
+            </defs>
+            <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
+            <text class="svg-subtitle" x="18" y="50">保留边 ${escapeHtml(kept)} / 展示前 ${escapeHtml(sequence.length)} 个时序事件</text>
+            <rect class="intent-band" x="${intentStart}" y="92" width="${intentWidth}" height="154" rx="18"></rect>
+            <text class="svg-label" x="${intentStart + 14}" y="116">Semantic Overlay：跨蜜点多阶段攻击链，由证据边和裁剪指标共同支撑</text>
+            ${lineParts.join('')}
+            ${nodeParts.join('')}
+        </svg>
+        <p class="paper-panel-note">裁剪后视图按时间展开攻击主体生命周期，边标签显示该链路成立的证据类型。</p>
+    `;
+}
+
+function typePillText(type) {
+    const labels = { file: '文件蜜点', account: '账户蜜点', parasitic: '寄生蜜点', audit: '审计事件', unknown: '未知类型' };
+    return labels[type] || type || '未知类型';
+}
+
+function renderGraphCompare() {
+    const rawPanel = document.getElementById('rawGraphPanel');
+    const prunedPanel = document.getElementById('prunedGraphPanel');
+    const metricGrid = document.getElementById('pruningEvidenceGrid');
+    const prunedGraph = analysisPrunedGraph || analysisGraph;
+    const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
+    const evalData = controlledEval();
+    rawPanel.innerHTML = analysisGraph ? renderRawGraphSvg(analysisGraph) : '<div class="empty-row">暂无原始图输出。</div>';
+    prunedPanel.innerHTML = prunedGraph ? renderTimelineSvg(prunedGraph, 'Pruned Graph') : '<div class="empty-row">暂无裁剪图输出。</div>';
+    const before = evalData.before_guardrail || {};
+    const metrics = [
+        ['原始边数', pruning.original_edges ?? graphEdges(analysisGraph).length ?? '-'],
+        ['保留边数', pruning.kept_edges ?? graphEdges(prunedGraph).length ?? '-'],
+        ['剪除边数', pruning.pruned_edges ?? '-'],
+        ['压缩率', pruning.compression_ratio || '-'],
+        ['核心链保留率', formatPercentValue(evalData.core_chain_recall)],
+        ['噪声过滤率', formatPercentValue(evalData.noise_filter_rate)],
+        ['保护前核心链', formatPercentValue(before.core_chain_recall)],
+        ['证据保护恢复', pruning.restored_core_edges ?? '-'],
+    ];
+    metricGrid.innerHTML = metrics.map(([label, value]) => `
+        <div class="kv-item">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+        </div>
+    `).join('');
+}
+
+function renderTimelineView() {
+    const visual = document.getElementById('timelineVisual');
+    const relationList = document.getElementById('relationEvidenceList');
+    const prunedGraph = analysisPrunedGraph || analysisGraph;
+    visual.innerHTML = prunedGraph ? renderTimelineSvg(prunedGraph, 'Attacker Timeline') : '<div class="empty-row">暂无时序链路输出。</div>';
+    const relations = relationEdges(prunedGraph || analysisGraph).slice(0, 12);
+    relationList.innerHTML = relations.length ? relations.map(edge => `
+        <div class="list-item">
+            <strong><span class="relation-pill">${escapeHtml(relationLabel(edge.relation_type))}</span> · ${escapeHtml(shortText(edge.timestamp, 22))}</strong>
+            <p>${escapeHtml(relationExplanation(edge.relation_type))}</p>
+            <p>from ${escapeHtml(shortText(edge.source, 42))} to ${escapeHtml(shortText(edge.target, 42))}，confidence=${escapeHtml(edge.confidence ?? '-')}</p>
+        </div>
+    `).join('') : '<div class="list-item"><p>暂无关系边证据。</p></div>';
+}
+
+function renderEvidenceTable() {
+    const tbody = document.getElementById('evidenceTable');
+    const edges = graphEdges(analysisGraph).slice().sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+    if (!edges.length) {
+        tbody.innerHTML = '<tr class="empty-row"><td colspan="8">暂无证据边。</td></tr>';
+        return;
+    }
+    tbody.innerHTML = edges.slice(0, 400).map(edge => {
+        const status = edgePruningStatus(edge);
+        const relation = edge.edge_kind === 'correlation' ? relationLabel(edge.relation_type) : actionLabel(edge.action);
+        const evidence = edge.edge_kind === 'correlation'
+            ? relationExplanation(edge.relation_type)
+            : `${edge.subject_type || '-'} -> ${edge.object_type || '-'}，path=${edge.path_id || '-'}`;
+        return `
+            <tr>
+                <td>${escapeHtml(shortText(edge.timestamp, 24))}</td>
+                <td>${escapeHtml(edge.edge_kind || '-')}</td>
+                <td>${escapeHtml(relation)}</td>
+                <td>${escapeHtml(shortText(edge.subject_label || edge.source, 80))}</td>
+                <td>${escapeHtml(shortText(edge.object_label || edge.target, 80))}</td>
+                <td>${escapeHtml(edge.confidence ?? '-')}</td>
+                <td><span class="evidence-status ${escapeHtml(status.key)}">${escapeHtml(status.label)}</span></td>
+                <td>${escapeHtml(shortText(evidence, 180))}</td>
+            </tr>
+        `;
+    }).join('');
 }
 
 function renderGraphOverview(meta, attackers, paths, edges) {
@@ -1261,7 +1761,7 @@ function renderGraphVisual(edges) {
         `${shortText(relation.source.label, 18)} -> ${relation.behavior.label} -> ${shortText(relation.target.label, 22)}，n=${relation.count}`
     ));
     visual.innerHTML = `
-        <p class="graph-caption">论文聚合视图：将 ${escapeHtml(model.rawEventCount)} 条事件边按“攻击实体 - 行为阶段 - 蜜点目标”聚合，默认展示 Top ${escapeHtml(model.relations.length)} 组关系；边宽和 n 值表示触发次数。</p>
+        <p class="graph-caption">多源告警聚合视图：将 ${escapeHtml(model.rawEventCount)} 条事件边按“攻击实体 - 行为阶段 - 蜜点目标”聚合，默认展示 Top ${escapeHtml(model.relations.length)} 组关系；边宽和 n 值表示触发次数。</p>
         <svg class="graph-svg" viewBox="0 0 ${layout.width} ${layout.height}" role="img" aria-label="攻击图谱节点边可视化">
             <defs>
                 <marker id="graph-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
@@ -1294,6 +1794,12 @@ function renderGraph() {
         mermaid.textContent = '暂无图谱输出。';
         visual.textContent = '暂无图谱输出。';
         overview.innerHTML = '';
+        document.getElementById('rawGraphPanel').innerHTML = '<div class="empty-row">暂无原始图输出。</div>';
+        document.getElementById('prunedGraphPanel').innerHTML = '<div class="empty-row">暂无裁剪图输出。</div>';
+        document.getElementById('timelineVisual').innerHTML = '<div class="empty-row">暂无时序链路输出。</div>';
+        document.getElementById('pruningEvidenceGrid').innerHTML = '';
+        document.getElementById('relationEvidenceList').innerHTML = '<div class="list-item"><p>暂无关系边证据。</p></div>';
+        document.getElementById('evidenceTable').innerHTML = '<tr class="empty-row"><td colspan="8">暂无证据边。</td></tr>';
         attackerList.innerHTML = '<div class="list-item"><p>暂无攻击者聚类。</p></div>';
         pathList.innerHTML = '<div class="list-item"><p>暂无攻击路径组。</p></div>';
         metaList.innerHTML = '';
@@ -1304,6 +1810,9 @@ function renderGraph() {
     const paths = analysisGraph.attack_paths || [];
     const edges = analysisGraph.edges || [];
     const meta = analysisGraph.graph_meta || {};
+    renderGraphCompare();
+    renderTimelineView();
+    renderEvidenceTable();
     renderGraphOverview(meta, attackers, paths, edges);
     renderGraphVisual(edges);
     attackerList.innerHTML = attackers.length ? attackers.map(item => `
@@ -1371,7 +1880,7 @@ function renderTexts() {
     const meta = (analysisTexts && analysisTexts.llm_report_meta) || {};
     const title = document.getElementById('textMainTitle');
     const chip = document.getElementById('llmMetaChip');
-    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '论文式综合分析';
+    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '实验综合分析';
     if (llmReport) {
         const model = meta.model || 'deepseek';
         const generatedAt = meta.generated_at ? String(meta.generated_at).replace('T', ' ').slice(0, 19) : '已生成';
@@ -1388,12 +1897,15 @@ function renderTexts() {
     renderReportItems('reportSummary', [
         { title: '实验输入与图规模', body: extractSection(sectionSource, '1. 实验输入与图规模') },
         { title: '蜜点行为分布', body: extractSection(sectionSource, '2. 蜜点行为分布') },
-        { title: '可写入论文的结论表述', body: extractSection(sectionSource, '7. 可写入论文的结论表述') },
+        { title: '实验结论与适用边界', body: extractSection(sectionSource, '7. 实验结论与适用边界') },
     ]);
 }
 
 async function loadSummary() {
     analysisSummary = await fetchJson(withAnalysisRunDir('/api/analysis/live/summary'));
+    if (!analysisRunDir && analysisSummary.run_dir) {
+        setAnalysisRunDir(analysisSummary.run_dir);
+    }
     updateSummaryCards(analysisSummary);
 }
 
@@ -1411,6 +1923,11 @@ async function loadTriples() {
 
 async function loadGraph() {
     analysisGraph = await fetchJson(withAnalysisRunDir('/api/analysis/live/graph'));
+    try {
+        analysisPrunedGraph = await fetchJson(withAnalysisRunDir('/api/analysis/live/graph?pruned=1'));
+    } catch (error) {
+        analysisPrunedGraph = null;
+    }
     renderGraph();
 }
 
@@ -1435,14 +1952,14 @@ async function refreshAnalysis() {
 
 async function runAnalysis() {
     const hours = Number(document.getElementById('analysisHours').value || 24);
-    setStatus('正在触发 Step1-Step4 实时分析，请稍候...');
+    setStatus('正在触发 Step1-Step4 实时分析，并创建独立实验目录，请稍候...');
     try {
-        setAnalysisRunDir('');
-        await fetchJson('/api/analysis/live', {
+        const summary = await fetchJson('/api/analysis/live', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ hours })
         });
+        setAnalysisRunDir(summary.run_dir || '');
         await refreshAnalysis();
         setStatus(`实时分析已完成，当前分析窗口为最近 ${hours === 0 ? '全部' : hours + ' 小时'}。`);
     } catch (error) {

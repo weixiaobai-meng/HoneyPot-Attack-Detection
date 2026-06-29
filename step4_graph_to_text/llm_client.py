@@ -15,7 +15,7 @@ DEFAULT_TEMPERATURE = 0.2
 DEFAULT_TIMEOUT_SECONDS = 75
 
 SYSTEM_PROMPT = (
-    "You are a senior network-security incident analyst assisting a graduate thesis. "
+    "You are a senior network-security incident analyst assisting a controlled security experiment. "
     "Use only the evidence in the user prompt. Do not invent IP addresses, alert counts, "
     "MITRE ATT&CK mappings, causal links, or remediation facts. If evidence is insufficient, "
     "say so explicitly. Return a structured Chinese Markdown report and clearly mark the "
