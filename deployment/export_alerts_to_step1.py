@@ -14,7 +14,7 @@ import random
 import sys
 from collections import Counter, defaultdict
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Set
 
@@ -135,13 +135,19 @@ def _parse_scenario_timestamp(value: Any) -> datetime:
         raise ValueError("scenario timestamp is required")
     normalized = text.replace("T", " ")
     try:
-        return datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except ValueError as exc:
         raise ValueError(f"invalid scenario timestamp: {text}") from exc
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone(timedelta(hours=8)))
+    return parsed
 
 
 def _alert_timestamp_in_range(alert: UnifiedAlert, start_time: datetime, end_time: datetime) -> bool:
-    return start_time <= alert.timestamp <= end_time
+    alert_time = alert.timestamp
+    if alert_time.tzinfo is None:
+        alert_time = alert_time.replace(tzinfo=timezone(timedelta(hours=8)))
+    return start_time <= alert_time <= end_time
 
 
 def _normalize_identifier_set(values) -> Set[str]:
@@ -1425,6 +1431,24 @@ def _install_dqn_checkpoint(checkpoint_path: Path):
     return result
 
 
+def _apply_manual_labels_to_training_graphs(graphs, label_file: Path):
+    """Overlay controlled-scenario labels onto weak labels for DQN training."""
+    labeled_graphs = []
+    coverages = []
+    for graph in graphs:
+        weak_labels = graph.y.clone() if hasattr(graph, "y") and graph.y is not None else None
+        labeled = attach_manual_labels(graph, str(label_file), strict=False)
+        coverage = getattr(labeled, "manual_label_coverage", None)
+        if coverage is not None:
+            coverages.append(float(coverage))
+        if weak_labels is not None:
+            missing_mask = labeled.y < 0
+            labeled.y[missing_mask] = weak_labels[missing_mask]
+        labeled_graphs.append(labeled)
+    avg_coverage = sum(coverages) / len(coverages) if coverages else 0.0
+    return labeled_graphs, avg_coverage
+
+
 def train_dqn_experiment(
     graph_path: Path,
     output_dir: Path,
@@ -1435,6 +1459,7 @@ def train_dqn_experiment(
     seed: int,
     augment: bool,
     label_file: Path = None,
+    train_with_manual_labels: bool = False,
     install_checkpoint: bool = False,
     device: str = "cpu",
 ):
@@ -1463,6 +1488,11 @@ def train_dqn_experiment(
         augment=augment,
         base_seed=seed,
     )
+    training_manual_label_coverage = None
+    if train_with_manual_labels:
+        if not label_file:
+            raise ValueError("--train-with-manual-labels requires --label-file")
+        graphs, training_manual_label_coverage = _apply_manual_labels_to_training_graphs(graphs, label_file)
     train_graphs, val_graphs, test_graphs = _split_graphs(graphs, seed)
 
     trainer_device = None if str(device).lower() == "auto" else device
@@ -1505,9 +1535,14 @@ def train_dqn_experiment(
             "patience": patience,
             "lr": lr,
             "device": device,
-            "label_source": "deterministic_weak_labels",
+            "label_source": (
+                "manual_controlled_labels_override_weak_labels"
+                if train_with_manual_labels
+                else "deterministic_weak_labels"
+            ),
             "manual_label_eval_file": rel(label_file) if label_file else "",
-            "manual_labels_used_for_training": False,
+            "manual_labels_used_for_training": bool(train_with_manual_labels),
+            "training_manual_label_coverage": training_manual_label_coverage,
         },
         "splits": {
             "train_graphs": len(train_graphs),
@@ -1531,8 +1566,9 @@ def train_dqn_experiment(
             **install_info,
         },
         "note": (
-            "The default labels are deterministic weak labels derived from edge actions; "
-            "use --label-file for human-label evaluation before making strong accuracy claims."
+            "By default labels are deterministic weak labels derived from edge actions. "
+            "When --train-with-manual-labels is set, controlled-scenario labels override weak labels "
+            "for matching edge_ids and unmatched edges retain weak labels for trainability."
         ),
     }
     dump_json(summary_path, summary)
@@ -1848,6 +1884,7 @@ def main():
     dqn_parser.add_argument("--seed", type=int, default=42, help="reproducibility seed")
     dqn_parser.add_argument("--no-augment", action="store_true", help="disable graph augmentation")
     dqn_parser.add_argument("--label-file", type=Path, default=None, help="optional human edge-label JSON for extra evaluation")
+    dqn_parser.add_argument("--train-with-manual-labels", action="store_true", help="use --label-file labels during training; matching edge_ids override weak labels")
     dqn_parser.add_argument("--install-checkpoint", action="store_true", help="copy the trained checkpoint to the default step3 checkpoint path")
     dqn_parser.add_argument("--device", default="cpu", help="cpu, cuda, or auto")
 
@@ -1884,6 +1921,7 @@ def main():
             seed=args.seed,
             augment=not args.no_augment,
             label_file=args.label_file,
+            train_with_manual_labels=args.train_with_manual_labels,
             install_checkpoint=args.install_checkpoint,
             device=args.device,
         )
