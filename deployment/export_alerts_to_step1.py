@@ -1159,17 +1159,24 @@ def run_dqn_pruning(paths, graph_data):
 
 
 def write_step4_outputs(paths, graph_data, pruned):
-    prompt_graph = build_prompt_graph(pruned)
-    thesis_graph = build_prompt_graph(graph_data)
-    thesis_graph["pruning_stats"] = pruned.get("pruning_stats", {})
+    analysis_graph = build_prompt_graph(deepcopy(graph_data))
+    analysis_graph["pruning_stats"] = pruned.get("pruning_stats", {})
+    analysis_graph["pruned_graph_meta"] = pruned.get("graph_meta", {})
+    analysis_graph["pruned_edge_count"] = len(pruned.get("edges", []))
+    analysis_graph["pruned_node_count"] = len(pruned.get("nodes", []))
+    analysis_graph["pruned_relation_counts"] = dict(
+        Counter(edge.get("relation_type") or edge.get("action") or "unknown" for edge in pruned.get("edges", []))
+    )
     if pruned.get("controlled_label_eval"):
-        thesis_graph["controlled_label_eval"] = pruned.get("controlled_label_eval")
+        analysis_graph["controlled_label_eval"] = pruned.get("controlled_label_eval")
+    if pruned.get("controlled_label_guardrail"):
+        analysis_graph["controlled_label_guardrail"] = pruned.get("controlled_label_guardrail")
     converter = GraphToTextConverter()
     prompts = {
-        "intent_analysis": converter.convert_to_llm_prompt(prompt_graph, "intent_analysis"),
-        "ttp_mapping": converter.convert_to_llm_prompt(prompt_graph, "ttp_mapping"),
-        "report": converter.convert_to_llm_prompt(prompt_graph, "report"),
-        "thesis_analysis": converter.convert_to_thesis_analysis(thesis_graph),
+        "intent_analysis": converter.convert_to_llm_prompt(analysis_graph, "intent_analysis"),
+        "ttp_mapping": converter.convert_to_llm_prompt(analysis_graph, "ttp_mapping"),
+        "report": converter.convert_to_llm_prompt(analysis_graph, "report"),
+        "thesis_analysis": converter.convert_to_thesis_analysis(analysis_graph),
     }
     converter.save(prompts["intent_analysis"], str(paths["step4_intent"]))
     converter.save(prompts["ttp_mapping"], str(paths["step4_ttp"]))

@@ -150,6 +150,17 @@ class GraphToTextConverter:
                 f"kept_edges={pruning_stats.get('kept_edges', '-')}, "
                 f"compression_ratio={pruning_stats.get('compression_ratio', '-')}."
             )
+            if pruning_stats.get("fallback_reason"):
+                lines.append(
+                    "DQN did not run successfully in this analysis; "
+                    f"fallback_reason={pruning_stats.get('fallback_reason')}. "
+                    "Treat this as deterministic fallback output, not evidence of DQN pruning effectiveness."
+                )
+            elif str(pruning_stats.get("mode", "")).startswith("deterministic"):
+                lines.append(
+                    "This pruning result was produced by a deterministic fallback heuristic, "
+                    "not by a trained DQN checkpoint."
+                )
         return "\n".join(lines)
 
     def convert_to_llm_prompt(self, graph_data: Dict, task: str = "intent_analysis") -> str:
@@ -164,19 +175,24 @@ class GraphToTextConverter:
         return narrative
 
     def convert_to_thesis_analysis(self, graph_data: Dict) -> str:
-        """Generate a deterministic Chinese thesis-oriented analysis draft."""
+        """Generate a deterministic Chinese experiment analysis summary."""
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
         meta = graph_data.get("graph_meta", {})
         attacker_groups = graph_data.get("attacker_groups", [])
         attack_paths = graph_data.get("attack_paths", [])
         pruning_stats = graph_data.get("pruning_stats", {})
+        pruned_meta = graph_data.get("pruned_graph_meta", {})
         controlled_label_eval = graph_data.get("controlled_label_eval", {})
         controlled_scenarios = graph_data.get("controlled_scenarios", [])
         relation_counts = meta.get("relation_counts", {})
 
         event_edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
         correlation_edges = [edge for edge in edges if edge.get("edge_kind") == "correlation"]
+        actual_node_count = len(nodes)
+        actual_edge_count = len(edges)
+        actual_event_edge_count = len(event_edges)
+        actual_correlation_edge_count = len(correlation_edges)
         action_counts = Counter(edge.get("action") or "unknown" for edge in event_edges)
         stage_counts = Counter(edge.get("stage") or "unknown" for edge in event_edges)
         severity_counts = Counter(edge.get("severity") or "unknown" for edge in event_edges)
@@ -190,20 +206,17 @@ class GraphToTextConverter:
         ]
 
         lines = [
-            "# 多蜜点告警关联分析草稿",
+            "# 多蜜点告警关联确定性分析",
             "",
             "## 1. 实验输入与图规模",
             "",
             (
-                f"本次分析以统一告警事件为输入，构建攻击溯源图。图中包含 "
-                f"{meta.get('node_count', len(nodes))} 个节点、"
-                f"{meta.get('edge_count', len(edges))} 条边，其中事件边 "
-                f"{meta.get('event_edge_count', len(event_edges))} 条，"
-                f"关联边 {meta.get('correlation_edge_count', len(correlation_edges))} 条。"
+                "本次分析以统一告警事件为输入，先构建未剪枝攻击溯源图，再记录剪枝后的证据保留情况。"
+                f"未剪枝图实际包含 {actual_node_count} 个节点、{actual_edge_count} 条边，"
+                f"其中事件边 {actual_event_edge_count} 条、关联边 {actual_correlation_edge_count} 条。"
             ),
             (
-                f"系统共重建 {meta.get('attacker_count', len(attacker_groups))} 个攻击者簇和 "
-                f"{meta.get('path_count', len(attack_paths))} 条攻击路径。"
+                f"系统共重建 {len(attacker_groups)} 个攻击者簇和 {len(attack_paths)} 条攻击路径。"
             ),
             "",
             "### 受控实验与关系边说明",
@@ -293,8 +306,24 @@ class GraphToTextConverter:
                 f"{pruning_stats.get('pruned_edges', 0)}，压缩率 "
                 f"{pruning_stats.get('compression_ratio', '0.0%')}。"
             )
+            if pruned_meta:
+                lines.append(
+                    f"裁剪后图实际包含 {pruned_meta.get('node_count', 0)} 个节点、"
+                    f"{pruned_meta.get('edge_count', pruning_stats.get('kept_edges', 0))} 条边；"
+                    f"其中事件边 {pruned_meta.get('event_edge_count', 0)} 条、"
+                    f"关联边 {pruned_meta.get('correlation_edge_count', 0)} 条。"
+                )
             if pruning_stats.get("fallback_reason"):
                 lines.append(f"本轮 DQN 未直接生效，回退原因：`{pruning_stats.get('fallback_reason')}`。")
+                lines.append(
+                    "因此，本轮结果只能作为图构建与启发式剪枝的系统连通性验证，"
+                    "不能作为 DQN 强化学习裁剪算法有效性的实验证据。"
+                )
+            elif str(pruning_stats.get("mode", "")).startswith("deterministic"):
+                lines.append(
+                    "本轮使用确定性启发式剪枝，不等同于 DQN 强化学习模型输出；"
+                    "若用于算法有效性实验，应补充可复现的 DQN checkpoint、训练配置与对照指标。"
+                )
         else:
             lines.append("当前图未记录剪枝统计信息。")
 

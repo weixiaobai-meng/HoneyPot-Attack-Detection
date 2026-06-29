@@ -815,6 +815,21 @@ body,
     line-height: 1.55;
     font-size: 13px;
 }
+.semantic-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+.semantic-summary span {
+    border: 1px solid rgba(91, 214, 214, 0.18);
+    border-radius: 10px;
+    background: rgba(91, 214, 214, 0.06);
+    color: #c9e8e2;
+    padding: 8px 10px;
+    font-size: 12px;
+    line-height: 1.45;
+}
 .paper-panel-note {
     margin: 8px 0 0;
     color: var(--muted);
@@ -1760,6 +1775,14 @@ function renderSemanticOverlay(golden, x, y, width) {
     `;
 }
 
+function renderSemanticSummaryBlock(golden) {
+    return `
+        <div class="semantic-summary">
+            ${semanticOverlayLines(golden).map(line => `<span>${escapeHtml(line)}</span>`).join('')}
+        </div>
+    `;
+}
+
 function renderGoldenPathWarning(golden) {
     return `
         <div class="paper-graph-warning">
@@ -1771,11 +1794,62 @@ function renderGoldenPathWarning(golden) {
     `;
 }
 
+function retainedEvidenceItems(graph) {
+    const sequence = eventSequenceFromGraph(graph).slice(0, 6).map(item => {
+        const event = item.canonical_event || {};
+        const eventType = sequenceEventType(item);
+        return {
+            type: eventType,
+            action: actionLabel(item.action || event.action || '-'),
+            label: shortText((event.object || {}).label || (event.object || {}).path || item.object_id || item.event_id || '-', 22),
+            time: shortText(String(item.timestamp || '').replace('T', ' '), 19),
+            relation: typePillText(eventType),
+        };
+    });
+    if (sequence.length) {
+        return sequence;
+    }
+    return graphEdges(graph).slice(0, 6).map(edge => ({
+        type: eventTypeClass(edge),
+        action: edge.edge_kind === 'correlation' ? relationLabel(edge.relation_type) : actionLabel(edge.action),
+        label: shortText(edge.object_label || edge.target || edge.edge_id || '-', 22),
+        time: shortText(String(edge.timestamp || '').replace('T', ' '), 19),
+        relation: edge.edge_kind === 'correlation' ? '关系边' : typePillText(eventTypeClass(edge)),
+    }));
+}
+
+function renderRetainedEvidenceNodes(graph, width, y) {
+    const items = retainedEvidenceItems(graph);
+    if (!items.length) {
+        return `
+            <text class="svg-title" x="${width / 2}" y="${y}" text-anchor="middle">裁剪后未保留可标注事件</text>
+            <text class="svg-label" x="${width / 2}" y="${y + 22}" text-anchor="middle">这说明当前剪枝结果无法支撑攻击链展示</text>
+        `;
+    }
+    const startX = 88;
+    const stepX = items.length > 1 ? Math.min(142, (width - 176) / (items.length - 1)) : 0;
+    return `
+        <text class="svg-title" x="42" y="${y - 44}">裁剪后实际保留证据</text>
+        <text class="svg-subtitle" x="42" y="${y - 24}">这些证据是当前剪枝结果的一部分；若缺少前后阶段关系边，就不能构成攻击因果链。</text>
+        ${items.map((item, index) => {
+            const x = startX + index * stepX;
+            return `
+                <g>
+                    <circle class="core-node ${escapeHtml(item.type)}" cx="${x}" cy="${y}" r="18"></circle>
+                    <text class="svg-title" x="${x}" y="${y + 38}" text-anchor="middle">${escapeHtml(shortText(item.action, 16))}</text>
+                    <text class="svg-label" x="${x}" y="${y + 55}" text-anchor="middle">${escapeHtml(item.relation)} · ${escapeHtml(item.time || '-')}</text>
+                    <text class="svg-label" x="${x}" y="${y + 72}" text-anchor="middle">${escapeHtml(item.label)}</text>
+                </g>
+            `;
+        }).join('')}
+    `;
+}
+
 function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') {
     const graph = prunedGraph || rawGraph;
     const golden = buildGoldenPath(rawGraph, graph);
     const width = Math.max(780, Math.max(golden.nodes.length, 4) * 156 + 140);
-    const height = golden.valid ? 430 : 320;
+    const height = golden.valid ? 390 : 390;
     const layout = buildBackgroundLayout(rawGraph, width, height, golden.valid ? 44 : 58);
     const background = renderBackgroundGraphParts(rawGraph, layout, golden.valid ? 90 : 130, false);
     const markerId = title.replace(/\W+/g, '-').toLowerCase() || 'pruned';
@@ -1785,16 +1859,14 @@ function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') 
             <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后证据不足提示图">
                 <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
                 <text class="svg-subtitle" x="18" y="50">保留边 ${escapeHtml(graphEdges(graph).length)} / 显式核心关系边 ${escapeHtml(golden.relationCount)} / 未形成跨三类蜜点链</text>
-                <rect class="warning-band" x="42" y="78" width="${width - 84}" height="78" rx="16"></rect>
-                <text class="svg-title" x="60" y="108">Evidence Guard</text>
-                <text class="svg-label" x="60" y="132">${escapeHtml(shortText(golden.reason, 100))}</text>
-                <g opacity="0.72">${background}</g>
+                <g opacity="0.46">${background}</g>
+                ${renderRetainedEvidenceNodes(graph, width, 238)}
             </svg>
             <p class="paper-panel-note">这里刻意不把单个告警画成攻击链；只有存在显式关系边并覆盖寄生、账户、文件三类蜜点时，才高亮核心链路。</p>
         `;
     }
 
-    const nodeY = 292;
+    const nodeY = 192;
     const startX = 74;
     const stepX = golden.nodes.length > 1 ? (width - 148) / (golden.nodes.length - 1) : 0;
     const positions = new Map();
@@ -1839,10 +1911,10 @@ function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') 
             <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
             <text class="svg-subtitle" x="18" y="50">灰色为原始噪声底图；高亮部分为裁剪后保留/保护的核心链路</text>
             <g opacity="0.45">${background}</g>
-            ${renderSemanticOverlay(golden, 42, 72, width - 84)}
             ${linkSvg}
             ${nodeSvg}
         </svg>
+        ${renderSemanticSummaryBlock(golden)}
         <p class="paper-panel-note">裁剪后视图保留原始噪声底图作为参照，只高亮经裁剪保留或证据保护恢复的跨蜜点因果链。</p>
     `;
 }
@@ -2334,13 +2406,15 @@ function renderTexts() {
     const meta = (analysisTexts && analysisTexts.llm_report_meta) || {};
     const title = document.getElementById('textMainTitle');
     const chip = document.getElementById('llmMetaChip');
-    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '实验综合分析';
+    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '确定性图转文本摘要';
     if (llmReport) {
         const model = meta.model || 'deepseek';
         const generatedAt = meta.generated_at ? String(meta.generated_at).replace('T', ' ').slice(0, 19) : '已生成';
         chip.textContent = `${model} · ${generatedAt}`;
     } else {
-        chip.textContent = analysisTexts && analysisTexts.display_mode === 'debug_prompt_fallback' ? 'Prompt 调试输出' : '确定性图转文本';
+        chip.textContent = analysisTexts && analysisTexts.display_mode === 'debug_prompt_fallback'
+            ? 'Prompt 调试输出'
+            : '未调用 DeepSeek · 确定性摘要';
     }
     document.getElementById('textThesis').textContent = mainText || '暂无文本输出。';
     renderReportItems('ttpSummary', [
