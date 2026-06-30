@@ -24,10 +24,10 @@
             <button class="analysis-btn primary" onclick="runAnalysis()">
                 <i class="fas fa-play"></i> 运行实时分析
             </button>
-            <button class="analysis-btn secondary" onclick="runBalancedAnalysis()">
+            <button class="analysis-btn secondary" onclick="runBalancedAnalysis()" title="从真实告警库按类型抽样，不造数；适合看三类蜜点是否可比。">
                 <i class="fas fa-scale-balanced"></i> 运行平衡分析
             </button>
-            <button class="analysis-btn secondary" onclick="generateLlmReport()">
+            <button class="analysis-btn secondary" onclick="generateLlmReport()" title="基于当前运行目录的 Step4 Prompt 调用 DeepSeek，生成辅助解释报告。">
                 <i class="fas fa-brain"></i> 生成 LLM 报告
             </button>
             <button class="analysis-btn ghost" onclick="refreshAnalysis()">
@@ -38,8 +38,8 @@
             </a>
             <details class="scenario-config">
                 <summary>
-                    <span>受控实验配置</span>
-                    <small>限定真实时间窗与核心主体，用于复现跨蜜点链路</small>
+                    <span>受控链路配置</span>
+                    <small>限定真实时间窗与核心主体，用于验证跨蜜点链路与 DQN 裁剪</small>
                 </summary>
                 <div class="scenario-fields">
                     <label>
@@ -55,11 +55,26 @@
                         <input id="scenarioChainKey" class="analysis-input" placeholder="攻击 IP 或 Canvas 指纹">
                     </label>
                     <button class="analysis-btn secondary" onclick="runScenarioAnalysis()">
-                        <i class="fas fa-diagram-project"></i> 运行受控实验分析
+                        <i class="fas fa-diagram-project"></i> 运行受控链路分析
                     </button>
                 </div>
             </details>
         </div>
+    </section>
+
+    <section class="mode-guide" aria-label="分析模式说明">
+        <article>
+            <strong>实时分析</strong>
+            <span>按当前时间窗口读取自然告警，适合看线上真实态势；样本可能天然不平衡。</span>
+        </article>
+        <article>
+            <strong>平衡分析</strong>
+            <span>只用真实告警按类型抽样，适合做三类蜜点对比；不保证形成同一攻击链。</span>
+        </article>
+        <article>
+            <strong>受控链路分析</strong>
+            <span>限定时间窗和核心 IP/指纹，标注核心链与噪声，是验证 DQN 裁剪的主实验入口。</span>
+        </article>
     </section>
 
     <section class="metric-grid">
@@ -99,6 +114,8 @@
             <span>背景噪声过滤率</span>
         </article>
     </section>
+
+    <section id="runStatePanel" class="run-state-panel"></section>
 
     <section id="statusBanner" class="status-banner info">正在读取最新分析结果...</section>
     <section id="errorBanner" class="status-banner error" style="display:none;"></section>
@@ -478,6 +495,64 @@ body,
 .analysis-btn.primary { background: linear-gradient(135deg, rgba(125,220,139,.24), rgba(92,183,110,.18)); }
 .analysis-btn.secondary { background: linear-gradient(135deg, rgba(91,214,214,.18), rgba(64,112,170,.16)); }
 .analysis-btn.ghost { background: rgba(255,255,255,.03); }
+.mode-guide,
+.run-state-panel {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.mode-guide article,
+.run-state-card {
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 12px;
+    background: rgba(5, 13, 12, 0.74);
+    padding: 11px 12px;
+}
+.mode-guide strong,
+.run-state-card strong {
+    display: block;
+    color: #eef7ee;
+    font-size: 14px;
+    line-height: 1.25;
+}
+.mode-guide span,
+.run-state-card p {
+    display: block;
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+.state-chip {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 24px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    color: #dcebdc;
+    background: rgba(255,255,255,.04);
+    font-size: 12px;
+    font-weight: 800;
+    margin-bottom: 7px;
+}
+.state-chip.ok {
+    border-color: rgba(125, 220, 139, 0.34);
+    color: #c7f7cd;
+    background: rgba(125, 220, 139, 0.08);
+}
+.state-chip.warn {
+    border-color: rgba(245, 180, 91, 0.34);
+    color: #ffe0a8;
+    background: rgba(245, 180, 91, 0.08);
+}
+.state-chip.bad {
+    border-color: rgba(244, 114, 182, 0.34);
+    color: #ffd4e5;
+    background: rgba(244, 114, 182, 0.08);
+}
 .metric-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -796,6 +871,11 @@ body,
     font-size: 11px;
     font-weight: 700;
 }
+.paper-graph-svg .chain-index {
+    fill: rgba(7, 16, 15, 0.98);
+    font-size: 12px;
+    font-weight: 900;
+}
 .paper-graph-svg .intent-band {
     fill: rgba(91, 214, 214, 0.08);
     stroke: rgba(91, 214, 214, 0.22);
@@ -829,6 +909,31 @@ body,
     padding: 8px 10px;
     font-size: 12px;
     line-height: 1.45;
+}
+.graph-evidence-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+    margin-top: 10px;
+}
+.graph-evidence-card {
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 10px;
+    background: rgba(255,255,255,.035);
+    padding: 9px 10px;
+}
+.graph-evidence-card strong {
+    display: block;
+    color: #eef7ee;
+    font-size: 13px;
+    line-height: 1.3;
+}
+.graph-evidence-card span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.45;
+    margin-top: 4px;
 }
 .paper-panel-note {
     margin: 8px 0 0;
@@ -1051,6 +1156,8 @@ body,
     .analysis-hero,
     .graph-grid,
     .compare-grid,
+    .mode-guide,
+    .run-state-panel,
     .text-grid,
     .thesis-layout {
         grid-template-columns: 1fr;
@@ -1129,6 +1236,109 @@ function setStatus(message, isError = false) {
     status.textContent = message;
 }
 
+function currentModeInfo(summary) {
+    const mode = String((summary && summary.mode) || '');
+    if (mode === 'export-live') {
+        return {
+            chip: '实时分析',
+            tone: 'ok',
+            title: '自然告警窗口',
+            body: '直接读取当前统一告警库，体现真实线上分布；三类蜜点数量不均衡是正常现象。'
+        };
+    }
+    if (mode === 'export-balanced-live') {
+        return {
+            chip: '平衡分析',
+            tone: 'warn',
+            title: '真实告警平衡抽样',
+            body: '按类型抽取真实样本以便对比，不造数；它不等价于同一攻击者的因果链验证。'
+        };
+    }
+    if (mode === 'export-scenario-live') {
+        return {
+            chip: '受控链路',
+            tone: 'ok',
+            title: '跨蜜点链路验证',
+            body: '在真实告警时间窗内标注核心主体、核心链和噪声边，用于评估 DQN 保留链路与过滤噪声。'
+        };
+    }
+    return {
+        chip: mode || '未运行',
+        tone: mode ? 'warn' : 'bad',
+        title: '当前结果来源',
+        body: mode ? '该模式不是页面预设的三类入口，请结合运行目录和 summary.json 核验。' : '尚未读取到可用运行结果。'
+    };
+}
+
+function dqnStateInfo(summary) {
+    const pruning = (summary && summary.pruning_stats) || {};
+    const mode = String(pruning.mode || '');
+    if (pruning.fallback_reason) {
+        return {
+            chip: 'DQN 未生效',
+            tone: 'bad',
+            title: '当前为回退裁剪',
+            body: `回退原因：${pruning.fallback_reason}。该结果不能作为 DQN 裁剪有效性的证据。`
+        };
+    }
+    if (mode.includes('dqn_checkpoint')) {
+        return {
+            chip: 'DQN 已生效',
+            tone: 'ok',
+            title: 'Checkpoint 裁剪结果',
+            body: `模式：${mode}；${pruning.checkpoint ? '已记录 checkpoint 路径。' : '未记录 checkpoint 路径。'}`
+        };
+    }
+    if (mode.startsWith('deterministic')) {
+        return {
+            chip: '确定性裁剪',
+            tone: 'warn',
+            title: '非 DQN 输出',
+            body: '当前使用启发式裁剪，只能验证流程连通性，不能证明强化学习裁剪效果。'
+        };
+    }
+    return {
+        chip: mode || '未知',
+        tone: mode ? 'warn' : 'bad',
+        title: '裁剪状态',
+        body: mode ? `裁剪模式：${mode}。` : '尚未读取到裁剪统计。'
+    };
+}
+
+function llmStateInfo() {
+    const text = (analysisTexts && analysisTexts.llm_report) || '';
+    const meta = (analysisTexts && analysisTexts.llm_report_meta) || {};
+    if (text.trim()) {
+        return {
+            chip: 'DeepSeek 已生成',
+            tone: 'ok',
+            title: meta.model || 'DeepSeek LLM',
+            body: `报告时间：${meta.generated_at ? String(meta.generated_at).replace('T', ' ').slice(0, 19) : '已生成'}；LLM 只作为辅助解释，不作为实验标签。`
+        };
+    }
+    return {
+        chip: '未调用 LLM',
+        tone: 'warn',
+        title: '当前为确定性摘要',
+        body: '图转文本区显示的是 Step4 确定性摘要。需要点击“生成 LLM 报告”后才会写入 DeepSeek 输出。'
+    };
+}
+
+function renderRunState() {
+    const panel = document.getElementById('runStatePanel');
+    if (!panel) {
+        return;
+    }
+    const items = [currentModeInfo(analysisSummary), dqnStateInfo(analysisSummary), llmStateInfo()];
+    panel.innerHTML = items.map(item => `
+        <article class="run-state-card">
+            <span class="state-chip ${escapeHtml(item.tone)}">${escapeHtml(item.chip)}</span>
+            <strong>${escapeHtml(item.title)}</strong>
+            <p>${escapeHtml(item.body)}</p>
+        </article>
+    `).join('');
+}
+
 function switchTab(name) {
     activeTab = name;
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === name));
@@ -1183,6 +1393,7 @@ function updateSummaryCards(summary) {
     document.getElementById('summaryPath').textContent = (summary.paths || {}).summary || outputs.summary || '-';
     document.getElementById('graphPath').textContent = (summary.paths || {}).step2 || outputs.step2_causal_graph || '-';
     document.getElementById('textPath').textContent = (summary.paths || {}).step4_llm_report || outputs.step4_llm_report || (summary.paths || {}).step4_thesis || outputs.step4_thesis_analysis || (summary.paths || {}).step4_intent || outputs.step4_intent_analysis || outputs.step4_llm_prompt || '-';
+    renderRunState();
 }
 
 function typePill(type) {
@@ -1795,27 +2006,80 @@ function renderGoldenPathWarning(golden) {
 }
 
 function retainedEvidenceItems(graph) {
-    const sequence = eventSequenceFromGraph(graph).slice(0, 6).map(item => {
+    const buckets = new Map();
+    eventSequenceFromGraph(graph).forEach(item => {
         const event = item.canonical_event || {};
         const eventType = sequenceEventType(item);
-        return {
+        const action = actionLabel(item.action || event.action || '-');
+        const label = shortText((event.object || {}).label || (event.object || {}).path || item.object_id || item.event_id || '-', 34);
+        const key = `${eventType}|${action}|${label}`;
+        const current = buckets.get(key) || {
             type: eventType,
-            action: actionLabel(item.action || event.action || '-'),
-            label: shortText((event.object || {}).label || (event.object || {}).path || item.object_id || item.event_id || '-', 22),
-            time: shortText(String(item.timestamp || '').replace('T', ' '), 19),
+            action,
+            label,
+            firstTime: String(item.timestamp || '').replace('T', ' '),
+            lastTime: String(item.timestamp || '').replace('T', ' '),
             relation: typePillText(eventType),
+            count: 0,
         };
+        current.count += 1;
+        current.lastTime = String(item.timestamp || '').replace('T', ' ');
+        buckets.set(key, current);
     });
-    if (sequence.length) {
-        return sequence;
+    const grouped = Array.from(buckets.values())
+        .sort((a, b) => {
+            const order = { parasitic: 0, account: 1, file: 2, audit: 3, unknown: 4 };
+            return (order[a.type] ?? 9) - (order[b.type] ?? 9) || String(a.firstTime).localeCompare(String(b.firstTime));
+        })
+        .slice(0, 6);
+    if (grouped.length) {
+        return grouped;
     }
     return graphEdges(graph).slice(0, 6).map(edge => ({
         type: eventTypeClass(edge),
         action: edge.edge_kind === 'correlation' ? relationLabel(edge.relation_type) : actionLabel(edge.action),
-        label: shortText(edge.object_label || edge.target || edge.edge_id || '-', 22),
-        time: shortText(String(edge.timestamp || '').replace('T', ' '), 19),
+        label: shortText(edge.object_label || edge.target || edge.edge_id || '-', 34),
+        firstTime: String(edge.timestamp || '').replace('T', ' '),
+        lastTime: String(edge.timestamp || '').replace('T', ' '),
         relation: edge.edge_kind === 'correlation' ? '关系边' : typePillText(eventTypeClass(edge)),
+        count: 1,
     }));
+}
+
+function renderEvidenceCards(items, emptyText = '暂无可展示证据。') {
+    if (!items.length) {
+        return `<div class="graph-evidence-cards"><div class="graph-evidence-card"><strong>${escapeHtml(emptyText)}</strong><span>当前裁剪结果缺少可解释事件。</span></div></div>`;
+    }
+    return `
+        <div class="graph-evidence-cards">
+            ${items.map(item => {
+                const timeRange = item.firstTime === item.lastTime
+                    ? shortText(item.firstTime || '-', 19)
+                    : `${shortText(item.firstTime || '-', 16)} ~ ${shortText(item.lastTime || '-', 16)}`;
+                return `
+                    <div class="graph-evidence-card">
+                        <strong>${escapeHtml(item.action)}</strong>
+                        <span>${escapeHtml(item.relation)} · n=${escapeHtml(item.count || 1)}</span>
+                        <span>${escapeHtml(timeRange)}</span>
+                        <span>${escapeHtml(item.label)}</span>
+                    </div>
+                `;
+            }).join('')}
+        </div>
+    `;
+}
+
+function renderGoldenNodeCards(golden) {
+    const items = golden.nodes.map((node, index) => ({
+        type: node.eventType,
+        action: `${index + 1}. ${node.action}`,
+        label: node.target,
+        firstTime: node.time,
+        lastTime: node.time,
+        relation: typePillText(node.eventType),
+        count: 1,
+    }));
+    return renderEvidenceCards(items, '暂无核心链路节点。');
 }
 
 function renderRetainedEvidenceNodes(graph, width, y) {
@@ -1833,12 +2097,13 @@ function renderRetainedEvidenceNodes(graph, width, y) {
         <text class="svg-subtitle" x="42" y="${y - 24}">这些证据是当前剪枝结果的一部分；若缺少前后阶段关系边，就不能构成攻击因果链。</text>
         ${items.map((item, index) => {
             const x = startX + index * stepX;
+            const time = item.firstTime === item.lastTime ? item.firstTime : `${item.firstTime} ~ ${item.lastTime}`;
             return `
                 <g>
                     <circle class="core-node ${escapeHtml(item.type)}" cx="${x}" cy="${y}" r="18"></circle>
                     <text class="svg-title" x="${x}" y="${y + 38}" text-anchor="middle">${escapeHtml(shortText(item.action, 16))}</text>
-                    <text class="svg-label" x="${x}" y="${y + 55}" text-anchor="middle">${escapeHtml(item.relation)} · ${escapeHtml(item.time || '-')}</text>
-                    <text class="svg-label" x="${x}" y="${y + 72}" text-anchor="middle">${escapeHtml(item.label)}</text>
+                    <text class="svg-label" x="${x}" y="${y + 55}" text-anchor="middle">${escapeHtml(item.relation)} · n=${escapeHtml(item.count || 1)}</text>
+                    <text class="svg-label" x="${x}" y="${y + 72}" text-anchor="middle">${escapeHtml(shortText(time || '-', 20))}</text>
                 </g>
             `;
         }).join('')}
@@ -1848,25 +2113,26 @@ function renderRetainedEvidenceNodes(graph, width, y) {
 function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') {
     const graph = prunedGraph || rawGraph;
     const golden = buildGoldenPath(rawGraph, graph);
-    const width = Math.max(780, Math.max(golden.nodes.length, 4) * 156 + 140);
-    const height = golden.valid ? 390 : 390;
-    const layout = buildBackgroundLayout(rawGraph, width, height, golden.valid ? 44 : 58);
-    const background = renderBackgroundGraphParts(rawGraph, layout, golden.valid ? 90 : 130, false);
+    const width = Math.max(820, Math.max(golden.nodes.length, 4) * 168 + 150);
+    const height = golden.valid ? 320 : 250;
+    const layout = buildBackgroundLayout(rawGraph, width, height, golden.valid ? 44 : 50);
+    const background = renderBackgroundGraphParts(rawGraph, layout, golden.valid ? 85 : 95, false);
     const markerId = title.replace(/\W+/g, '-').toLowerCase() || 'pruned';
     if (!golden.valid) {
+        const items = retainedEvidenceItems(graph);
         return `
             ${renderGoldenPathWarning(golden)}
             <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后证据不足提示图">
                 <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
                 <text class="svg-subtitle" x="18" y="50">保留边 ${escapeHtml(graphEdges(graph).length)} / 显式核心关系边 ${escapeHtml(golden.relationCount)} / 未形成跨三类蜜点链</text>
-                <g opacity="0.46">${background}</g>
-                ${renderRetainedEvidenceNodes(graph, width, 238)}
+                <g opacity="0.35">${background}</g>
             </svg>
+            ${renderEvidenceCards(items, '裁剪后未保留可标注事件')}
             <p class="paper-panel-note">这里刻意不把单个告警画成攻击链；只有存在显式关系边并覆盖寄生、账户、文件三类蜜点时，才高亮核心链路。</p>
         `;
     }
 
-    const nodeY = 192;
+    const nodeY = 142;
     const startX = 74;
     const stepX = golden.nodes.length > 1 ? (width - 148) / (golden.nodes.length - 1) : 0;
     const positions = new Map();
@@ -1891,12 +2157,13 @@ function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') 
     }).join('');
     const nodeSvg = golden.nodes.map(node => {
         const pos = positions.get(node.nodeId);
+        const index = golden.nodes.indexOf(node) + 1;
         return `
             <g>
                 <circle class="core-node ${escapeHtml(node.eventType)}" cx="${pos.x}" cy="${pos.y}" r="20"></circle>
+                <text class="chain-index" x="${pos.x}" y="${pos.y + 4}" text-anchor="middle">${escapeHtml(index)}</text>
                 <text class="svg-title" x="${pos.x}" y="${pos.y + 42}" text-anchor="middle">${escapeHtml(shortText(node.action, 18))}</text>
                 <text class="svg-label" x="${pos.x}" y="${pos.y + 60}" text-anchor="middle">${escapeHtml(typePillText(node.eventType))} · ${escapeHtml(node.time || '-')}</text>
-                <text class="svg-label" x="${pos.x}" y="${pos.y + 76}" text-anchor="middle">${escapeHtml(node.target)}</text>
             </g>
         `;
     }).join('');
@@ -1910,11 +2177,12 @@ function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') 
             </defs>
             <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
             <text class="svg-subtitle" x="18" y="50">灰色为原始噪声底图；高亮部分为裁剪后保留/保护的核心链路</text>
-            <g opacity="0.45">${background}</g>
+            <g opacity="0.24">${background}</g>
             ${linkSvg}
             ${nodeSvg}
         </svg>
         ${renderSemanticSummaryBlock(golden)}
+        ${renderGoldenNodeCards(golden)}
         <p class="paper-panel-note">裁剪后视图保留原始噪声底图作为参照，只高亮经裁剪保留或证据保护恢复的跨蜜点因果链。</p>
     `;
 }
@@ -1934,7 +2202,12 @@ function renderGraphCompare() {
     rawPanel.innerHTML = analysisGraph ? renderRawGraphSvg(analysisGraph) : '<div class="empty-row">暂无原始图输出。</div>';
     prunedPanel.innerHTML = prunedGraph ? renderPrunedTopologySvg(analysisGraph, prunedGraph, 'Pruned Graph') : '<div class="empty-row">暂无裁剪图输出。</div>';
     const before = evalData.before_guardrail || {};
+    const dqnState = dqnStateInfo(analysisSummary);
     const metrics = [
+        ['裁剪状态', dqnState.chip],
+        ['裁剪模式', pruning.mode || '-'],
+        ['回退原因', pruning.fallback_reason || '-'],
+        ['Checkpoint', pruning.checkpoint ? '已记录' : '-'],
         ['原始边数', pruning.original_edges ?? graphEdges(analysisGraph).length ?? '-'],
         ['保留边数', pruning.kept_edges ?? graphEdges(prunedGraph).length ?? '-'],
         ['剪除边数', pruning.pruned_edges ?? '-'],
@@ -2402,11 +2675,11 @@ function renderTexts() {
     const llmReport = (analysisTexts && analysisTexts.llm_report) || '';
     const deterministicText = (analysisTexts && (analysisTexts.thesis_analysis || analysisTexts.report || analysisTexts.intent_analysis)) || '';
     const mainText = llmReport || deterministicText;
-    const sectionSource = deterministicText || mainText;
+    const sectionSource = llmReport || deterministicText;
     const meta = (analysisTexts && analysisTexts.llm_report_meta) || {};
     const title = document.getElementById('textMainTitle');
     const chip = document.getElementById('llmMetaChip');
-    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '确定性图转文本摘要';
+    title.textContent = llmReport ? 'DeepSeek LLM 告警分析报告' : '确定性图转文本摘要（非 LLM）';
     if (llmReport) {
         const model = meta.model || 'deepseek';
         const generatedAt = meta.generated_at ? String(meta.generated_at).replace('T', ' ').slice(0, 19) : '已生成';
@@ -2417,6 +2690,7 @@ function renderTexts() {
             : '未调用 DeepSeek · 确定性摘要';
     }
     document.getElementById('textThesis').textContent = mainText || '暂无文本输出。';
+    renderRunState();
     renderReportItems('ttpSummary', [
         { title: 'TTP 映射', body: extractSection(sectionSource, '5. TTP 映射') },
         { title: '跨蜜点同源证据', body: extractSection(sectionSource, '3. 跨蜜点同源证据') },
@@ -2489,7 +2763,7 @@ async function runAnalysis() {
         });
         setAnalysisRunDir(summary.run_dir || '');
         await refreshAnalysis();
-        setStatus(`实时分析已完成，当前分析窗口为最近 ${hours === 0 ? '全部' : hours + ' 小时'}。`);
+        setStatus(`实时分析已完成，当前分析窗口为最近 ${hours === 0 ? '全部' : hours + ' 小时'}。如需 LLM 文本，请继续点击“生成 LLM 报告”。`);
     } catch (error) {
         setStatus(error.message || '运行实时分析失败。', true);
     }
@@ -2507,7 +2781,7 @@ async function runBalancedAnalysis() {
         });
         setAnalysisRunDir(summary.run_dir || '');
         await refreshAnalysis();
-        setStatus(`平衡分析已完成，运行目录：${summary.run_dir || '-'}。`);
+        setStatus(`平衡分析已完成，运行目录：${summary.run_dir || '-'}。该结果用于真实样本对比，不等同于 DQN 受控链路实验。`);
     } catch (error) {
         setStatus(error.message || '运行平衡分析失败。', true);
     }
@@ -2518,7 +2792,7 @@ async function runScenarioAnalysis() {
     const end = document.getElementById('scenarioEnd').value;
     const chainKey = document.getElementById('scenarioChainKey').value.trim();
     if (!start || !end || !chainKey) {
-        setStatus('请填写受控实验的开始时间、结束时间，以及核心 IP 或 Canvas 指纹。', true);
+        setStatus('请填写受控链路的开始时间、结束时间，以及核心 IP 或 Canvas 指纹。', true);
         return;
     }
     const payload = {
@@ -2532,7 +2806,7 @@ async function runScenarioAnalysis() {
     } else {
         payload.chain_fingerprints = [chainKey];
     }
-    setStatus('正在运行受控实验分析：真实告警时间窗 + 核心链标注 + 背景噪声评价。');
+    setStatus('正在运行受控链路分析：真实告警时间窗 + 核心链标注 + 背景噪声评价。');
     try {
         const summary = await fetchJson('/api/analysis/live/scenario', {
             method: 'POST',
@@ -2542,9 +2816,9 @@ async function runScenarioAnalysis() {
         setAnalysisRunDir(summary.run_dir || '');
         await refreshAnalysis();
         switchTab('graph');
-        setStatus(`受控实验分析已完成，运行目录：${summary.run_dir || '-'}。`);
+        setStatus(`受控链路分析已完成，运行目录：${summary.run_dir || '-'}。请重点查看 DQN 状态、核心链保留率与噪声过滤率。`);
     } catch (error) {
-        setStatus(error.message || '运行受控实验分析失败。', true);
+        setStatus(error.message || '运行受控链路分析失败。', true);
     }
 }
 
