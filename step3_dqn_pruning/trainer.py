@@ -49,6 +49,7 @@ def compute_graph_metrics(model, data, device):
                 "recall": 0.0,
                 "f1": 0.0,
                 "core_recall": 0.0,
+                "causal_score": 0.0,
                 "ckc": 0.0,
                 "cpr": 0.0,
                 "wpc": 0.0,
@@ -82,6 +83,7 @@ def compute_graph_metrics(model, data, device):
             "recall": recall,
             "f1": f1,
             "core_recall": core_recall,
+            "causal_score": 0.65 * core_recall + 0.35 * f1,
             "ckc": ckc,
             "cpr": cpr,
             "wpc": wpc,
@@ -135,6 +137,7 @@ class DQNTrainer:
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.epochs)
 
         best_val_f1 = 0.0
+        best_val_score = -1.0
         best_state = None
         no_improve = 0
 
@@ -175,11 +178,14 @@ class DQNTrainer:
                     f"  Epoch {epoch:3d}/{self.epochs} | "
                     f"Loss: {avg_loss:.4f} | "
                     f"Train F1: {train_metrics['f1']:.3f} CR: {train_metrics['core_recall']:.3f} | "
-                    f"Val F1: {val_metrics['f1']:.3f} CR: {val_metrics['core_recall']:.3f}"
+                    f"Val F1: {val_metrics['f1']:.3f} CR: {val_metrics['core_recall']:.3f} "
+                    f"CS: {val_metrics['causal_score']:.3f}"
                 )
 
-                if val_metrics["f1"] > best_val_f1 + 1e-4:
+                val_score = val_metrics["causal_score"]
+                if val_score > best_val_score + 1e-4:
                     best_val_f1 = val_metrics["f1"]
+                    best_val_score = val_score
                     best_state = {k: v.cpu().clone() for k, v in self.model.state_dict().items()}
                     no_improve = 0
                     torch.save(best_state, save_path)
@@ -192,7 +198,7 @@ class DQNTrainer:
 
         if best_state:
             self.model.load_state_dict(best_state)
-            print(f"  restored best checkpoint (Val F1: {best_val_f1:.3f})")
+            print(f"  restored best checkpoint (Val F1: {best_val_f1:.3f}, causal score: {best_val_score:.3f})")
         else:
             torch.save(self.model.state_dict(), save_path)
             print("  validation did not improve; saved final checkpoint")
@@ -208,6 +214,7 @@ class DQNTrainer:
                 "recall": 0.0,
                 "f1": 0.0,
                 "core_recall": 0.0,
+                "causal_score": 0.0,
                 "ckc": 0.0,
                 "cpr": 0.0,
                 "wpc": 0.0,
