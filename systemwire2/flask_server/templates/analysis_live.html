@@ -44,19 +44,28 @@
                 <div class="scenario-fields">
                     <label>
                         <span>场景开始</span>
-                        <input id="scenarioStart" class="analysis-input" type="datetime-local">
+                        <input id="scenarioStart" class="analysis-input" type="datetime-local" step="60" onclick="openDateTimePicker('scenarioStart')" title="受控链路开始时间，可手动输入或用下方按钮自动填入。">
                     </label>
                     <label>
                         <span>场景结束</span>
-                        <input id="scenarioEnd" class="analysis-input" type="datetime-local">
+                        <input id="scenarioEnd" class="analysis-input" type="datetime-local" step="60" onclick="openDateTimePicker('scenarioEnd')" title="受控链路结束时间，可手动输入或用下方按钮自动填入。">
                     </label>
                     <label>
                         <span>核心主体标识</span>
-                        <input id="scenarioChainKey" class="analysis-input" placeholder="攻击 IP 或 Canvas 指纹">
+                        <input id="scenarioChainKey" class="analysis-input" placeholder="攻击 IP / Canvas 指纹 / session:会话ID">
                     </label>
                     <button class="analysis-btn secondary" onclick="runScenarioAnalysis()">
                         <i class="fas fa-diagram-project"></i> 运行受控链路分析
                     </button>
+                    <div class="scenario-assist">
+                        <button class="mini-action-btn" type="button" onclick="fillScenarioFromCurrentResult()">
+                            <i class="fas fa-wand-magic-sparkles"></i> 填入当前受控结果
+                        </button>
+                        <button class="mini-action-btn" type="button" onclick="fillRecentScenarioWindow(168)">
+                            <i class="fas fa-clock"></i> 最近 7 天
+                        </button>
+                        <p>核心主体标识用于把同一攻击者的真实告警标成核心链：填攻击 IP 可匹配账户/文件/寄生来源，填 Canvas 指纹可匹配寄生蜜点浏览器指纹；它不是服务器 IP。</p>
+                    </div>
                 </div>
             </details>
         </div>
@@ -454,6 +463,36 @@ body,
     gap: 8px;
     padding: 0 12px 12px;
 }
+.scenario-assist {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding-top: 2px;
+}
+.scenario-assist p {
+    flex: 1 1 320px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+.mini-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    border-radius: 9px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    background: rgba(255,255,255,.04);
+    color: #dcebdc;
+    padding: 7px 10px;
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+}
 .hero-actions label,
 .table-toolbar label {
     display: grid;
@@ -469,6 +508,7 @@ body,
 .analysis-select,
 .analysis-input {
     width: 100%;
+    color-scheme: dark;
     border: 1px solid rgba(148, 163, 184, 0.24);
     background: rgba(5, 13, 12, 0.85);
     color: var(--text);
@@ -1393,7 +1433,102 @@ function updateSummaryCards(summary) {
     document.getElementById('summaryPath').textContent = (summary.paths || {}).summary || outputs.summary || '-';
     document.getElementById('graphPath').textContent = (summary.paths || {}).step2 || outputs.step2_causal_graph || '-';
     document.getElementById('textPath').textContent = (summary.paths || {}).step4_llm_report || outputs.step4_llm_report || (summary.paths || {}).step4_thesis || outputs.step4_thesis_analysis || (summary.paths || {}).step4_intent || outputs.step4_intent_analysis || outputs.step4_llm_prompt || '-';
+    prefillScenarioFields(summary, { onlyEmpty: true });
     renderRunState();
+}
+
+function openDateTimePicker(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) {
+        return;
+    }
+    input.focus();
+    if (typeof input.showPicker === 'function') {
+        try {
+            input.showPicker();
+        } catch (error) {
+            // Some browsers block showPicker unless it is called directly from a click.
+        }
+    }
+}
+
+function toDateTimeLocalValue(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+        return '';
+    }
+    const normalized = text.replace(' ', 'T');
+    const match = normalized.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+    return match ? `${match[1]}T${match[2]}` : '';
+}
+
+function currentScenarioIdentifiers(summary) {
+    const scenario = (summary && summary.scenario) || {};
+    const identifiers = scenario.chain_identifiers || {};
+    const first = list => Array.isArray(list) && list.length ? String(list[0] || '').trim() : '';
+    const ip = first(identifiers.chain_ips);
+    if (ip) {
+        return ip;
+    }
+    const fingerprint = first(identifiers.chain_fingerprints);
+    if (fingerprint) {
+        return fingerprint;
+    }
+    const session = first(identifiers.chain_sessions);
+    if (session) {
+        return `session:${session}`;
+    }
+    const alertId = first(identifiers.chain_alert_ids);
+    if (alertId) {
+        return `alert:${alertId}`;
+    }
+    return '';
+}
+
+function prefillScenarioFields(summary, options = {}) {
+    const onlyEmpty = options.onlyEmpty !== false;
+    const windowInfo = (summary && summary.analysis_window) || {};
+    const startValue = toDateTimeLocalValue(windowInfo.start_time);
+    const endValue = toDateTimeLocalValue(windowInfo.end_time);
+    const chainKey = currentScenarioIdentifiers(summary);
+    const startInput = document.getElementById('scenarioStart');
+    const endInput = document.getElementById('scenarioEnd');
+    const chainInput = document.getElementById('scenarioChainKey');
+    if (startInput && startValue && (!onlyEmpty || !startInput.value)) {
+        startInput.value = startValue;
+    }
+    if (endInput && endValue && (!onlyEmpty || !endInput.value)) {
+        endInput.value = endValue;
+    }
+    if (chainInput && chainKey && (!onlyEmpty || !chainInput.value)) {
+        chainInput.value = chainKey;
+    }
+}
+
+function fillScenarioFromCurrentResult() {
+    if (!analysisSummary) {
+        setStatus('还没有读取到当前分析结果，先点击“读取最新结果”。', true);
+        return;
+    }
+    prefillScenarioFields(analysisSummary, { onlyEmpty: false });
+    const chainKey = document.getElementById('scenarioChainKey').value.trim();
+    if (!chainKey) {
+        setStatus('当前结果没有记录核心主体标识；请从统一事件里选择一个攻击 IP 或寄生蜜点 Canvas 指纹填入。', true);
+        return;
+    }
+    setStatus('已填入当前受控结果的时间窗和核心主体标识。');
+}
+
+function fillRecentScenarioWindow(hours = 168) {
+    const end = new Date();
+    const start = new Date(end.getTime() - Number(hours || 168) * 60 * 60 * 1000);
+    const format = date => {
+        const pad = value => String(value).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+    };
+    document.getElementById('scenarioStart').value = format(start);
+    document.getElementById('scenarioEnd').value = format(end);
+    setStatus(`已填入最近 ${hours / 24} 天的时间窗，请再填写核心主体标识。`);
 }
 
 function typePill(type) {
@@ -2800,9 +2935,15 @@ async function runScenarioAnalysis() {
         end,
         chain_ips: [],
         chain_fingerprints: [],
+        chain_sessions: [],
+        chain_alert_ids: [],
     };
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(chainKey)) {
         payload.chain_ips = [chainKey];
+    } else if (/^session:/i.test(chainKey)) {
+        payload.chain_sessions = [chainKey.replace(/^session:/i, '').trim()];
+    } else if (/^alert:/i.test(chainKey)) {
+        payload.chain_alert_ids = [chainKey.replace(/^alert:/i, '').trim()];
     } else {
         payload.chain_fingerprints = [chainKey];
     }
