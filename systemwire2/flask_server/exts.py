@@ -51,19 +51,28 @@ def init_exts(app):
 
     with app.app_context():
         init_db(app)
-        from flask_server.alert_store import backfill_unified_alerts
-        backfill_unified_alerts(app)
-        try:
-            from flask_server.views import _repair_all_local_honeyfiles
+        from flask_server.alert_store import backfill_unified_alerts, ensure_unified_alert_schema
 
-            repair_result = _repair_all_local_honeyfiles()
-            app.logger.info(
-                "startup honeyfile repair finished: repaired=%s skipped=%s",
-                repair_result.get("repaired_count", 0),
-                repair_result.get("skipped_count", 0),
-            )
-        except Exception as exc:
-            app.logger.warning("startup honeyfile repair failed: %s", exc)
+        ensure_unified_alert_schema()
+        if _env_flag("SYSTEMWIRE_STARTUP_BACKFILL", default=False):
+            backfill_unified_alerts(app)
+        else:
+            app.logger.info("startup unified alert backfill skipped; set SYSTEMWIRE_STARTUP_BACKFILL=1 to enable")
+
+        if _env_flag("SYSTEMWIRE_STARTUP_HONEYFILE_REPAIR", default=False):
+            try:
+                from flask_server.views import _repair_all_local_honeyfiles
+
+                repair_result = _repair_all_local_honeyfiles()
+                app.logger.info(
+                    "startup honeyfile repair finished: repaired=%s skipped=%s",
+                    repair_result.get("repaired_count", 0),
+                    repair_result.get("skipped_count", 0),
+                )
+            except Exception as exc:
+                app.logger.warning("startup honeyfile repair failed: %s", exc)
+        else:
+            app.logger.info("startup honeyfile repair skipped; set SYSTEMWIRE_STARTUP_HONEYFILE_REPAIR=1 to enable")
         if LOCAL_BOOTSTRAP:
             bootstrap_local_data(app)
         if not scheduler.running:
@@ -74,6 +83,13 @@ def init_exts(app):
 
     login_manager.init_app(app)
     login_manager.login_view = 'login'
+
+
+def _env_flag(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
 
 
 def _shutdown_scheduler():
