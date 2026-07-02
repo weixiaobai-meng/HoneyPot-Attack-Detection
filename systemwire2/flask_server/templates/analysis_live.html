@@ -225,19 +225,19 @@
             <div class="graph-view active" id="graph-view-compare">
                 <div class="compare-grid">
                     <article class="graph-card">
-                        <h3>Raw Graph：裁剪前三元组攻击图谱</h3>
+                        <h3>Raw Graph：裁剪前聚合攻击图谱</h3>
                         <div id="rawGraphPanel" class="paper-graph-panel">暂无原始图输出。</div>
                     </article>
                     <article class="graph-card">
-                        <h3>Pruned Graph：裁剪后三元组攻击图谱</h3>
+                        <h3>Pruned Graph：裁剪后聚合攻击图谱</h3>
                         <div id="prunedGraphPanel" class="paper-graph-panel">暂无裁剪图输出。</div>
                     </article>
                 </div>
                 <div class="paper-graph-legend" aria-label="裁剪图谱图例">
-                    <span><i class="legend-node noise"></i> 圆点：三元组主体/客体节点</span>
-                    <span><i class="legend-line core"></i> 实线：事件三元组边</span>
-                    <span><i class="legend-line identity"></i> 虚线：同源/时序/跨蜜点关联边</span>
-                    <span><i class="legend-line restored"></i> 右图仅显示裁剪后保留边，不叠加原始背景</span>
+                    <span><i class="legend-node noise"></i> 圆点：聚合实体/行为节点</span>
+                    <span><i class="legend-line core"></i> 实线：主体-行为-资产事件关系</span>
+                    <span><i class="legend-line identity"></i> 虚线：同源/时序/跨蜜点关联</span>
+                    <span><i class="legend-line restored"></i> 图中展示 Top 聚合关系，完整规模见指标</span>
                 </div>
                 <div class="graph-card">
                     <h3>DQN 裁剪与受控链路评价</h3>
@@ -896,6 +896,74 @@ body,
     fill: #9fb3aa;
     font-size: 9.5px;
     font-weight: 700;
+}
+.aggregate-graph-svg {
+    background: #f8fbff;
+    border-radius: 12px;
+}
+.aggregate-graph-svg .svg-title {
+    fill: #17313a;
+}
+.aggregate-graph-svg .svg-subtitle,
+.aggregate-graph-svg .svg-label {
+    fill: #48616b;
+}
+.aggregate-graph-svg .aggregate-column {
+    fill: rgba(226, 232, 240, 0.42);
+    stroke: rgba(148, 163, 184, 0.36);
+    stroke-dasharray: 4 5;
+}
+.aggregate-graph-svg .aggregate-column-label {
+    fill: #516773;
+    font-size: 11px;
+    font-weight: 800;
+}
+.aggregate-graph-svg .aggregate-edge {
+    fill: none;
+    stroke: rgba(71, 85, 105, 0.36);
+    stroke-linecap: round;
+}
+.aggregate-graph-svg .aggregate-edge.account { stroke: rgba(245, 158, 11, 0.62); }
+.aggregate-graph-svg .aggregate-edge.file { stroke: rgba(34, 197, 94, 0.62); }
+.aggregate-graph-svg .aggregate-edge.parasitic { stroke: rgba(14, 165, 233, 0.62); }
+.aggregate-graph-svg .aggregate-edge.scan { stroke: rgba(148, 163, 184, 0.5); }
+.aggregate-graph-svg .aggregate-edge.correlation {
+    stroke: rgba(124, 58, 237, 0.62);
+    stroke-dasharray: 6 5;
+}
+.aggregate-graph-svg .aggregate-edge.pruned {
+    stroke-opacity: 0.9;
+}
+.aggregate-graph-svg .aggregate-edge-label {
+    fill: #40545d;
+    font-size: 9.5px;
+    font-weight: 800;
+}
+.aggregate-graph-svg .aggregate-node {
+    stroke: rgba(15, 23, 42, 0.2);
+    stroke-width: 1.4;
+}
+.aggregate-graph-svg .aggregate-node.source { fill: #2563eb; }
+.aggregate-graph-svg .aggregate-node.action { fill: #64748b; }
+.aggregate-graph-svg .aggregate-node.account { fill: #f59e0b; }
+.aggregate-graph-svg .aggregate-node.file { fill: #22c55e; }
+.aggregate-graph-svg .aggregate-node.parasitic { fill: #0ea5e9; }
+.aggregate-graph-svg .aggregate-node.scan { fill: #94a3b8; }
+.aggregate-graph-svg .aggregate-node.target { fill: #ef4444; }
+.aggregate-graph-svg .aggregate-node.unknown { fill: #8b5cf6; }
+.aggregate-graph-svg .aggregate-node-label-bg {
+    fill: rgba(255, 255, 255, 0.92);
+    stroke: rgba(148, 163, 184, 0.24);
+}
+.aggregate-graph-svg .aggregate-node-label {
+    fill: #17232a;
+    font-size: 10px;
+    font-weight: 850;
+}
+.aggregate-graph-svg .aggregate-node-meta {
+    fill: #60717a;
+    font-size: 8.5px;
+    font-weight: 750;
 }
 .paper-graph-svg .core-edge {
     stroke: rgba(125, 220, 139, 0.74);
@@ -2330,6 +2398,355 @@ function renderTripleTopologySvg(graph, referenceGraph, options = {}) {
     `;
 }
 
+function cleanAggregateLabel(value) {
+    const text = compactValue(value || '-')
+        .replace(/\s+/g, ' ')
+        .replace(/@\d{1,2}:\d{2}(:\d{2})?.*$/, '')
+        .trim();
+    const lower = text.toLowerCase();
+    const patterns = [
+        [/ssh.*(password|login|auth)|密码认证|登录探测|ssh_login|openvpn|vpn/, 'SSH/VPN 凭据尝试'],
+        [/file.*(open|read|download)|文件.*(打开|读取|下载)|canary|docx?|xlsx?|excel|word|secret/, '敏感文件触发'],
+        [/canvas|fingerprint|指纹|cookie|session|parasitic|寄生|url_access|web_access|http/, '寄生页面探测'],
+        [/scan|nmap|masscan|port|端口扫描|探测扫描/, '端口扫描噪声'],
+        [/correlates_to|same_|temporal|cross_|同源|时序|关联/, '同源/时序关联'],
+    ];
+    const hit = patterns.find(([pattern]) => pattern.test(lower) || pattern.test(text));
+    if (hit) return hit[1];
+    if (text === '-' || text === 'related_to' || text === 'subject_action_object') return '安全事件';
+    return shortText(actionLabel(text), 24);
+}
+
+function aggregateEventClass(...values) {
+    const text = values.map(value => compactValue(value)).join(' ').toLowerCase();
+    if (/file|docx?|xlsx?|excel|word|canary|secret|文件|蜜饵|下载|打开/.test(text)) return 'file';
+    if (/canvas|fingerprint|cookie|session|parasitic|web|url|http|寄生|指纹|页面/.test(text)) return 'parasitic';
+    if (/ssh|openvpn|vpn|password|login|auth|service|credential|账户|账号|密码|认证|登录/.test(text)) return 'account';
+    if (/scan|nmap|masscan|port|扫描|探测/.test(text)) return 'scan';
+    return 'unknown';
+}
+
+function aggregateNodeId(kind, label, className) {
+    return `${kind}:${className}:${stableHash(`${kind}|${className}|${label}`)}`;
+}
+
+function aggregateNode(kind, label, className, detail = '') {
+    const safeLabel = compactValue(label || '-');
+    return {
+        id: aggregateNodeId(kind, safeLabel, className || 'unknown'),
+        kind,
+        className: className || 'unknown',
+        label: safeLabel,
+        detail: compactValue(detail || ''),
+        count: 0,
+    };
+}
+
+function aggregateSourceNode(endpoint, triple) {
+    const type = String(endpoint.type || '').toLowerCase();
+    const label = compactValue(endpoint.label || endpoint.id || 'unknown');
+    if (type.includes('browser')) {
+        return aggregateNode('source', shortText(`指纹 ${label}`, 24), 'source', 'browser fingerprint');
+    }
+    if (type.includes('network') || /^(\d{1,3}\.){3}\d{1,3}$/.test(label)) {
+        return aggregateNode('source', shortText(label, 24), 'source', 'source ip');
+    }
+    return aggregateNode('source', shortText(label, 24), 'source', compactValue(triple.stage || 'subject'));
+}
+
+function aggregateTargetNode(endpoint, triple) {
+    const type = String(endpoint.type || '').toLowerCase();
+    const label = compactValue(endpoint.label || endpoint.id || '-');
+    const className = aggregateEventClass(type, label, triple.predicate, triple.stage, triple.technique);
+    if (type.includes('service')) {
+        return aggregateNode('target', '账户蜜点服务', 'account', shortText(label, 24));
+    }
+    if (type.includes('file')) {
+        return aggregateNode('target', '文件蜜饵', 'file', shortText(label, 24));
+    }
+    if (type.includes('url')) {
+        return aggregateNode('target', '寄生页面/URL', 'parasitic', shortText(label, 24));
+    }
+    if (type.includes('browser')) {
+        return aggregateNode('target', '浏览器指纹', 'parasitic', shortText(label, 24));
+    }
+    return aggregateNode('target', shortText(label, 24), className === 'unknown' ? 'target' : className, type || 'object');
+}
+
+function aggregateActionNode(triple, endpointLabel = '') {
+    const label = cleanAggregateLabel(triple.predicate || triple.relationType || endpointLabel || '安全事件');
+    const className = aggregateEventClass(label, triple.stage, triple.technique, triple.relationType, endpointLabel);
+    return aggregateNode('action', label, className === 'unknown' ? 'action' : className, compactValue(triple.technique || triple.stage || 'behavior'));
+}
+
+function aggregateActionNodeFromEvent(endpoint, triple) {
+    const label = cleanAggregateLabel(endpoint.label || triple.predicate || '安全事件');
+    const className = aggregateEventClass(label, endpoint.type, triple.stage, triple.technique);
+    return aggregateNode('action', label, className === 'unknown' ? 'action' : className, compactValue(endpoint.label || 'event'));
+}
+
+function buildAggregatedAttackModel(graph) {
+    const triples = standardTriplesFromGraph(graph);
+    const nodes = new Map();
+    const edges = new Map();
+    const addNode = node => {
+        if (!node || !node.id) return null;
+        if (!nodes.has(node.id)) nodes.set(node.id, { ...node, count: 0 });
+        const current = nodes.get(node.id);
+        current.count += 1;
+        return current;
+    };
+    const addEdge = (source, target, label, className, kind, triple) => {
+        if (!source || !target || source.id === target.id) return;
+        addNode(source);
+        addNode(target);
+        const key = `${source.id}|${target.id}|${label}|${kind}`;
+        const current = edges.get(key) || {
+            id: key,
+            source: source.id,
+            target: target.id,
+            label,
+            kind,
+            className: className || 'unknown',
+            count: 0,
+            confidenceTotal: 0,
+            firstTime: '',
+            lastTime: '',
+        };
+        current.count += 1;
+        const confidence = Number(triple.confidence);
+        if (!Number.isNaN(confidence)) current.confidenceTotal += confidence;
+        const timestamp = compactValue(triple.timestamp || '');
+        if (timestamp && timestamp !== '-') {
+            current.firstTime = !current.firstTime || timestamp < current.firstTime ? timestamp : current.firstTime;
+            current.lastTime = !current.lastTime || timestamp > current.lastTime ? timestamp : current.lastTime;
+        }
+        edges.set(key, current);
+    };
+
+    triples.forEach(triple => {
+        const isCorrelation = triple.edgeKind === 'correlation'
+            || String(triple.predicate || '').includes('correlates')
+            || String(triple.relationType || '').includes('same_')
+            || String(triple.relationType || '').includes('temporal');
+        if (isCorrelation && (triple.subject.type === 'event' || triple.object.type === 'event')) {
+            const sourceAction = aggregateActionNodeFromEvent(triple.subject, triple);
+            const targetAction = aggregateActionNodeFromEvent(triple.object, triple);
+            addEdge(
+                sourceAction,
+                targetAction,
+                cleanAggregateLabel(triple.relationType || triple.predicate || 'correlates_to'),
+                'correlation',
+                'correlation',
+                triple,
+            );
+            return;
+        }
+
+        const source = aggregateSourceNode(triple.subject, triple);
+        const action = aggregateActionNode(triple);
+        const target = aggregateTargetNode(triple.object, triple);
+        const className = action.className === 'action' ? target.className : action.className;
+        addEdge(source, action, action.label, className, 'event', triple);
+        addEdge(action, target, compactValue(triple.stage || triple.technique || '触达资产'), className, 'event', triple);
+    });
+
+    const nodeList = Array.from(nodes.values());
+    const edgeList = Array.from(edges.values()).map(edge => ({
+        ...edge,
+        confidence: edge.count ? edge.confidenceTotal / edge.count : 0,
+    }));
+    return { triples, nodes: nodeList, edges: edgeList };
+}
+
+function selectAggregatedAttackView(model, mode = 'raw') {
+    const maxEdges = mode === 'pruned' ? 54 : 64;
+    const maxNodes = mode === 'pruned' ? 46 : 52;
+    const nodeWeight = new Map(model.nodes.map(node => [node.id, node.count || 0]));
+    model.edges.forEach(edge => {
+        nodeWeight.set(edge.source, (nodeWeight.get(edge.source) || 0) + edge.count);
+        nodeWeight.set(edge.target, (nodeWeight.get(edge.target) || 0) + edge.count);
+    });
+    const allowedNodes = new Set(
+        model.nodes
+            .slice()
+            .sort((a, b) => (nodeWeight.get(b.id) || 0) - (nodeWeight.get(a.id) || 0) || a.label.localeCompare(b.label))
+            .slice(0, maxNodes)
+            .map(node => node.id),
+    );
+    let visibleEdges = model.edges
+        .filter(edge => allowedNodes.has(edge.source) && allowedNodes.has(edge.target))
+        .sort((a, b) => b.count - a.count || b.confidence - a.confidence || a.label.localeCompare(b.label))
+        .slice(0, maxEdges);
+    const visibleNodeIds = new Set();
+    visibleEdges.forEach(edge => {
+        visibleNodeIds.add(edge.source);
+        visibleNodeIds.add(edge.target);
+    });
+    const visibleNodes = model.nodes
+        .filter(node => visibleNodeIds.has(node.id))
+        .sort((a, b) => (nodeWeight.get(b.id) || 0) - (nodeWeight.get(a.id) || 0) || a.label.localeCompare(b.label));
+    if (!visibleEdges.length && model.nodes.length) {
+        return {
+            nodes: model.nodes.slice(0, Math.min(model.nodes.length, 12)),
+            edges: [],
+            nodeWeight,
+            clippedEdges: model.edges.length,
+        };
+    }
+    return {
+        nodes: visibleNodes,
+        edges: visibleEdges,
+        nodeWeight,
+        clippedEdges: Math.max(0, model.edges.length - visibleEdges.length),
+    };
+}
+
+function buildAggregatedAttackLayout(referenceView, width, height) {
+    const positions = new Map();
+    const columns = {
+        source: { x: 104, title: '攻击主体' },
+        action: { x: width / 2, title: '行为 / 技术' },
+        target: { x: width - 122, title: '蜜点 / 资产' },
+    };
+    const groups = { source: [], action: [], target: [] };
+    referenceView.nodes.forEach(node => {
+        const layer = node.kind === 'source' ? 'source' : node.kind === 'target' ? 'target' : 'action';
+        groups[layer].push(node);
+    });
+    Object.entries(groups).forEach(([layer, nodes]) => {
+        const sorted = nodes
+            .slice()
+            .sort((a, b) => (referenceView.nodeWeight.get(b.id) || 0) - (referenceView.nodeWeight.get(a.id) || 0) || a.label.localeCompare(b.label));
+        const usableHeight = Math.max(1, height - 126);
+        sorted.forEach((node, index) => {
+            const y = 82 + ((index + 1) * usableHeight) / (sorted.length + 1);
+            const jitter = (stableHash(node.id) % 25) - 12;
+            positions.set(node.id, {
+                x: columns[layer].x + jitter,
+                y,
+                layer,
+                node,
+            });
+        });
+    });
+    return { positions, columns };
+}
+
+function ensureAggregatedPosition(layout, node, width, height) {
+    if (layout.positions.has(node.id)) return layout.positions.get(node.id);
+    const layer = node.kind === 'source' ? 'source' : node.kind === 'target' ? 'target' : 'action';
+    const column = layout.columns[layer] || layout.columns.action;
+    const index = Array.from(layout.positions.values()).filter(item => item.layer === layer).length;
+    const y = Math.min(height - 42, 88 + index * 42);
+    const item = { x: column.x, y, layer, node };
+    layout.positions.set(node.id, item);
+    return item;
+}
+
+function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
+    const title = options.title || 'Aggregated Attack Graph';
+    const mode = options.mode || 'raw';
+    const model = buildAggregatedAttackModel(graph);
+    const referenceModel = buildAggregatedAttackModel(referenceGraph || graph);
+    const view = selectAggregatedAttackView(model, mode);
+    const referenceView = selectAggregatedAttackView(referenceModel, 'raw');
+    const maxColumnNodes = Math.max(
+        1,
+        ...['source', 'action', 'target'].map(kind => referenceView.nodes.filter(node => {
+            if (kind === 'source') return node.kind === 'source';
+            if (kind === 'target') return node.kind === 'target';
+            return node.kind === 'action';
+        }).length),
+    );
+    const width = options.width || 760;
+    const height = Math.max(options.height || 360, 128 + maxColumnNodes * 44);
+    const layout = buildAggregatedAttackLayout(referenceView, width, height);
+    const markerId = `agg-arrow-${mode}-${stableHash(title)}`;
+    const nodeById = new Map(view.nodes.map(node => [node.id, node]));
+    const labelLimit = mode === 'pruned' ? 36 : 30;
+    const labelNodeIds = new Set(
+        view.nodes
+            .slice()
+            .sort((a, b) => (view.nodeWeight.get(b.id) || 0) - (view.nodeWeight.get(a.id) || 0))
+            .slice(0, labelLimit)
+            .map(node => node.id),
+    );
+    const edgeLabelLimit = mode === 'pruned' ? 18 : 12;
+    const edgeSvg = view.edges.map((edge, index) => {
+        const sourceNode = nodeById.get(edge.source);
+        const targetNode = nodeById.get(edge.target);
+        if (!sourceNode || !targetNode) return '';
+        const source = ensureAggregatedPosition(layout, sourceNode, width, height);
+        const target = ensureAggregatedPosition(layout, targetNode, width, height);
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+        const sourceRadius = Math.max(11, Math.min(24, 11 + Math.log2((view.nodeWeight.get(sourceNode.id) || 1) + 1) * 2.2));
+        const targetRadius = Math.max(11, Math.min(24, 11 + Math.log2((view.nodeWeight.get(targetNode.id) || 1) + 1) * 2.2));
+        const x1 = source.x + (dx / distance) * sourceRadius;
+        const y1 = source.y + (dy / distance) * sourceRadius;
+        const x2 = target.x - (dx / distance) * targetRadius;
+        const y2 = target.y - (dy / distance) * targetRadius;
+        const curve = Math.max(-46, Math.min(46, (stableHash(edge.id) % 55) - 27 + dy * 0.12));
+        const c1x = x1 + dx * 0.42;
+        const c2x = x1 + dx * 0.62;
+        const c1y = y1 + curve;
+        const c2y = y2 - curve;
+        const widthValue = Math.max(1.25, Math.min(5.2, 1.25 + Math.log2(edge.count + 1) * 0.9));
+        const label = index < edgeLabelLimit
+            ? `<text class="aggregate-edge-label" x="${((x1 + x2) / 2).toFixed(1)}" y="${(((y1 + y2) / 2) - 6).toFixed(1)}" text-anchor="middle">${escapeHtml(shortText(edge.label, 18))}</text>`
+            : '';
+        return `
+            <path class="aggregate-edge ${escapeHtml(edge.kind)} ${escapeHtml(edge.className)} ${mode === 'pruned' ? 'pruned' : ''}"
+                d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}"
+                stroke-width="${widthValue.toFixed(1)}" marker-end="url(#${markerId})"></path>
+            ${label}
+        `;
+    }).join('');
+    const nodeSvg = view.nodes.map(node => {
+        const pos = ensureAggregatedPosition(layout, node, width, height);
+        const weight = view.nodeWeight.get(node.id) || node.count || 1;
+        const radius = Math.max(12, Math.min(25, 12 + Math.log2(weight + 1) * 2.2));
+        const showLabel = labelNodeIds.has(node.id);
+        const anchor = pos.layer === 'target' ? 'end' : 'start';
+        const labelX = pos.layer === 'target' ? pos.x - radius - 8 : pos.x + radius + 8;
+        const labelWidth = Math.min(156, Math.max(74, shortText(node.label, 22).length * 7 + 18));
+        const bgX = anchor === 'end' ? labelX - labelWidth : labelX - 7;
+        const label = showLabel ? `
+            <rect class="aggregate-node-label-bg" x="${bgX.toFixed(1)}" y="${(pos.y - 18).toFixed(1)}" width="${labelWidth}" height="33" rx="8"></rect>
+            <text class="aggregate-node-label" x="${labelX.toFixed(1)}" y="${(pos.y - 5).toFixed(1)}" text-anchor="${anchor}">${escapeHtml(shortText(node.label, 22))}</text>
+            <text class="aggregate-node-meta" x="${labelX.toFixed(1)}" y="${(pos.y + 8).toFixed(1)}" text-anchor="${anchor}">n=${escapeHtml(weight)}${node.detail && node.detail !== '-' ? ` · ${escapeHtml(shortText(node.detail, 18))}` : ''}</text>
+        ` : '';
+        return `
+            <g>
+                <circle class="aggregate-node ${escapeHtml(node.className)}" cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${radius.toFixed(1)}"></circle>
+                ${label}
+            </g>
+        `;
+    }).join('');
+    const columns = Object.entries(layout.columns).map(([key, column]) => `
+        <rect class="aggregate-column" x="${(column.x - 82).toFixed(1)}" y="66" width="164" height="${height - 92}" rx="18"></rect>
+        <text class="aggregate-column-label" x="${column.x.toFixed(1)}" y="52" text-anchor="middle">${escapeHtml(column.title)}</text>
+    `).join('');
+    const subtitle = `原始三元组 ${model.triples.length} / 聚合关系 ${model.edges.length} / 展示 ${view.edges.length}${view.clippedEdges ? ` / 隐藏低权重关系 ${view.clippedEdges}` : ''}`;
+    return `
+        <svg class="paper-graph-svg aggregate-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}">
+            <defs>
+                <marker id="${markerId}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(71, 85, 105, 0.72)"></path>
+                </marker>
+            </defs>
+            <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
+            <text class="svg-subtitle" x="18" y="49">${escapeHtml(subtitle)}</text>
+            <g>${columns}</g>
+            <g>${edgeSvg}</g>
+            <g>${nodeSvg}</g>
+        </svg>
+        <p class="paper-panel-note">${escapeHtml(options.note || '')}</p>
+    `;
+}
+
 function renderRawGraphSvg(graph) {
     const nodeCount = graphNodes(graph).length;
     const edgeCount = graphEdges(graph).length;
@@ -2582,17 +2999,17 @@ function renderGraphCompare() {
     const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
     const evalData = controlledEval();
     rawPanel.innerHTML = analysisGraph
-        ? renderTripleTopologySvg(analysisGraph, analysisGraph, {
+        ? renderAggregatedAttackGraphSvg(analysisGraph, analysisGraph, {
             title: 'Raw Graph',
             mode: 'raw',
-            note: '裁剪前图谱：基于标准三元组绘制全部主体-关系-客体边，不叠加裁剪后高亮结果。',
+            note: '裁剪前图谱：基于标准三元组构建聚合攻击图谱，只展示高权重主体、行为和资产关系；完整三元组规模保留在统计指标中。',
         })
         : '<div class="empty-row">暂无原始图输出。</div>';
     prunedPanel.innerHTML = prunedGraph
-        ? renderTripleTopologySvg(prunedGraph, analysisGraph, {
+        ? renderAggregatedAttackGraphSvg(prunedGraph, analysisGraph, {
             title: 'Pruned Graph',
             mode: 'pruned',
-            note: '裁剪后图谱：使用与左图相同的节点布局和三元组视觉语法，仅展示剪枝后保留的三元组边。',
+            note: '裁剪后图谱：使用与左图相同的聚合布局，仅展示裁剪后保留关系，便于观察噪声过滤后是否仍保留核心攻击链。',
         })
         : '<div class="empty-row">暂无裁剪图输出。</div>';
     const before = evalData.before_guardrail || {};
