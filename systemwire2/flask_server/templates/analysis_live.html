@@ -909,35 +909,45 @@ body,
     fill: #48616b;
 }
 .aggregate-graph-svg .aggregate-column {
-    fill: rgba(226, 232, 240, 0.42);
-    stroke: rgba(148, 163, 184, 0.36);
-    stroke-dasharray: 4 5;
+    stroke: rgba(148, 163, 184, 0.42);
+    stroke-width: 1;
 }
 .aggregate-graph-svg .aggregate-column-label {
     fill: #516773;
     font-size: 11px;
     font-weight: 800;
 }
+.aggregate-graph-svg .aggregate-column-rule {
+    stroke: rgba(148, 163, 184, 0.34);
+    stroke-width: 1;
+}
 .aggregate-graph-svg .aggregate-edge {
     fill: none;
-    stroke: rgba(71, 85, 105, 0.36);
+    stroke: rgba(71, 85, 105, 0.28);
     stroke-linecap: round;
 }
-.aggregate-graph-svg .aggregate-edge.account { stroke: rgba(245, 158, 11, 0.62); }
-.aggregate-graph-svg .aggregate-edge.file { stroke: rgba(34, 197, 94, 0.62); }
-.aggregate-graph-svg .aggregate-edge.parasitic { stroke: rgba(14, 165, 233, 0.62); }
-.aggregate-graph-svg .aggregate-edge.scan { stroke: rgba(148, 163, 184, 0.5); }
+.aggregate-graph-svg .aggregate-edge.account { stroke: rgba(245, 158, 11, 0.54); }
+.aggregate-graph-svg .aggregate-edge.file { stroke: rgba(34, 197, 94, 0.56); }
+.aggregate-graph-svg .aggregate-edge.parasitic { stroke: rgba(14, 165, 233, 0.56); }
+.aggregate-graph-svg .aggregate-edge.scan { stroke: rgba(148, 163, 184, 0.42); }
 .aggregate-graph-svg .aggregate-edge.correlation {
-    stroke: rgba(124, 58, 237, 0.62);
+    stroke: rgba(124, 58, 237, 0.58);
     stroke-dasharray: 6 5;
 }
 .aggregate-graph-svg .aggregate-edge.pruned {
     stroke-opacity: 0.9;
 }
+.aggregate-graph-svg .aggregate-edge.muted {
+    stroke-opacity: 0.3;
+}
 .aggregate-graph-svg .aggregate-edge-label {
     fill: #40545d;
     font-size: 9.5px;
     font-weight: 800;
+}
+.aggregate-graph-svg .aggregate-edge-label-bg {
+    fill: rgba(248, 251, 255, 0.9);
+    stroke: rgba(148, 163, 184, 0.22);
 }
 .aggregate-graph-svg .aggregate-node {
     stroke: rgba(15, 23, 42, 0.2);
@@ -951,6 +961,7 @@ body,
 .aggregate-graph-svg .aggregate-node.scan { fill: #94a3b8; }
 .aggregate-graph-svg .aggregate-node.target { fill: #ef4444; }
 .aggregate-graph-svg .aggregate-node.unknown { fill: #8b5cf6; }
+.aggregate-graph-svg .aggregate-node.grouped { fill: #3b82f6; }
 .aggregate-graph-svg .aggregate-node-label-bg {
     fill: rgba(255, 255, 255, 0.92);
     stroke: rgba(148, 163, 184, 0.24);
@@ -2602,6 +2613,84 @@ function selectAggregatedAttackView(model, mode = 'raw') {
     };
 }
 
+function compactLowFrequencySources(view, mode = 'raw') {
+    const sourceNodes = view.nodes
+        .filter(node => node.kind === 'source')
+        .sort((a, b) => (view.nodeWeight.get(b.id) || 0) - (view.nodeWeight.get(a.id) || 0) || a.label.localeCompare(b.label));
+    const keepLimit = mode === 'pruned' ? 7 : 7;
+    if (sourceNodes.length <= keepLimit + 1) {
+        return view;
+    }
+
+    const keepSourceIds = new Set(sourceNodes.slice(0, keepLimit).map(node => node.id));
+    const groupedSources = sourceNodes.filter(node => !keepSourceIds.has(node.id));
+    const groupedSourceIds = new Set(groupedSources.map(node => node.id));
+    const groupedWeight = groupedSources.reduce((total, node) => total + (view.nodeWeight.get(node.id) || node.count || 1), 0);
+    const groupedNode = {
+        id: 'source:grouped:low-frequency',
+        kind: 'source',
+        className: 'grouped',
+        label: `其他来源 x${groupedSources.length}`,
+        detail: '低频 IP/指纹合并',
+        count: groupedWeight,
+    };
+
+    const nextNodeWeight = new Map(view.nodeWeight);
+    nextNodeWeight.set(groupedNode.id, groupedWeight);
+    const nodeById = new Map(view.nodes.map(node => [node.id, node]));
+    const keptNodes = view.nodes.filter(node => node.kind !== 'source' || keepSourceIds.has(node.id));
+    keptNodes.push(groupedNode);
+
+    const edgeBuckets = new Map();
+    view.edges.forEach(edge => {
+        const source = groupedSourceIds.has(edge.source) ? groupedNode.id : edge.source;
+        const target = groupedSourceIds.has(edge.target) ? groupedNode.id : edge.target;
+        if (source === target) return;
+        const key = `${source}|${target}|${edge.label}|${edge.kind}|${edge.className}`;
+        const current = edgeBuckets.get(key) || {
+            ...edge,
+            id: key,
+            source,
+            target,
+            count: 0,
+            confidenceTotal: 0,
+            grouped: groupedSourceIds.has(edge.source) || groupedSourceIds.has(edge.target),
+        };
+        current.count += edge.count || 1;
+        current.confidenceTotal += (edge.confidence || 0) * (edge.count || 1);
+        current.grouped = current.grouped || groupedSourceIds.has(edge.source) || groupedSourceIds.has(edge.target);
+        edgeBuckets.set(key, current);
+    });
+
+    const edges = Array.from(edgeBuckets.values())
+        .map(edge => ({
+            ...edge,
+            confidence: edge.count ? edge.confidenceTotal / edge.count : edge.confidence,
+        }))
+        .sort((a, b) => b.count - a.count || b.confidence - a.confidence || a.label.localeCompare(b.label));
+    const visibleNodeIds = new Set();
+    edges.forEach(edge => {
+        visibleNodeIds.add(edge.source);
+        visibleNodeIds.add(edge.target);
+    });
+    const nodes = keptNodes
+        .filter(node => visibleNodeIds.has(node.id) || node.id === groupedNode.id)
+        .sort((a, b) => {
+            const order = { source: 0, action: 1, target: 2 };
+            return (order[a.kind] ?? 9) - (order[b.kind] ?? 9)
+                || (nextNodeWeight.get(b.id) || 0) - (nextNodeWeight.get(a.id) || 0)
+                || a.label.localeCompare(b.label);
+        });
+
+    return {
+        nodes,
+        edges,
+        nodeWeight: nextNodeWeight,
+        clippedEdges: view.clippedEdges,
+        groupedSources: groupedSources.length,
+    };
+}
+
 function buildAggregatedAttackLayout(referenceView, width, height) {
     const positions = new Map();
     const columns = {
@@ -2621,9 +2710,8 @@ function buildAggregatedAttackLayout(referenceView, width, height) {
         const usableHeight = Math.max(1, height - 126);
         sorted.forEach((node, index) => {
             const y = 82 + ((index + 1) * usableHeight) / (sorted.length + 1);
-            const jitter = (stableHash(node.id) % 25) - 12;
             positions.set(node.id, {
-                x: columns[layer].x + jitter,
+                x: columns[layer].x,
                 y,
                 layer,
                 node,
@@ -2649,8 +2737,8 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
     const mode = options.mode || 'raw';
     const model = buildAggregatedAttackModel(graph);
     const referenceModel = buildAggregatedAttackModel(referenceGraph || graph);
-    const view = selectAggregatedAttackView(model, mode);
-    const referenceView = selectAggregatedAttackView(referenceModel, 'raw');
+    const view = compactLowFrequencySources(selectAggregatedAttackView(model, mode), mode);
+    const referenceView = compactLowFrequencySources(selectAggregatedAttackView(referenceModel, 'raw'), 'raw');
     const maxColumnNodes = Math.max(
         1,
         ...['source', 'action', 'target'].map(kind => referenceView.nodes.filter(node => {
@@ -2660,11 +2748,11 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
         }).length),
     );
     const width = options.width || 760;
-    const height = Math.max(options.height || 360, 128 + maxColumnNodes * 44);
+    const height = Math.max(options.height || 320, 128 + maxColumnNodes * 52);
     const layout = buildAggregatedAttackLayout(referenceView, width, height);
     const markerId = `agg-arrow-${mode}-${stableHash(title)}`;
     const nodeById = new Map(view.nodes.map(node => [node.id, node]));
-    const labelLimit = mode === 'pruned' ? 36 : 30;
+    const labelLimit = mode === 'pruned' ? 28 : 22;
     const labelNodeIds = new Set(
         view.nodes
             .slice()
@@ -2672,7 +2760,13 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
             .slice(0, labelLimit)
             .map(node => node.id),
     );
-    const edgeLabelLimit = mode === 'pruned' ? 18 : 12;
+    const topEdgeIds = new Set(
+        view.edges
+            .slice()
+            .sort((a, b) => b.count - a.count || b.confidence - a.confidence || a.label.localeCompare(b.label))
+            .slice(0, mode === 'pruned' ? 6 : 5)
+            .map(edge => edge.id),
+    );
     const edgeSvg = view.edges.map((edge, index) => {
         const sourceNode = nodeById.get(edge.source);
         const targetNode = nodeById.get(edge.target);
@@ -2694,11 +2788,22 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
         const c1y = y1 + curve;
         const c2y = y2 - curve;
         const widthValue = Math.max(1.25, Math.min(5.2, 1.25 + Math.log2(edge.count + 1) * 0.9));
-        const label = index < edgeLabelLimit
-            ? `<text class="aggregate-edge-label" x="${((x1 + x2) / 2).toFixed(1)}" y="${(((y1 + y2) / 2) - 6).toFixed(1)}" text-anchor="middle">${escapeHtml(shortText(edge.label, 18))}</text>`
+        const shouldLabel = topEdgeIds.has(edge.id)
+            && (edge.kind === 'correlation' || targetNode.kind === 'target' || sourceNode.kind === 'source');
+        const labelText = edge.kind === 'correlation'
+            ? shortText(edge.label, 14)
+            : `n=${edge.count}`;
+        const labelX = ((x1 + x2) / 2);
+        const labelY = (((y1 + y2) / 2) - 7);
+        const labelWidth = Math.max(36, labelText.length * 7 + 12);
+        const label = shouldLabel
+            ? `
+                <rect class="aggregate-edge-label-bg" x="${(labelX - labelWidth / 2).toFixed(1)}" y="${(labelY - 13).toFixed(1)}" width="${labelWidth}" height="18" rx="7"></rect>
+                <text class="aggregate-edge-label" x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(labelText)}</text>
+            `
             : '';
         return `
-            <path class="aggregate-edge ${escapeHtml(edge.kind)} ${escapeHtml(edge.className)} ${mode === 'pruned' ? 'pruned' : ''}"
+            <path class="aggregate-edge ${escapeHtml(edge.kind)} ${escapeHtml(edge.className)} ${mode === 'pruned' ? 'pruned' : ''} ${shouldLabel ? '' : 'muted'}"
                 d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}"
                 stroke-width="${widthValue.toFixed(1)}" marker-end="url(#${markerId})"></path>
             ${label}
@@ -2726,10 +2831,17 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
         `;
     }).join('');
     const columns = Object.entries(layout.columns).map(([key, column]) => `
-        <rect class="aggregate-column" x="${(column.x - 82).toFixed(1)}" y="66" width="164" height="${height - 92}" rx="18"></rect>
+        <line class="aggregate-column-rule" x1="${column.x.toFixed(1)}" y1="66" x2="${column.x.toFixed(1)}" y2="${height - 30}"></line>
         <text class="aggregate-column-label" x="${column.x.toFixed(1)}" y="52" text-anchor="middle">${escapeHtml(column.title)}</text>
     `).join('');
-    const subtitle = `原始三元组 ${model.triples.length} / 聚合关系 ${model.edges.length} / 展示 ${view.edges.length}${view.clippedEdges ? ` / 隐藏低权重关系 ${view.clippedEdges}` : ''}`;
+    const subtitleParts = [
+        `原始三元组 ${model.triples.length}`,
+        `聚合关系 ${model.edges.length}`,
+        `展示 ${view.edges.length}`,
+    ];
+    if (view.groupedSources) subtitleParts.push(`合并低频来源 ${view.groupedSources}`);
+    if (view.clippedEdges) subtitleParts.push(`隐藏低权重关系 ${view.clippedEdges}`);
+    const subtitle = subtitleParts.join(' / ');
     return `
         <svg class="paper-graph-svg aggregate-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}">
             <defs>
