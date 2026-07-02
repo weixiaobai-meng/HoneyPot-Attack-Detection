@@ -73,6 +73,7 @@ def run_step2(run_dir: Path, step1_file: Path) -> Dict:
     graph_mmd = run_dir / "step2_causal_graph.mmd"
     triples_json = run_dir / "step2_standard_triples.json"
     sequence_json = run_dir / "step2_event_sequence.json"
+    provenance_json = run_dir / "step2_provenance_chains.json"
 
     with open(graph_json, "w", encoding="utf-8") as f:
         json.dump(graph_data, f, ensure_ascii=False, indent=2)
@@ -80,6 +81,8 @@ def run_step2(run_dir: Path, step1_file: Path) -> Dict:
         json.dump(graph_data.get("triples", []), f, ensure_ascii=False, indent=2)
     with open(sequence_json, "w", encoding="utf-8") as f:
         json.dump(graph_data.get("event_sequence", []), f, ensure_ascii=False, indent=2)
+    with open(provenance_json, "w", encoding="utf-8") as f:
+        json.dump(graph_data.get("provenance_chains", []), f, ensure_ascii=False, indent=2)
     CausalGraphVisualizer.save_mermaid(graph_data, str(graph_mmd), "Thesis Causal Graph")
 
     return {
@@ -87,9 +90,11 @@ def run_step2(run_dir: Path, step1_file: Path) -> Dict:
         "mermaid": str(graph_mmd),
         "triples_json": str(triples_json),
         "event_sequence_json": str(sequence_json),
+        "provenance_chains_json": str(provenance_json),
         "nodes": len(graph_data.get("nodes", [])),
         "edges": len(graph_data.get("edges", [])),
         "triples": len(graph_data.get("triples", [])),
+        "provenance_chains": len(graph_data.get("provenance_chains", [])),
     }
 
 
@@ -143,7 +148,7 @@ def run_pipeline(run_name: str, hours: int, epochs: int, seed: int) -> Path:
     set_seed(seed)
 
     base_dir = Path(__file__).parent
-    run_root = base_dir / "experiments" / "runs"
+    run_root = base_dir / "experiments" / "runs" / datetime.now().strftime("%Y-%m-%d")
     ensure_dir(run_root)
     run_dir = run_root / safe_run_name(run_name)
     ensure_dir(run_dir)

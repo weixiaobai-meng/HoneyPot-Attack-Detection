@@ -225,19 +225,19 @@
             <div class="graph-view active" id="graph-view-compare">
                 <div class="compare-grid">
                     <article class="graph-card">
-                        <h3>Raw Graph：裁剪前依赖图</h3>
+                        <h3>Raw Graph：裁剪前三元组攻击图谱</h3>
                         <div id="rawGraphPanel" class="paper-graph-panel">暂无原始图输出。</div>
                     </article>
                     <article class="graph-card">
-                        <h3>Pruned Graph：裁剪后证据链</h3>
+                        <h3>Pruned Graph：裁剪后三元组攻击图谱</h3>
                         <div id="prunedGraphPanel" class="paper-graph-panel">暂无裁剪图输出。</div>
                     </article>
                 </div>
                 <div class="paper-graph-legend" aria-label="裁剪图谱图例">
-                    <span><i class="legend-node noise"></i> 灰色节点/边：背景噪声与未保留关系</span>
-                    <span><i class="legend-line core"></i> 绿色实线：裁剪后保留的核心因果边</span>
-                    <span><i class="legend-line restored"></i> 橙色虚线：证据保护恢复边</span>
-                    <span><i class="legend-line identity"></i> 青色虚线：同源身份/会话关联</span>
+                    <span><i class="legend-node noise"></i> 圆点：三元组主体/客体节点</span>
+                    <span><i class="legend-line core"></i> 实线：事件三元组边</span>
+                    <span><i class="legend-line identity"></i> 虚线：同源/时序/跨蜜点关联边</span>
+                    <span><i class="legend-line restored"></i> 右图仅显示裁剪后保留边，不叠加原始背景</span>
                 </div>
                 <div class="graph-card">
                     <h3>DQN 裁剪与受控链路评价</h3>
@@ -861,6 +861,41 @@ body,
 .paper-graph-svg .background-node {
     fill: rgba(148, 163, 184, 0.24);
     stroke: rgba(238, 247, 238, 0.12);
+}
+.paper-graph-svg .triple-edge {
+    stroke: rgba(148, 163, 184, 0.3);
+    stroke-width: 1.1;
+}
+.paper-graph-svg .triple-edge.event {
+    stroke: rgba(125, 220, 139, 0.48);
+}
+.paper-graph-svg .triple-edge.correlation {
+    stroke: rgba(91, 214, 214, 0.52);
+    stroke-dasharray: 5 5;
+}
+.paper-graph-svg .triple-node {
+    fill: rgba(12, 28, 26, 0.96);
+    stroke: rgba(148, 163, 184, 0.5);
+    stroke-width: 1.4;
+}
+.paper-graph-svg .triple-node.network { stroke: rgba(91, 214, 214, 0.72); }
+.paper-graph-svg .triple-node.browser { stroke: rgba(244, 162, 97, 0.78); }
+.paper-graph-svg .triple-node.service { stroke: rgba(177, 139, 238, 0.74); }
+.paper-graph-svg .triple-node.file { stroke: rgba(125, 220, 139, 0.78); }
+.paper-graph-svg .triple-node.url { stroke: rgba(91, 214, 214, 0.78); }
+.paper-graph-svg .triple-node.event { stroke: rgba(245, 180, 91, 0.76); }
+.paper-graph-svg .triple-node.pruned {
+    stroke-width: 2.2;
+}
+.paper-graph-svg .triple-node-label {
+    fill: #d9eee4;
+    font-size: 10.5px;
+    font-weight: 800;
+}
+.paper-graph-svg .triple-edge-label {
+    fill: #9fb3aa;
+    font-size: 9.5px;
+    font-weight: 700;
 }
 .paper-graph-svg .core-edge {
     stroke: rgba(125, 220, 139, 0.74);
@@ -2083,6 +2118,218 @@ function buildGoldenPath(rawGraph, prunedGraph) {
     };
 }
 
+function normalizeTripleEndpoint(value, fallbackId, fallbackType = 'unknown') {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const id = compactValue(value.id || value.node_id || value.label || fallbackId || 'unknown');
+        return {
+            id,
+            type: compactValue(value.type || fallbackType),
+            label: compactValue(value.label || value.path || value.ip || id),
+        };
+    }
+    const id = compactValue(value || fallbackId || 'unknown');
+    return { id, type: fallbackType, label: id };
+}
+
+function standardTriplesFromGraph(graph) {
+    const triples = (graph && Array.isArray(graph.triples) && graph.triples.length) ? graph.triples : [];
+    if (triples.length) {
+        return triples.map((item, index) => {
+            if (Array.isArray(item)) {
+                return {
+                    id: `triple_${index}`,
+                    subject: normalizeTripleEndpoint(item[0], `subject_${index}`),
+                    predicate: compactValue(item[1] || 'related_to'),
+                    object: normalizeTripleEndpoint(item[2], `object_${index}`),
+                    edgeKind: 'event',
+                    relationType: compactValue(item[1] || 'related_to'),
+                    timestamp: '',
+                };
+            }
+            return {
+                id: compactValue(item.triple_id || item.edge_id || `triple_${index}`),
+                subject: normalizeTripleEndpoint(item.subject, `subject_${index}`),
+                predicate: compactValue(item.predicate || item.action || item.relation_type || 'related_to'),
+                object: normalizeTripleEndpoint(item.object, `object_${index}`),
+                edgeKind: compactValue(item.edge_kind || (String(item.predicate || '').includes('correlates') ? 'correlation' : 'event')),
+                relationType: compactValue(item.relation_type || item.predicate || item.action || 'related_to'),
+                timestamp: compactValue(item.timestamp || ''),
+                stage: compactValue(item.stage || ''),
+                confidence: item.confidence,
+            };
+        });
+    }
+
+    return graphEdges(graph).map((edge, index) => ({
+        id: compactValue(edge.edge_id || `edge_${index}`),
+        subject: normalizeTripleEndpoint(
+            { id: edge.source, type: edge.subject_type, label: edge.subject_label },
+            `source_${index}`,
+            edge.subject_type || 'unknown',
+        ),
+        predicate: compactValue(edge.edge_kind === 'correlation' ? (edge.relation_type || edge.action) : edge.action || 'related_to'),
+        object: normalizeTripleEndpoint(
+            { id: edge.target, type: edge.object_type, label: edge.object_label },
+            `target_${index}`,
+            edge.object_type || 'unknown',
+        ),
+        edgeKind: compactValue(edge.edge_kind || 'event'),
+        relationType: compactValue(edge.relation_type || edge.action || 'related_to'),
+        timestamp: compactValue(edge.timestamp || ''),
+        stage: compactValue(edge.stage || ''),
+        confidence: edge.confidence,
+    }));
+}
+
+function tripleNodeTypeClass(type) {
+    const value = String(type || 'unknown').toLowerCase();
+    if (['network', 'browser', 'file', 'url', 'service', 'event', 'process'].includes(value)) {
+        return value;
+    }
+    return 'unknown';
+}
+
+function buildTripleTopologyModel(graph) {
+    const triples = standardTriplesFromGraph(graph);
+    const nodes = new Map();
+    const degree = new Map();
+    const addNode = endpoint => {
+        if (!endpoint.id || endpoint.id === 'unknown') return;
+        if (!nodes.has(endpoint.id)) {
+            nodes.set(endpoint.id, { ...endpoint });
+        }
+        degree.set(endpoint.id, degree.get(endpoint.id) || 0);
+    };
+    triples.forEach(triple => {
+        addNode(triple.subject);
+        addNode(triple.object);
+        degree.set(triple.subject.id, (degree.get(triple.subject.id) || 0) + 1);
+        degree.set(triple.object.id, (degree.get(triple.object.id) || 0) + 1);
+    });
+    return { triples, nodes: Array.from(nodes.values()), degree };
+}
+
+function buildTripleTopologyLayout(referenceGraph, width, height) {
+    const model = buildTripleTopologyModel(referenceGraph);
+    const sortedNodes = model.nodes
+        .slice()
+        .sort((a, b) => (model.degree.get(b.id) || 0) - (model.degree.get(a.id) || 0) || a.id.localeCompare(b.id));
+    const positions = new Map();
+    const centerX = width / 2;
+    const centerY = height / 2 + 18;
+    sortedNodes.forEach((node, index) => {
+        const rank = index + 1;
+        const ring = Math.floor(Math.sqrt(rank));
+        const radius = Math.min(width, height) * 0.11 + ring * 34 + (stableHash(node.id) % 18);
+        const angle = ((index * 137.508 + stableHash(node.id) % 41) * Math.PI) / 180;
+        positions.set(node.id, {
+            node,
+            x: centerX + Math.cos(angle) * radius,
+            y: centerY + Math.sin(angle) * radius * 0.72,
+            degree: model.degree.get(node.id) || 0,
+        });
+    });
+    return { positions, degree: model.degree };
+}
+
+function ensureTripleNodePosition(layout, node, width, height) {
+    if (layout.positions.has(node.id)) {
+        return layout.positions.get(node.id);
+    }
+    const index = layout.positions.size + 1;
+    const radius = Math.min(width, height) * 0.18 + (index % 5) * 28;
+    const angle = ((index * 111.7 + stableHash(node.id) % 29) * Math.PI) / 180;
+    const item = {
+        node,
+        x: width / 2 + Math.cos(angle) * radius,
+        y: height / 2 + 18 + Math.sin(angle) * radius * 0.72,
+        degree: 1,
+    };
+    layout.positions.set(node.id, item);
+    return item;
+}
+
+function renderTripleTopologySvg(graph, referenceGraph, options = {}) {
+    const model = buildTripleTopologyModel(graph);
+    const title = options.title || 'Triple Graph';
+    const mode = options.mode || 'raw';
+    const width = options.width || 760;
+    const height = options.height || 340;
+    const layout = buildTripleTopologyLayout(referenceGraph || graph, width, height);
+    const triples = model.triples.slice().sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || '')));
+    const maxEdges = options.maxEdges || 800;
+    const visibleTriples = triples.slice(0, maxEdges);
+    const visibleNodeIds = new Set();
+    visibleTriples.forEach(triple => {
+        visibleNodeIds.add(triple.subject.id);
+        visibleNodeIds.add(triple.object.id);
+        ensureTripleNodePosition(layout, triple.subject, width, height);
+        ensureTripleNodePosition(layout, triple.object, width, height);
+    });
+    const visibleNodes = model.nodes.filter(node => visibleNodeIds.has(node.id));
+    const labelLimit = mode === 'pruned' ? 36 : 10;
+    const labelNodeIds = new Set(
+        visibleNodes
+            .slice()
+            .sort((a, b) => (layout.degree.get(b.id) || 0) - (layout.degree.get(a.id) || 0))
+            .slice(0, labelLimit)
+            .map(node => node.id),
+    );
+    const edgeLabelsAllowed = visibleTriples.length <= (mode === 'pruned' ? 80 : 28);
+    const markerId = `triple-arrow-${mode}-${stableHash(title)}`;
+    const edgeSvg = visibleTriples.map((triple, index) => {
+        const source = layout.positions.get(triple.subject.id);
+        const target = layout.positions.get(triple.object.id);
+        if (!source || !target || source === target) return '';
+        const isCorrelation = triple.edgeKind === 'correlation' || triple.predicate === 'correlates_to';
+        const dx = target.x - source.x;
+        const dy = target.y - source.y;
+        const distance = Math.max(Math.sqrt(dx * dx + dy * dy), 1);
+        const offset = Math.min(9, Math.max(5, distance / 28));
+        const x1 = source.x + (dx / distance) * offset;
+        const y1 = source.y + (dy / distance) * offset;
+        const x2 = target.x - (dx / distance) * offset;
+        const y2 = target.y - (dy / distance) * offset;
+        const midX = (x1 + x2) / 2;
+        const midY = (y1 + y2) / 2;
+        const label = edgeLabelsAllowed && index < 80
+            ? `<text class="triple-edge-label" x="${midX.toFixed(1)}" y="${(midY - 4).toFixed(1)}" text-anchor="middle">${escapeHtml(shortText(triple.relationType || triple.predicate, 18))}</text>`
+            : '';
+        return `
+            <line class="triple-edge ${isCorrelation ? 'correlation' : 'event'}" x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" marker-end="url(#${markerId})"></line>
+            ${label}
+        `;
+    }).join('');
+    const nodeSvg = visibleNodes.map(node => {
+        const pos = ensureTripleNodePosition(layout, node, width, height);
+        const degree = layout.degree.get(node.id) || 1;
+        const radius = Math.max(4.5, Math.min(10.5, 4.5 + Math.log2(degree + 1)));
+        const typeClass = tripleNodeTypeClass(node.type);
+        const label = labelNodeIds.has(node.id)
+            ? `<text class="triple-node-label" x="${(pos.x + radius + 4).toFixed(1)}" y="${(pos.y - 4).toFixed(1)}">${escapeHtml(shortText(node.label || node.id, 22))}</text>`
+            : '';
+        return `
+            <circle class="triple-node ${typeClass} ${mode === 'pruned' ? 'pruned' : ''}" cx="${pos.x.toFixed(1)}" cy="${pos.y.toFixed(1)}" r="${radius.toFixed(1)}"></circle>
+            ${label}
+        `;
+    }).join('');
+    const clippedNote = triples.length > visibleTriples.length ? ` / showing ${visibleTriples.length}` : '';
+    return `
+        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}">
+            <defs>
+                <marker id="${markerId}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(148, 163, 184, 0.7)"></path>
+                </marker>
+            </defs>
+            <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
+            <text class="svg-subtitle" x="18" y="50">nodes ${escapeHtml(visibleNodes.length)} / triples ${escapeHtml(triples.length)}${escapeHtml(clippedNote)} / ${mode === 'pruned' ? 'kept triples only' : 'all triples before pruning'}</text>
+            <g>${edgeSvg}</g>
+            <g>${nodeSvg}</g>
+        </svg>
+        <p class="paper-panel-note">${escapeHtml(options.note || '')}</p>
+    `;
+}
+
 function renderRawGraphSvg(graph) {
     const nodeCount = graphNodes(graph).length;
     const edgeCount = graphEdges(graph).length;
@@ -2334,8 +2581,20 @@ function renderGraphCompare() {
     const prunedGraph = analysisPrunedGraph || analysisGraph;
     const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
     const evalData = controlledEval();
-    rawPanel.innerHTML = analysisGraph ? renderRawGraphSvg(analysisGraph) : '<div class="empty-row">暂无原始图输出。</div>';
-    prunedPanel.innerHTML = prunedGraph ? renderPrunedTopologySvg(analysisGraph, prunedGraph, 'Pruned Graph') : '<div class="empty-row">暂无裁剪图输出。</div>';
+    rawPanel.innerHTML = analysisGraph
+        ? renderTripleTopologySvg(analysisGraph, analysisGraph, {
+            title: 'Raw Graph',
+            mode: 'raw',
+            note: '裁剪前图谱：基于标准三元组绘制全部主体-关系-客体边，不叠加裁剪后高亮结果。',
+        })
+        : '<div class="empty-row">暂无原始图输出。</div>';
+    prunedPanel.innerHTML = prunedGraph
+        ? renderTripleTopologySvg(prunedGraph, analysisGraph, {
+            title: 'Pruned Graph',
+            mode: 'pruned',
+            note: '裁剪后图谱：使用与左图相同的节点布局和三元组视觉语法，仅展示剪枝后保留的三元组边。',
+        })
+        : '<div class="empty-row">暂无裁剪图输出。</div>';
     const before = evalData.before_guardrail || {};
     const dqnState = dqnStateInfo(analysisSummary);
     const metrics = [

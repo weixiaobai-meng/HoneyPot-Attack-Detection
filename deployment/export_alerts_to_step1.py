@@ -419,6 +419,7 @@ def build_default_paths():
         "step2_mermaid": REPO_ROOT / "step2_causal_graph" / "output" / "causal_graph.mmd",
         "step2_triples": REPO_ROOT / "step2_causal_graph" / "output" / "step2_standard_triples.json",
         "step2_event_sequence": REPO_ROOT / "step2_causal_graph" / "output" / "step2_event_sequence.json",
+        "step2_provenance_chains": REPO_ROOT / "step2_causal_graph" / "output" / "step2_provenance_chains.json",
         "step3": REPO_ROOT / "step3_dqn_pruning" / "output" / "pruned_graph.json",
         "step3_edge_labels": REPO_ROOT / "step3_dqn_pruning" / "output" / "edge_labels.json",
         "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
@@ -446,6 +447,7 @@ def build_run_paths(run_dir: Path):
         "step2_mermaid": run_dir / "step2" / "causal_graph.mmd",
         "step2_triples": run_dir / "step2" / "step2_standard_triples.json",
         "step2_event_sequence": run_dir / "step2" / "step2_event_sequence.json",
+        "step2_provenance_chains": run_dir / "step2" / "step2_provenance_chains.json",
         "step3": run_dir / "step3" / "pruned_graph.json",
         "step3_edge_labels": run_dir / "step3" / "edge_labels.json",
         "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
@@ -471,6 +473,7 @@ def ensure_dirs(paths):
         "step2_mermaid",
         "step2_triples",
         "step2_event_sequence",
+        "step2_provenance_chains",
         "step3",
         "step3_edge_labels",
         "step4_intent",
@@ -500,6 +503,10 @@ def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
             node_ids.add(edge["target"])
         if edge.get("event_id"):
             event_ids.add(edge["event_id"])
+        for endpoint_key in ("source", "target"):
+            endpoint = str(edge.get(endpoint_key) or "")
+            if endpoint.startswith("event:"):
+                event_ids.add(endpoint.split("event:", 1)[1])
 
     nodes = [node for node in graph_data.get("nodes", []) if node.get("id") in node_ids]
     triples = []
@@ -510,12 +517,25 @@ def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
         item for item in graph_data.get("event_sequence", [])
         if item.get("event_id") in event_ids
     ]
+    provenance_chains = []
+    for chain in graph_data.get("provenance_chains", []):
+        phase_event_ids = {
+            str(item.get("event_id"))
+            for item in chain.get("phase_sequence", [])
+            if item.get("event_id")
+        }
+        if phase_event_ids.intersection(event_ids):
+            provenance_chains.append(chain)
 
     meta = dict(graph_data.get("graph_meta", {}))
     meta["node_count"] = len(nodes)
     meta["edge_count"] = len(kept_edges)
     meta["triple_count"] = len(triples)
     meta["relation_counts"] = dict(Counter(edge.get("relation_type") or "unknown" for edge in kept_edges))
+    meta["provenance_chain_count"] = len(provenance_chains)
+    meta["strong_provenance_chain_count"] = sum(
+        1 for chain in provenance_chains if chain.get("chain_strength") == "strong"
+    )
 
     subset = {
         "graph_meta": meta,
@@ -525,6 +545,7 @@ def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
         "event_sequence": event_sequence,
         "attacker_groups": graph_data.get("attacker_groups", []),
         "attack_paths": graph_data.get("attack_paths", []),
+        "provenance_chains": provenance_chains,
         "controlled_scenarios": graph_data.get("controlled_scenarios", []),
     }
     if pruning_stats is not None:
@@ -1197,6 +1218,7 @@ def run_steps_from_unified(alerts, paths):
     dump_json(paths["step2"], graph_data)
     dump_json(paths["step2_triples"], graph_data.get("triples", []))
     dump_json(paths["step2_event_sequence"], graph_data.get("event_sequence", []))
+    dump_json(paths["step2_provenance_chains"], graph_data.get("provenance_chains", []))
     graph_title = "Live Honeypot Attack Graph" if alerts else "Empty Honeypot Attack Graph"
     CausalGraphVisualizer.save_mermaid(graph_data, str(paths["step2_mermaid"]), title=graph_title)
 
@@ -1238,6 +1260,8 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "triples": len(graph_data.get("triples", [])),
             "event_sequence": len(graph_data.get("event_sequence", [])),
             "attack_paths": len(graph_data.get("attack_paths", [])),
+            "provenance_chains": len(graph_data.get("provenance_chains", [])),
+            "strong_provenance_chains": graph_data.get("graph_meta", {}).get("strong_provenance_chain_count", 0),
             "edge_actions": dict(action_counts),
             "relation_counts": graph_data.get("graph_meta", {}).get("relation_counts", {}),
             "controlled_scenarios": graph_data.get("controlled_scenarios", []),
@@ -1257,6 +1281,7 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "step2_mermaid": rel(paths["step2_mermaid"]),
             "step2_standard_triples": rel(paths["step2_triples"]),
             "step2_event_sequence": rel(paths["step2_event_sequence"]),
+            "step2_provenance_chains": rel(paths["step2_provenance_chains"]),
             "step3_pruned_graph": rel(paths["step3"]),
             "step3_edge_labels": rel(paths["step3_edge_labels"]) if paths["step3_edge_labels"].exists() else "",
             "step4_intent_analysis": rel(paths["step4_intent"]),
@@ -1283,6 +1308,7 @@ def copy_run_to_defaults(source_paths):
         (source_paths["step2_mermaid"], default_paths["step2_mermaid"]),
         (source_paths["step2_triples"], default_paths["step2_triples"]),
         (source_paths["step2_event_sequence"], default_paths["step2_event_sequence"]),
+        (source_paths["step2_provenance_chains"], default_paths["step2_provenance_chains"]),
         (source_paths["step3"], default_paths["step3"]),
         (source_paths["step4_intent"], default_paths["step4_intent"]),
         (source_paths["step4_ttp"], default_paths["step4_ttp"]),

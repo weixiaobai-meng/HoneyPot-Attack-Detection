@@ -90,6 +90,7 @@ class GraphToTextConverter:
         triples = graph_data.get("triples", [])
         meta = graph_data.get("graph_meta", {})
         attack_paths = graph_data.get("attack_paths", [])
+        provenance_chains = graph_data.get("provenance_chains", [])
         attacker_groups = graph_data.get("attacker_groups", [])
         controlled_scenarios = graph_data.get("controlled_scenarios", [])
         controlled_label_eval = graph_data.get("controlled_label_eval", {})
@@ -102,6 +103,7 @@ class GraphToTextConverter:
             self._generate_controlled_scenarios(controlled_scenarios, controlled_label_eval, pruning_stats),
             self._generate_attackers(attacker_groups),
             self._generate_attack_paths(attack_paths, node_map),
+            self._generate_provenance_chains(provenance_chains),
             self._generate_stage_view(sorted_edges, node_map),
             self._generate_timeline(sorted_edges, node_map, include_timestamps),
             self._generate_key_paths(sorted_edges, node_map),
@@ -440,6 +442,43 @@ class GraphToTextConverter:
             lines.append(f"- ... {len(attack_paths) - 10} more path groups omitted.")
         return "\n".join(lines)
 
+    def _generate_provenance_chains(self, provenance_chains: List[Dict]) -> str:
+        lines = ["## 4. Provenance Chain Evidence", ""]
+        if not provenance_chains:
+            lines.append("- No provenance chain summary was reconstructed.")
+            return "\n".join(lines)
+
+        sorted_chains = sorted(
+            provenance_chains,
+            key=lambda item: (
+                item.get("chain_strength") != "strong",
+                -(int(item.get("event_count") or 0)),
+            ),
+        )
+        for chain in sorted_chains[:8]:
+            lines.append(
+                f"- {chain.get('chain_id')}: attacker={chain.get('attacker_id')}, "
+                f"strength={chain.get('chain_strength')}, "
+                f"events={chain.get('event_count')}, "
+                f"types={', '.join(chain.get('event_types') or []) or 'unknown'}, "
+                f"phase={chain.get('phase_label') or '-'}, "
+                f"cross_honeypot_hops={chain.get('cross_honeypot_hop_count', 0)}, "
+                f"avg_confidence={chain.get('average_correlation_confidence', 0)}."
+            )
+            hop_edges = chain.get("hop_edges") or []
+            for hop in hop_edges[:5]:
+                evidence = ", ".join(hop.get("shared_evidence") or []) or "temporal/stage relation"
+                lines.append(
+                    f"  - hop {hop.get('from_event_id')} -> {hop.get('to_event_id')}: "
+                    f"relation={hop.get('relation_type')}, scope={hop.get('edge_scope')}, "
+                    f"confidence={hop.get('confidence')}, evidence={evidence}"
+                )
+            if len(hop_edges) > 5:
+                lines.append(f"  - ... {len(hop_edges) - 5} more hops omitted.")
+        if len(provenance_chains) > 8:
+            lines.append(f"- ... {len(provenance_chains) - 8} more provenance chains omitted.")
+        return "\n".join(lines)
+
     def _generate_stage_view(self, edges: List[Dict], node_map: Dict) -> str:
         phase_groups = defaultdict(list)
         for edge in edges:
@@ -447,7 +486,7 @@ class GraphToTextConverter:
                 continue
             phase_groups[edge.get("stage") or "unknown"].append(edge)
 
-        lines = ["## 4. Attack Stage View", ""]
+        lines = ["## 5. Attack Stage View", ""]
         for stage in self.STAGE_ORDER + ["unknown"]:
             if stage not in phase_groups:
                 continue
@@ -464,7 +503,7 @@ class GraphToTextConverter:
         return "\n".join(lines)
 
     def _generate_timeline(self, edges: List[Dict], node_map: Dict, include_timestamps: bool) -> str:
-        lines = ["## 5. Event Timeline", ""]
+        lines = ["## 6. Event Timeline", ""]
         event_edges = [edge for edge in edges if edge.get("edge_kind") == "event"]
         for idx, edge in enumerate(event_edges, 1):
             prefix = ""
@@ -499,7 +538,7 @@ class GraphToTextConverter:
             if path:
                 paths.append(path)
 
-        lines = ["## 6. Candidate Attack Paths", ""]
+        lines = ["## 7. Candidate Attack Paths", ""]
         if not paths:
             lines.append("- No attack path could be reconstructed from current edges.")
             return "\n".join(lines)
@@ -511,7 +550,7 @@ class GraphToTextConverter:
         return "\n".join(lines)
 
     def _generate_triple_summary(self, triples: List[Dict]) -> str:
-        lines = ["## 7. Standard Triple Samples", ""]
+        lines = ["## 8. Standard Triple Samples", ""]
         if not triples:
             lines.append("- No triples were generated.")
             return "\n".join(lines)
@@ -547,7 +586,7 @@ class GraphToTextConverter:
             elif node_type == "url":
                 urls.add(label)
 
-        lines = ["## 8. Extracted IoCs", ""]
+        lines = ["## 9. Extracted IoCs", ""]
         lines.append(f"- IPs: {', '.join(sorted(ips)) if ips else 'None'}")
         lines.append(f"- Files: {', '.join(sorted(files)) if files else 'None'}")
         lines.append(f"- Processes: {', '.join(sorted(processes)) if processes else 'None'}")

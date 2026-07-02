@@ -80,6 +80,7 @@ class CausalGraphBuilder:
 
     PATH_TIME_WINDOW = timedelta(minutes=10)
     CONTROLLED_CHAIN_WINDOW = timedelta(minutes=45)
+    PROVENANCE_CHAIN_WINDOW = timedelta(minutes=60)
     STAGE_RANK = {
         "reconnaissance": 1,
         "initial_access": 2,
@@ -402,6 +403,7 @@ class CausalGraphBuilder:
 
     def _build_correlation_edges(self, events: List[Dict]) -> List[CausalEdge]:
         correlation_edges: List[CausalEdge] = []
+        seen_edge_ids = set()
         events_by_path = defaultdict(list)
         for event in events:
             path_id = event.get("path_id") or f"event:{event.get('event_id')}"
@@ -416,46 +418,84 @@ class CausalGraphBuilder:
                 if not relation_type:
                     continue
 
-                previous_node_id = f"event:{previous['event_id']}"
-                current_node_id = f"event:{current['event_id']}"
-                previous_label = f"{previous.get('action')}@{self._short_time(previous.get('timestamp'))}"
-                current_label = f"{current.get('action')}@{self._short_time(current.get('timestamp'))}"
-
-                self._add_event_node(previous, previous_node_id, previous_label)
-                self._add_event_node(current, current_node_id, current_label)
-
-                correlation_edges.append(
-                    CausalEdge(
-                        edge_id=f"corr_{previous['event_id']}_{current['event_id']}",
-                        event_id=current["event_id"],
-                        subject_type="event",
-                        subject_id=previous_node_id,
-                        subject_label=previous_label,
-                        action="correlates_to",
-                        object_type="event",
-                        object_id=current_node_id,
-                        object_label=current_label,
-                        timestamp=self._parse_timestamp(current.get("timestamp")),
-                        stage=current.get("stage"),
-                        tactic=current.get("tactic"),
-                        technique=current.get("technique"),
-                        confidence=self._correlation_confidence(relation_type),
-                        severity=current.get("severity", "medium"),
-                        raw_data={
-                            "previous_event_id": previous["event_id"],
-                            "current_event_id": current["event_id"],
-                            "relation_type": relation_type,
-                            "attacker_id": current.get("attacker_id"),
-                            "scenario_id": current.get("scenario_id"),
-                            "scenario_role": current.get("scenario_role"),
-                            "evidence_refs": current.get("evidence_refs") or [],
-                        },
-                        edge_kind="correlation",
-                        path_id=current.get("path_id"),
-                        relation_type=relation_type,
-                    )
-                )
+                edge = self._make_correlation_edge(previous, current, relation_type, edge_scope="path")
+                if edge.edge_id not in seen_edge_ids:
+                    seen_edge_ids.add(edge.edge_id)
+                    correlation_edges.append(edge)
+        correlation_edges.extend(self._build_attacker_timeline_edges(events, seen_edge_ids))
         return correlation_edges
+
+    def _build_attacker_timeline_edges(self, events: List[Dict], seen_edge_ids: set) -> List[CausalEdge]:
+        """Add long-horizon same-actor timeline edges for provenance reconstruction."""
+        timeline_edges: List[CausalEdge] = []
+        events_by_attacker = defaultdict(list)
+        for event in events:
+            events_by_attacker[event.get("attacker_id") or "unknown_attacker"].append(event)
+
+        for attacker_events in events_by_attacker.values():
+            attacker_events.sort(key=lambda item: self._parse_timestamp(item.get("timestamp")))
+            for index in range(1, len(attacker_events)):
+                previous = attacker_events[index - 1]
+                current = attacker_events[index]
+                previous_ts = self._parse_timestamp(previous.get("timestamp"))
+                current_ts = self._parse_timestamp(current.get("timestamp"))
+                if current_ts < previous_ts or current_ts - previous_ts > self.PROVENANCE_CHAIN_WINDOW:
+                    continue
+
+                relation_type = self._infer_provenance_relation(previous, current)
+                if not relation_type:
+                    continue
+
+                edge = self._make_correlation_edge(previous, current, relation_type, edge_scope="attacker_timeline")
+                if edge.edge_id in seen_edge_ids:
+                    continue
+                seen_edge_ids.add(edge.edge_id)
+                timeline_edges.append(edge)
+        return timeline_edges
+
+    def _make_correlation_edge(self, previous: Dict, current: Dict, relation_type: str, edge_scope: str) -> CausalEdge:
+        previous_node_id = f"event:{previous['event_id']}"
+        current_node_id = f"event:{current['event_id']}"
+        previous_label = f"{previous.get('action')}@{self._short_time(previous.get('timestamp'))}"
+        current_label = f"{current.get('action')}@{self._short_time(current.get('timestamp'))}"
+
+        self._add_event_node(previous, previous_node_id, previous_label)
+        self._add_event_node(current, current_node_id, current_label)
+
+        previous_ts = self._parse_timestamp(previous.get("timestamp"))
+        current_ts = self._parse_timestamp(current.get("timestamp"))
+        return CausalEdge(
+            edge_id=f"corr_{previous['event_id']}_{current['event_id']}",
+            event_id=current["event_id"],
+            subject_type="event",
+            subject_id=previous_node_id,
+            subject_label=previous_label,
+            action="correlates_to",
+            object_type="event",
+            object_id=current_node_id,
+            object_label=current_label,
+            timestamp=current_ts,
+            stage=current.get("stage"),
+            tactic=current.get("tactic"),
+            technique=current.get("technique"),
+            confidence=self._correlation_confidence(relation_type),
+            severity=current.get("severity", "medium"),
+            raw_data={
+                "previous_event_id": previous["event_id"],
+                "current_event_id": current["event_id"],
+                "relation_type": relation_type,
+                "edge_scope": edge_scope,
+                "attacker_id": current.get("attacker_id"),
+                "scenario_id": current.get("scenario_id"),
+                "scenario_role": current.get("scenario_role"),
+                "evidence_refs": current.get("evidence_refs") or [],
+                "shared_evidence": self._shared_evidence_labels(previous, current),
+                "time_delta_seconds": max(int((current_ts - previous_ts).total_seconds()), 0),
+            },
+            edge_kind="correlation",
+            path_id=current.get("path_id"),
+            relation_type=relation_type,
+        )
 
     def _infer_correlation_relation(self, previous: Dict, current: Dict) -> Optional[str]:
         if previous.get("path_id") and previous.get("path_id") == current.get("path_id"):
@@ -473,6 +513,28 @@ class CausalGraphBuilder:
             if stage_relation:
                 return stage_relation
             return "same_attack_path"
+        return None
+
+    def _infer_provenance_relation(self, previous: Dict, current: Dict) -> Optional[str]:
+        if previous.get("attacker_id") != current.get("attacker_id"):
+            return None
+
+        cross_relation = self._cross_honeypot_relation(previous, current)
+        shared_relation = self._shared_anchor_relation(previous, current)
+        stage_relation = self._stage_transition_relation(previous, current)
+
+        if self._same_controlled_scenario(previous, current):
+            return cross_relation or stage_relation or "controlled_chain_member"
+        if cross_relation and (shared_relation or stage_relation):
+            return f"{cross_relation}_causal"
+        if cross_relation:
+            return cross_relation
+        if shared_relation and stage_relation:
+            return "same_actor_stage_transition"
+        if shared_relation:
+            return shared_relation
+        if stage_relation:
+            return "same_actor_temporal"
         return None
 
     def _cross_honeypot_relation(self, previous: Dict, current: Dict) -> Optional[str]:
@@ -502,6 +564,27 @@ class CausalGraphBuilder:
             return "same_account_probe"
         return None
 
+    def _shared_evidence_labels(self, previous: Dict, current: Dict) -> List[str]:
+        evidence = []
+        prev_source = previous.get("source", {})
+        curr_source = current.get("source", {})
+        prev_details = previous.get("raw_details") or {}
+        curr_details = current.get("raw_details") or {}
+
+        if prev_source.get("ip") and prev_source.get("ip") == curr_source.get("ip"):
+            evidence.append(f"same_ip:{prev_source.get('ip')}")
+        if previous.get("fingerprint") and previous.get("fingerprint") == current.get("fingerprint"):
+            evidence.append(f"same_fingerprint:{previous.get('fingerprint')}")
+        if previous.get("session_id") and previous.get("session_id") == current.get("session_id"):
+            evidence.append(f"same_session:{previous.get('session_id')}")
+        if prev_details.get("username") and prev_details.get("username") == curr_details.get("username"):
+            evidence.append(f"same_username:{prev_details.get('username')}")
+        if previous.get("scenario_id") and previous.get("scenario_id") == current.get("scenario_id"):
+            evidence.append(f"same_scenario:{previous.get('scenario_id')}")
+        if previous.get("attacker_id") and previous.get("attacker_id") == current.get("attacker_id"):
+            evidence.append(f"same_attacker:{previous.get('attacker_id')}")
+        return evidence
+
     @staticmethod
     def _correlation_confidence(relation_type: str) -> float:
         mapping = {
@@ -518,6 +601,14 @@ class CausalGraphBuilder:
             "file_to_account_followup": 0.8,
             "file_to_web_followup": 0.8,
             "controlled_chain_member": 0.99,
+            "web_to_account_causal": 0.96,
+            "account_to_file_causal": 0.96,
+            "web_to_file_causal": 0.93,
+            "account_to_web_followup_causal": 0.86,
+            "file_to_account_followup_causal": 0.82,
+            "file_to_web_followup_causal": 0.82,
+            "same_actor_stage_transition": 0.88,
+            "same_actor_temporal": 0.78,
         }
         return mapping.get(relation_type, 0.8)
 
@@ -699,6 +790,9 @@ class CausalGraphBuilder:
                 "scenario_id": event.get("scenario_id") or edge.raw_data.get("scenario_id"),
                 "scenario_role": event.get("scenario_role") or edge.raw_data.get("scenario_role"),
                 "evidence_refs": event.get("evidence_refs") or edge.raw_data.get("evidence_refs") or [],
+                "edge_scope": edge.raw_data.get("edge_scope") if edge.edge_kind == "correlation" else "event",
+                "shared_evidence": edge.raw_data.get("shared_evidence", []) if edge.edge_kind == "correlation" else [],
+                "time_delta_seconds": edge.raw_data.get("time_delta_seconds") if edge.edge_kind == "correlation" else None,
             }
             edge_dicts.append(edge_dict)
             triples.append(edge.to_triple())
@@ -770,6 +864,7 @@ class CausalGraphBuilder:
         correlation_edge_count = sum(1 for edge in self.edges if edge.edge_kind == "correlation")
         relation_counts = Counter(edge.relation_type or "unknown" for edge in self.edges)
         scenario_summaries = self._build_scenario_summaries()
+        provenance_chains = self._build_provenance_chains()
 
         return {
             "graph_meta": {
@@ -783,6 +878,10 @@ class CausalGraphBuilder:
                 "path_count": len(path_summaries),
                 "relation_counts": dict(relation_counts),
                 "controlled_scenario_count": len(scenario_summaries),
+                "provenance_chain_count": len(provenance_chains),
+                "strong_provenance_chain_count": sum(
+                    1 for chain in provenance_chains if chain.get("chain_strength") == "strong"
+                ),
                 "generated_at": datetime.now().isoformat(),
             },
             "nodes": list(self.nodes.values()),
@@ -791,8 +890,119 @@ class CausalGraphBuilder:
             "event_sequence": event_sequence,
             "attacker_groups": attacker_summaries,
             "attack_paths": path_summaries,
+            "provenance_chains": provenance_chains,
             "controlled_scenarios": scenario_summaries,
         }
+
+    def _build_provenance_chains(self) -> List[Dict]:
+        events_by_attacker = defaultdict(list)
+        for event in self.event_index.values():
+            attacker_id = event.get("attacker_id") or "unknown_attacker"
+            events_by_attacker[attacker_id].append(event)
+
+        correlation_edges_by_attacker = defaultdict(list)
+        for edge in self.edges:
+            if edge.edge_kind != "correlation":
+                continue
+            attacker_id = edge.raw_data.get("attacker_id") or "unknown_attacker"
+            correlation_edges_by_attacker[attacker_id].append(edge)
+
+        chains = []
+        cross_relation_names = set(self.CROSS_HONEYPOT_RELATIONS.values())
+        cross_relation_names.update(f"{name}_causal" for name in self.CROSS_HONEYPOT_RELATIONS.values())
+
+        for attacker_id, events in sorted(events_by_attacker.items()):
+            events.sort(key=lambda item: self._parse_timestamp(item.get("timestamp")))
+            event_types = [str(event.get("event_type") or "unknown") for event in events]
+            unique_event_types = sorted(set(event_types))
+            if len(events) < 2 and len(unique_event_types) < 2:
+                continue
+
+            hop_edges = []
+            for edge in sorted(correlation_edges_by_attacker.get(attacker_id, []), key=lambda item: item.timestamp):
+                relation_type = edge.relation_type or "unknown"
+                hop_edges.append(
+                    {
+                        "edge_id": edge.edge_id,
+                        "from_event_id": edge.raw_data.get("previous_event_id"),
+                        "to_event_id": edge.raw_data.get("current_event_id"),
+                        "relation_type": relation_type,
+                        "edge_scope": edge.raw_data.get("edge_scope", "path"),
+                        "confidence": edge.confidence,
+                        "shared_evidence": edge.raw_data.get("shared_evidence", []),
+                        "time_delta_seconds": edge.raw_data.get("time_delta_seconds"),
+                    }
+                )
+
+            phase_sequence = []
+            for event in events:
+                phase_sequence.append(
+                    {
+                        "event_id": event.get("event_id"),
+                        "timestamp": event.get("timestamp"),
+                        "event_type": event.get("event_type"),
+                        "action": event.get("action"),
+                        "stage": event.get("stage"),
+                        "source_id": (event.get("source") or {}).get("id"),
+                        "object_id": (event.get("object") or {}).get("id"),
+                        "scenario_id": event.get("scenario_id"),
+                        "scenario_role": event.get("scenario_role"),
+                    }
+                )
+
+            cross_honeypot_hops = [
+                hop for hop in hop_edges
+                if str(hop.get("relation_type") or "") in cross_relation_names
+            ]
+            has_all_honeypots = {"account", "file", "parasitic"}.issubset(set(unique_event_types))
+            has_multi_honeypot = len({"account", "file", "parasitic"}.intersection(set(unique_event_types))) >= 2
+            avg_confidence = (
+                sum(float(hop.get("confidence") or 0.0) for hop in hop_edges) / max(len(hop_edges), 1)
+                if hop_edges else 0.0
+            )
+            stage_ranks = [self.STAGE_RANK.get(str(event.get("stage") or "").lower(), 0) for event in events]
+            stage_progression_pairs = 0
+            stage_regression_pairs = 0
+            for index in range(1, len(stage_ranks)):
+                if stage_ranks[index - 1] and stage_ranks[index]:
+                    if stage_ranks[index] >= stage_ranks[index - 1]:
+                        stage_progression_pairs += 1
+                    else:
+                        stage_regression_pairs += 1
+
+            if has_all_honeypots and len(cross_honeypot_hops) >= 2:
+                chain_strength = "strong"
+            elif has_multi_honeypot and (cross_honeypot_hops or len(hop_edges) >= 1):
+                chain_strength = "medium"
+            else:
+                chain_strength = "weak"
+
+            chains.append(
+                {
+                    "chain_id": f"chain_{len(chains) + 1:03d}",
+                    "attacker_id": attacker_id,
+                    "chain_strength": chain_strength,
+                    "event_count": len(events),
+                    "event_types": unique_event_types,
+                    "has_all_honeypots": has_all_honeypots,
+                    "has_multi_honeypot": has_multi_honeypot,
+                    "start_time": events[0].get("timestamp") if events else "",
+                    "end_time": events[-1].get("timestamp") if events else "",
+                    "phase_label": " -> ".join(event_types),
+                    "phase_sequence": phase_sequence,
+                    "hop_edges": hop_edges,
+                    "cross_honeypot_hop_count": len(cross_honeypot_hops),
+                    "average_correlation_confidence": round(avg_confidence, 4),
+                    "stage_progression_pairs": stage_progression_pairs,
+                    "stage_regression_pairs": stage_regression_pairs,
+                    "thesis_use": (
+                        "core_cross_honeypot_chain"
+                        if chain_strength == "strong"
+                        else ("candidate_chain" if chain_strength == "medium" else "background_or_single_surface")
+                    ),
+                }
+            )
+        return chains
 
     def _build_scenario_summaries(self) -> List[Dict]:
         scenario_groups = defaultdict(list)

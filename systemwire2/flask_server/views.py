@@ -110,20 +110,26 @@ def _resolve_analysis_run_dir(run_dir_value):
 
 def _default_balanced_analysis_run_dir():
     repo_root = _analysis_repo_root()
-    stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
-    return repo_root / "experiments" / "runs" / f"ui_balanced_live_{stamp}"
+    now = datetime.now(pytz.timezone("Asia/Shanghai"))
+    date_dir = now.strftime("%Y-%m-%d")
+    stamp = now.strftime("%H%M%S")
+    return repo_root / "experiments" / "runs" / date_dir / f"ui_balanced_live_{stamp}"
 
 
 def _default_live_analysis_run_dir():
     repo_root = _analysis_repo_root()
-    stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
-    return repo_root / "experiments" / "runs" / f"ui_live_{stamp}"
+    now = datetime.now(pytz.timezone("Asia/Shanghai"))
+    date_dir = now.strftime("%Y-%m-%d")
+    stamp = now.strftime("%H%M%S")
+    return repo_root / "experiments" / "runs" / date_dir / f"ui_live_{stamp}"
 
 
 def _default_scenario_analysis_run_dir():
     repo_root = _analysis_repo_root()
-    stamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
-    return repo_root / "experiments" / "runs" / f"ui_controlled_scenario_{stamp}"
+    now = datetime.now(pytz.timezone("Asia/Shanghai"))
+    date_dir = now.strftime("%Y-%m-%d")
+    stamp = now.strftime("%H%M%S")
+    return repo_root / "experiments" / "runs" / date_dir / f"ui_controlled_scenario_{stamp}"
 
 
 def _latest_analysis_pointer_path():
