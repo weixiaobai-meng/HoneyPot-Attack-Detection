@@ -216,8 +216,8 @@
 
         <div class="tab-content" id="tab-graph">
             <div class="graph-view-switch">
-                <button class="graph-view-btn active" data-graph-view="compare" onclick="switchGraphView('compare')">裁剪对比</button>
-                <button class="graph-view-btn" data-graph-view="timeline" onclick="switchGraphView('timeline')">时序因果链</button>
+                <button class="graph-view-btn active" data-graph-view="compare" onclick="switchGraphView('compare')">裁剪评估</button>
+                <button class="graph-view-btn" data-graph-view="timeline" onclick="switchGraphView('timeline')">攻击链还原</button>
                 <button class="graph-view-btn" data-graph-view="evidence" onclick="switchGraphView('evidence')">证据边表</button>
                 <button class="graph-view-btn" data-graph-view="aggregate" onclick="switchGraphView('aggregate')">聚合总览</button>
             </div>
@@ -225,19 +225,19 @@
             <div class="graph-view active" id="graph-view-compare">
                 <div class="compare-grid">
                     <article class="graph-card">
-                        <h3>Raw Graph：裁剪前聚合攻击图谱</h3>
-                        <div id="rawGraphPanel" class="paper-graph-panel">暂无原始图输出。</div>
+                        <h3>裁剪评估图：边数压缩与核心链保留</h3>
+                        <div id="rawGraphPanel" class="paper-graph-panel">暂无裁剪评估输出。</div>
                     </article>
                     <article class="graph-card">
-                        <h3>Pruned Graph：裁剪后聚合攻击图谱</h3>
-                        <div id="prunedGraphPanel" class="paper-graph-panel">暂无裁剪图输出。</div>
+                        <h3>语义层差异诊断</h3>
+                        <div id="prunedGraphPanel" class="paper-graph-panel">暂无语义差异诊断。</div>
                     </article>
                 </div>
                 <div class="paper-graph-legend" aria-label="裁剪图谱图例">
-                    <span><i class="legend-node noise"></i> 圆点：聚合实体/行为节点</span>
-                    <span><i class="legend-line core"></i> 实线：主体-行为-资产事件关系</span>
-                    <span><i class="legend-line identity"></i> 虚线：同源/时序/跨蜜点关联</span>
-                    <span><i class="legend-line restored"></i> 图中展示 Top 聚合关系，完整规模见指标</span>
+                    <span><i class="legend-line core"></i> 绿色：裁剪后保留/核心证据</span>
+                    <span><i class="legend-line restored"></i> 橙色：证据保护恢复</span>
+                    <span><i class="legend-line identity"></i> 紫色：同源/阶段关系</span>
+                    <span><i class="legend-node noise"></i> 灰红：被裁剪噪声或低置信关系</span>
                 </div>
                 <div class="graph-card">
                     <h3>DQN 裁剪与受控链路评价</h3>
@@ -248,11 +248,11 @@
             <div class="graph-view" id="graph-view-timeline">
                 <div class="graph-grid">
                     <div class="graph-card graph-render-card">
-                        <h3>Attacker 时序因果链</h3>
+                        <h3>跨蜜点攻击链还原图</h3>
                         <div id="timelineVisual" class="graph-visual">暂无时序链路输出。</div>
                     </div>
                     <div class="graph-card">
-                        <h3>关系边说明</h3>
+                        <h3>链路证据说明</h3>
                         <div id="relationEvidenceList" class="list-stack"></div>
                     </div>
                     <div class="graph-card">
@@ -940,6 +940,16 @@ body,
 .aggregate-graph-svg .aggregate-edge.muted {
     stroke-opacity: 0.3;
 }
+.aggregate-graph-svg .aggregate-edge.removed {
+    stroke: rgba(239, 68, 68, 0.45);
+    stroke-dasharray: 8 6;
+}
+.aggregate-graph-svg .aggregate-edge.reduced {
+    stroke-dasharray: 7 5;
+}
+.aggregate-graph-svg .aggregate-edge.kept {
+    stroke-opacity: 0.74;
+}
 .aggregate-graph-svg .aggregate-edge-label {
     fill: #40545d;
     font-size: 9.5px;
@@ -975,6 +985,153 @@ body,
     fill: #60717a;
     font-size: 8.5px;
     font-weight: 750;
+}
+.aggregate-diff-note {
+    margin-top: 8px;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 10px;
+    padding: 8px 10px;
+    color: #d9eee4;
+    background: rgba(15, 23, 42, 0.46);
+    font-size: 12px;
+    line-height: 1.55;
+}
+.aggregate-diff-note strong {
+    color: #eef7ee;
+}
+.aggregate-diff-note.warn {
+    border-color: rgba(245, 180, 91, 0.32);
+    background: rgba(245, 180, 91, 0.08);
+    color: #ffe4b6;
+}
+.aggregate-diff-note.ok {
+    border-color: rgba(125, 220, 139, 0.3);
+    background: rgba(125, 220, 139, 0.08);
+}
+.aggregate-diff-note.bad {
+    border-color: rgba(239, 68, 68, 0.34);
+    background: rgba(239, 68, 68, 0.08);
+}
+.paper-eval-svg {
+    background: #f8fbff;
+    border-radius: 12px;
+}
+.paper-eval-svg .eval-title {
+    fill: #17313a;
+    font-size: 14px;
+    font-weight: 900;
+}
+.paper-eval-svg .eval-subtitle,
+.paper-eval-svg .eval-label {
+    fill: #4d626c;
+    font-size: 11px;
+    font-weight: 750;
+}
+.paper-eval-svg .eval-number {
+    fill: #13272f;
+    font-size: 20px;
+    font-weight: 950;
+}
+.paper-eval-svg .eval-axis {
+    stroke: rgba(100, 116, 139, 0.24);
+}
+.paper-eval-svg .eval-card {
+    fill: rgba(255, 255, 255, 0.9);
+    stroke: rgba(148, 163, 184, 0.32);
+}
+.paper-eval-svg .eval-raw { fill: #64748b; }
+.paper-eval-svg .eval-kept { fill: #22c55e; }
+.paper-eval-svg .eval-pruned { fill: #ef4444; }
+.paper-eval-svg .eval-restored { fill: #f59e0b; }
+.paper-eval-svg .eval-core { fill: #0ea5e9; }
+.paper-eval-svg .eval-link {
+    fill: none;
+    stroke: rgba(71, 85, 105, 0.34);
+    stroke-width: 2;
+}
+.paper-eval-svg .eval-link.keep {
+    stroke: rgba(34, 197, 94, 0.5);
+}
+.paper-eval-svg .eval-link.drop {
+    stroke: rgba(239, 68, 68, 0.42);
+    stroke-dasharray: 8 6;
+}
+.pruning-diagnosis {
+    display: grid;
+    gap: 10px;
+}
+.diagnosis-block {
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.28);
+    padding: 10px 12px;
+}
+.diagnosis-block strong {
+    display: block;
+    color: #eef7ee;
+    margin-bottom: 5px;
+}
+.diagnosis-block p {
+    color: var(--muted);
+    margin: 0;
+    line-height: 1.55;
+    font-size: 12px;
+}
+.diagnosis-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #d9eee4;
+    font-size: 12px;
+}
+.diagnosis-row span:last-child {
+    font-weight: 850;
+    color: #eef7ee;
+}
+.attack-chain-svg {
+    background: #f8fbff;
+    border-radius: 12px;
+}
+.attack-chain-svg .chain-title {
+    fill: #17313a;
+    font-size: 14px;
+    font-weight: 900;
+}
+.attack-chain-svg .chain-subtitle,
+.attack-chain-svg .chain-label {
+    fill: #526873;
+    font-size: 11px;
+    font-weight: 760;
+}
+.attack-chain-svg .chain-node-card {
+    fill: rgba(255, 255, 255, 0.95);
+    stroke: rgba(148, 163, 184, 0.34);
+}
+.attack-chain-svg .chain-node-card.account { stroke: rgba(245, 158, 11, 0.64); }
+.attack-chain-svg .chain-node-card.file { stroke: rgba(34, 197, 94, 0.64); }
+.attack-chain-svg .chain-node-card.parasitic { stroke: rgba(14, 165, 233, 0.64); }
+.attack-chain-svg .chain-node-card.unknown { stroke: rgba(148, 163, 184, 0.52); }
+.attack-chain-svg .chain-stage-dot { stroke: rgba(15, 23, 42, 0.18); stroke-width: 1.2; }
+.attack-chain-svg .chain-stage-dot.account { fill: #f59e0b; }
+.attack-chain-svg .chain-stage-dot.file { fill: #22c55e; }
+.attack-chain-svg .chain-stage-dot.parasitic { fill: #0ea5e9; }
+.attack-chain-svg .chain-stage-dot.unknown { fill: #94a3b8; }
+.attack-chain-svg .chain-arrow {
+    fill: none;
+    stroke: rgba(14, 165, 233, 0.62);
+    stroke-width: 2.6;
+}
+.attack-chain-svg .chain-arrow.identity {
+    stroke: rgba(124, 58, 237, 0.62);
+    stroke-dasharray: 7 5;
+}
+.attack-chain-svg .chain-edge-label-bg {
+    fill: rgba(255, 255, 255, 0.92);
+    stroke: rgba(148, 163, 184, 0.22);
+}
+.attack-chain-svg .chain-warning {
+    fill: rgba(245, 158, 11, 0.1);
+    stroke: rgba(245, 158, 11, 0.32);
 }
 .paper-graph-svg .core-edge {
     stroke: rgba(125, 220, 139, 0.74);
@@ -2691,6 +2848,95 @@ function compactLowFrequencySources(view, mode = 'raw') {
     };
 }
 
+function aggregateEdgeCompareKey(edge) {
+    return `${edge.source}|${edge.target}|${edge.label}|${edge.kind}|${edge.className}`;
+}
+
+function compareAggregatedViews(rawView, prunedView) {
+    const rawEdges = rawView ? rawView.edges || [] : [];
+    const prunedEdges = prunedView ? prunedView.edges || [] : [];
+    const prunedByKey = new Map(prunedEdges.map(edge => [aggregateEdgeCompareKey(edge), edge]));
+    const rawByKey = new Map(rawEdges.map(edge => [aggregateEdgeCompareKey(edge), edge]));
+    const rawState = new Map();
+    let removed = 0;
+    let reduced = 0;
+    let kept = 0;
+    rawEdges.forEach(edge => {
+        const key = aggregateEdgeCompareKey(edge);
+        const pruned = prunedByKey.get(key);
+        if (!pruned) {
+            removed += 1;
+            rawState.set(key, { state: 'removed', pruned: null });
+            return;
+        }
+        if ((pruned.count || 0) < (edge.count || 0)) {
+            reduced += 1;
+            rawState.set(key, { state: 'reduced', pruned });
+            return;
+        }
+        kept += 1;
+        rawState.set(key, { state: 'kept', pruned });
+    });
+    let added = 0;
+    const prunedState = new Map();
+    prunedEdges.forEach(edge => {
+        const key = aggregateEdgeCompareKey(edge);
+        const raw = rawByKey.get(key);
+        if (!raw) {
+            added += 1;
+            prunedState.set(key, { state: 'added', raw: null });
+            return;
+        }
+        prunedState.set(key, {
+            state: (edge.count || 0) < (raw.count || 0) ? 'reduced' : 'kept',
+            raw,
+        });
+    });
+    const identical = rawEdges.length === prunedEdges.length && removed === 0 && reduced === 0 && added === 0;
+    return {
+        rawEdgeCount: rawEdges.length,
+        prunedEdgeCount: prunedEdges.length,
+        removed,
+        reduced,
+        kept,
+        added,
+        identical,
+        rawState,
+        prunedState,
+    };
+}
+
+function aggregateDiffNotice(comparison, mode) {
+    if (!comparison || !comparison.rawEdgeCount) {
+        return '';
+    }
+    if (comparison.identical) {
+        return `
+            <div class="aggregate-diff-note warn">
+                <strong>聚合层无变化：</strong>
+                当前 Raw 与 Pruned 的主体-行为-资产聚合关系一致，说明本轮裁剪没有改变这个展示层级。
+                这不是攻击链提炼效果的证据，应结合 DQN 指标、证据边表或放宽聚合粒度查看底层边变化。
+            </div>
+        `;
+    }
+    if (mode === 'raw') {
+        return `
+            <div class="aggregate-diff-note bad">
+                <strong>裁剪前视图：</strong>
+                共 ${escapeHtml(comparison.rawEdgeCount)} 条聚合关系；其中 ${escapeHtml(comparison.removed)} 条会被删除，
+                ${escapeHtml(comparison.reduced)} 条在裁剪后频次下降。红色虚线表示裁剪删除，普通虚线表示频次压缩。
+            </div>
+        `;
+    }
+    return `
+        <div class="aggregate-diff-note ok">
+            <strong>裁剪后视图：</strong>
+            保留 ${escapeHtml(comparison.prunedEdgeCount)} 条聚合关系；相对 Raw 删除 ${escapeHtml(comparison.removed)} 条，
+            频次压缩 ${escapeHtml(comparison.reduced)} 条。若保留链路覆盖多蜜点，才可作为攻击链提炼证据。
+        </div>
+    `;
+}
+
 function buildAggregatedAttackLayout(referenceView, width, height) {
     const positions = new Map();
     const columns = {
@@ -2737,8 +2983,13 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
     const mode = options.mode || 'raw';
     const model = buildAggregatedAttackModel(graph);
     const referenceModel = buildAggregatedAttackModel(referenceGraph || graph);
+    const rawComparisonModel = buildAggregatedAttackModel(options.rawGraph || referenceGraph || graph);
+    const prunedComparisonModel = buildAggregatedAttackModel(options.prunedGraph || graph);
     const view = compactLowFrequencySources(selectAggregatedAttackView(model, mode), mode);
     const referenceView = compactLowFrequencySources(selectAggregatedAttackView(referenceModel, 'raw'), 'raw');
+    const rawComparisonView = compactLowFrequencySources(selectAggregatedAttackView(rawComparisonModel, 'raw'), 'raw');
+    const prunedComparisonView = compactLowFrequencySources(selectAggregatedAttackView(prunedComparisonModel, 'pruned'), 'pruned');
+    const comparison = compareAggregatedViews(rawComparisonView, prunedComparisonView);
     const maxColumnNodes = Math.max(
         1,
         ...['source', 'action', 'target'].map(kind => referenceView.nodes.filter(node => {
@@ -2788,22 +3039,36 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
         const c1y = y1 + curve;
         const c2y = y2 - curve;
         const widthValue = Math.max(1.25, Math.min(5.2, 1.25 + Math.log2(edge.count + 1) * 0.9));
+        const compareKey = aggregateEdgeCompareKey(edge);
+        const compareInfo = mode === 'raw'
+            ? comparison.rawState.get(compareKey)
+            : comparison.prunedState.get(compareKey);
+        const compareState = compareInfo ? compareInfo.state : 'unknown';
         const shouldLabel = topEdgeIds.has(edge.id)
             && (edge.kind === 'correlation' || targetNode.kind === 'target' || sourceNode.kind === 'source');
-        const labelText = edge.kind === 'correlation'
-            ? shortText(edge.label, 14)
-            : `n=${edge.count}`;
+        const labelText = (() => {
+            if (mode === 'raw' && compareState === 'removed') return '删除';
+            if (mode === 'raw' && compareState === 'reduced' && compareInfo.pruned) {
+                return `${edge.count}→${compareInfo.pruned.count}`;
+            }
+            if (mode === 'pruned' && compareState === 'reduced' && compareInfo.raw) {
+                return `${compareInfo.raw.count}→${edge.count}`;
+            }
+            if (edge.kind === 'correlation') return shortText(edge.label, 14);
+            return `n=${edge.count}`;
+        })();
         const labelX = ((x1 + x2) / 2);
         const labelY = (((y1 + y2) / 2) - 7);
         const labelWidth = Math.max(36, labelText.length * 7 + 12);
-        const label = shouldLabel
+        const forceLabel = mode === 'raw' && (compareState === 'removed' || compareState === 'reduced');
+        const label = (shouldLabel || forceLabel)
             ? `
                 <rect class="aggregate-edge-label-bg" x="${(labelX - labelWidth / 2).toFixed(1)}" y="${(labelY - 13).toFixed(1)}" width="${labelWidth}" height="18" rx="7"></rect>
                 <text class="aggregate-edge-label" x="${labelX.toFixed(1)}" y="${labelY.toFixed(1)}" text-anchor="middle">${escapeHtml(labelText)}</text>
             `
             : '';
         return `
-            <path class="aggregate-edge ${escapeHtml(edge.kind)} ${escapeHtml(edge.className)} ${mode === 'pruned' ? 'pruned' : ''} ${shouldLabel ? '' : 'muted'}"
+            <path class="aggregate-edge ${escapeHtml(edge.kind)} ${escapeHtml(edge.className)} ${mode === 'pruned' ? 'pruned' : ''} ${escapeHtml(compareState)} ${shouldLabel || forceLabel ? '' : 'muted'}"
                 d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}"
                 stroke-width="${widthValue.toFixed(1)}" marker-end="url(#${markerId})"></path>
             ${label}
@@ -2855,7 +3120,177 @@ function renderAggregatedAttackGraphSvg(graph, referenceGraph, options = {}) {
             <g>${edgeSvg}</g>
             <g>${nodeSvg}</g>
         </svg>
+        ${aggregateDiffNotice(comparison, mode)}
         <p class="paper-panel-note">${escapeHtml(options.note || '')}</p>
+    `;
+}
+
+function buildPruningEvaluation(rawGraph, prunedGraph) {
+    const rawEdges = graphEdges(rawGraph);
+    const prunedEdges = graphEdges(prunedGraph);
+    const prunedIds = new Set(prunedEdges.map(edge => String(edge.edge_id || '')).filter(Boolean));
+    const restoredIds = restoredEdgeIdSet();
+    const counts = { raw: rawEdges.length, kept: 0, pruned: 0, restored: 0 };
+    const byType = new Map();
+    const ensureBucket = type => {
+        if (!byType.has(type)) {
+            byType.set(type, { type, raw: 0, kept: 0, pruned: 0, restored: 0 });
+        }
+        return byType.get(type);
+    };
+    rawEdges.forEach(edge => {
+        const edgeId = String(edge.edge_id || '');
+        const type = edge.edge_kind === 'correlation' ? 'correlation' : eventTypeClass(edge);
+        const bucket = ensureBucket(type);
+        bucket.raw += 1;
+        if (restoredIds.has(edgeId)) {
+            counts.restored += 1;
+            counts.kept += 1;
+            bucket.restored += 1;
+            bucket.kept += 1;
+        } else if (edgeId && prunedIds.has(edgeId)) {
+            counts.kept += 1;
+            bucket.kept += 1;
+        } else {
+            counts.pruned += 1;
+            bucket.pruned += 1;
+        }
+    });
+    const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
+    const evalData = controlledEval();
+    const rawView = compactLowFrequencySources(selectAggregatedAttackView(buildAggregatedAttackModel(rawGraph), 'raw'), 'raw');
+    const prunedView = compactLowFrequencySources(selectAggregatedAttackView(buildAggregatedAttackModel(prunedGraph), 'pruned'), 'pruned');
+    const aggregateComparison = compareAggregatedViews(rawView, prunedView);
+    const golden = buildGoldenPath(rawGraph, prunedGraph);
+    return {
+        counts,
+        byType: Array.from(byType.values()).sort((a, b) => b.raw - a.raw || a.type.localeCompare(b.type)),
+        pruning,
+        evalData,
+        aggregateComparison,
+        golden,
+        dqn: dqnStateInfo(analysisSummary),
+    };
+}
+
+function pruningTypeLabel(type) {
+    const labels = {
+        account: '账户蜜点',
+        file: '文件蜜点',
+        parasitic: '寄生蜜点',
+        correlation: '关系边',
+        unknown: '其他事件',
+    };
+    return labels[type] || type || '其他事件';
+}
+
+function renderPruningEvaluationSvg(rawGraph, prunedGraph) {
+    const model = buildPruningEvaluation(rawGraph, prunedGraph);
+    const width = 760;
+    const height = 430;
+    const counts = model.counts;
+    const maxCount = Math.max(1, counts.raw, ...model.byType.map(item => item.raw));
+    const retainedRatio = counts.raw ? counts.kept / counts.raw : 0;
+    const prunedRatio = counts.raw ? counts.pruned / counts.raw : 0;
+    const coreRecall = model.evalData.core_chain_recall;
+    const noiseFilter = model.evalData.noise_filter_rate;
+    const compression = model.pruning.compression_ratio || (counts.raw ? `${(prunedRatio * 100).toFixed(1)}%` : '-');
+    const markerId = `eval-arrow-${stableHash(JSON.stringify(counts))}`;
+    const barRows = model.byType.slice(0, 5).map((item, index) => {
+        const y = 270 + index * 28;
+        const rawW = Math.max(2, (item.raw / maxCount) * 310);
+        const keptW = Math.max(0, (item.kept / maxCount) * 310);
+        const prunedW = Math.max(0, (item.pruned / maxCount) * 310);
+        return `
+            <text class="eval-label" x="42" y="${y + 13}">${escapeHtml(pruningTypeLabel(item.type))}</text>
+            <rect class="eval-card" x="146" y="${y}" width="314" height="16" rx="8"></rect>
+            <rect class="eval-kept" x="148" y="${y + 2}" width="${keptW.toFixed(1)}" height="12" rx="6"></rect>
+            <rect class="eval-pruned" x="${(148 + keptW).toFixed(1)}" y="${y + 2}" width="${prunedW.toFixed(1)}" height="12" rx="6"></rect>
+            <text class="eval-label" x="480" y="${y + 13}">raw=${escapeHtml(item.raw)} / kept=${escapeHtml(item.kept)} / pruned=${escapeHtml(item.pruned)}</text>
+        `;
+    }).join('');
+    return `
+        <svg class="paper-graph-svg paper-eval-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪评估图">
+            <defs>
+                <marker id="${markerId}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(71, 85, 105, 0.68)"></path>
+                </marker>
+            </defs>
+            <text class="eval-title" x="24" y="30">Pruning Evaluation：底层证据边压缩与核心链保护</text>
+            <text class="eval-subtitle" x="24" y="52">模式：${escapeHtml(model.pruning.mode || '-')} / DQN 状态：${escapeHtml(model.dqn.chip)} / 压缩率：${escapeHtml(compression)}</text>
+
+            <rect class="eval-card" x="26" y="78" width="150" height="72" rx="14"></rect>
+            <text class="eval-label" x="46" y="104">Raw 证据边</text>
+            <text class="eval-number" x="46" y="132">${escapeHtml(counts.raw)}</text>
+            <text class="eval-label" x="96" y="132">条</text>
+
+            <rect class="eval-card" x="214" y="78" width="150" height="72" rx="14"></rect>
+            <text class="eval-label" x="234" y="104">裁剪后保留</text>
+            <text class="eval-number" x="234" y="132">${escapeHtml(counts.kept)}</text>
+            <text class="eval-label" x="284" y="132">条 · ${(retainedRatio * 100).toFixed(1)}%</text>
+
+            <rect class="eval-card" x="402" y="78" width="150" height="72" rx="14"></rect>
+            <text class="eval-label" x="422" y="104">裁剪删除</text>
+            <text class="eval-number" x="422" y="132">${escapeHtml(counts.pruned)}</text>
+            <text class="eval-label" x="472" y="132">条 · ${(prunedRatio * 100).toFixed(1)}%</text>
+
+            <rect class="eval-card" x="590" y="78" width="144" height="72" rx="14"></rect>
+            <text class="eval-label" x="610" y="104">核心链召回</text>
+            <text class="eval-number" x="610" y="132">${escapeHtml(formatPercentValue(coreRecall))}</text>
+
+            <path class="eval-link keep" d="M 176 114 C 192 114, 198 114, 214 114" marker-end="url(#${markerId})"></path>
+            <path class="eval-link drop" d="M 364 114 C 380 114, 386 114, 402 114" marker-end="url(#${markerId})"></path>
+
+            <text class="eval-title" x="36" y="192">裁剪质量指标</text>
+            <rect class="eval-card" x="36" y="210" width="686" height="34" rx="12"></rect>
+            <rect class="eval-kept" x="38" y="212" width="${Math.max(2, retainedRatio * 682).toFixed(1)}" height="30" rx="10"></rect>
+            <rect class="eval-pruned" x="${(38 + retainedRatio * 682).toFixed(1)}" y="212" width="${Math.max(0, prunedRatio * 682).toFixed(1)}" height="30" rx="10"></rect>
+            <text class="eval-label" x="48" y="232">绿色=保留证据，红色=裁剪噪声；噪声过滤率 ${escapeHtml(formatPercentValue(noiseFilter))}，证据保护恢复 ${escapeHtml(counts.restored)} 条</text>
+
+            <text class="eval-title" x="36" y="262">按证据类型统计</text>
+            ${barRows || `<text class="eval-label" x="42" y="296">暂无可统计证据边。</text>`}
+        </svg>
+        <p class="paper-panel-note">该图对应论文中的“裁剪有效性评估”：证明算法主要压缩底层噪声边，同时观察核心攻击链是否被保留。</p>
+    `;
+}
+
+function renderPruningDiagnosisPanel(rawGraph, prunedGraph) {
+    const model = buildPruningEvaluation(rawGraph, prunedGraph);
+    const cmp = model.aggregateComparison;
+    const verdict = cmp.identical
+        ? '聚合语义层未发生变化'
+        : `聚合层删除 ${cmp.removed} 条，频次压缩 ${cmp.reduced} 条`;
+    const verdictText = cmp.identical
+        ? '这说明本轮裁剪主要发生在底层事件边或低权重噪声边，聚合后的主体-行为-资产结构没有明显变化。论文中不能把两张相似聚合图作为 DQN 有效性的核心证据，应使用左侧裁剪评估图和攻击链还原图。'
+        : '聚合语义层已经发生变化，可进一步检查删除关系是否主要为噪声，并确认核心链路召回率是否达标。';
+    const goldenText = model.golden.valid
+        ? `已形成跨蜜点攻击链：${model.golden.observedTypes.map(typePillText).join(' → ')}。`
+        : `核心链证据不足：${model.golden.reason}`;
+    const dqnText = model.dqn.tone === 'ok'
+        ? 'DQN checkpoint 已参与裁剪，可把该结果作为强化学习裁剪实验输出。'
+        : `${model.dqn.title}：${model.dqn.body}`;
+    return `
+        <div class="pruning-diagnosis">
+            <div class="diagnosis-block">
+                <strong>聚合层诊断</strong>
+                <p>${escapeHtml(verdict)}。${escapeHtml(verdictText)}</p>
+            </div>
+            <div class="diagnosis-block">
+                <strong>核心链保护</strong>
+                <p>${escapeHtml(goldenText)}</p>
+            </div>
+            <div class="diagnosis-block">
+                <strong>DQN 状态</strong>
+                <p>${escapeHtml(dqnText)}</p>
+            </div>
+            <div class="diagnosis-block">
+                <strong>量化摘要</strong>
+                <div class="diagnosis-row"><span>Raw 聚合关系</span><span>${escapeHtml(cmp.rawEdgeCount)}</span></div>
+                <div class="diagnosis-row"><span>Pruned 聚合关系</span><span>${escapeHtml(cmp.prunedEdgeCount)}</span></div>
+                <div class="diagnosis-row"><span>底层删除边</span><span>${escapeHtml(model.counts.pruned)}</span></div>
+                <div class="diagnosis-row"><span>核心链召回</span><span>${escapeHtml(formatPercentValue(model.evalData.core_chain_recall))}</span></div>
+            </div>
+        </div>
     `;
 }
 
@@ -3021,6 +3456,117 @@ function renderRetainedEvidenceNodes(graph, width, y) {
     `;
 }
 
+function chainSourceEvidence(node) {
+    const item = node.item || {};
+    const event = item.canonical_event || {};
+    const source = event.source || {};
+    return shortText(source.label || source.ip || source.id || item.source_id || '-', 34);
+}
+
+function chainStageLabel(type) {
+    const labels = {
+        parasitic: 'Web Reconnaissance',
+        account: 'Credential / Initial Access',
+        file: 'Collection Evidence',
+        audit: 'Audit Evidence',
+        unknown: 'Security Event',
+    };
+    return labels[type] || type || 'Security Event';
+}
+
+function renderAttackChainSvg(rawGraph, prunedGraph, title = 'Attack Chain Reconstruction') {
+    const graph = prunedGraph || rawGraph;
+    const golden = buildGoldenPath(rawGraph, graph);
+    const candidateNodes = golden.nodes.length
+        ? golden.nodes
+        : eventSequenceFromGraph(graph).slice(0, 5).map(item => {
+            const event = item.canonical_event || {};
+            const eventType = sequenceEventType(item);
+            const nodeId = eventNodeId(item.event_id || item.id || item.event_id);
+            return {
+                nodeId,
+                eventId: item.event_id || item.id || '-',
+                item,
+                eventType,
+                action: actionLabel(item.action || event.action || '-'),
+                target: shortText((event.object || {}).label || item.object_id || '-', 26),
+                time: shortText(String(item.timestamp || '').replace('T', ' '), 19),
+            };
+        });
+    const nodes = candidateNodes.slice(0, 5);
+    const width = Math.max(860, Math.max(nodes.length, 3) * 210 + 100);
+    const height = golden.valid ? 340 : 300;
+    const markerId = `chain-arrow-${stableHash(title)}`;
+    if (!nodes.length) {
+        return '<div class="empty-row">暂无可还原的攻击链事件。</div>';
+    }
+    const startX = 76;
+    const stepX = nodes.length > 1 ? (width - 152) / (nodes.length - 1) : 0;
+    const y = 154;
+    const positions = new Map(nodes.map((node, index) => [node.nodeId, { x: startX + index * stepX, y, node, index }]));
+    const linkSvg = golden.links
+        .filter(link => positions.has(link.source) && positions.has(link.target))
+        .slice(0, 8)
+        .map(link => {
+            const source = positions.get(link.source);
+            const target = positions.get(link.target);
+            const midX = (source.x + target.x) / 2;
+            const edgeClass = isIdentityEdge(link.edge) ? 'identity' : '';
+            const path = `M ${source.x + 66} ${source.y} C ${midX} ${source.y - 34}, ${midX} ${target.y - 34}, ${target.x - 66} ${target.y}`;
+            return `
+                <path class="chain-arrow ${edgeClass}" d="${path}" marker-end="url(#${markerId})"></path>
+                <rect class="chain-edge-label-bg" x="${midX - 54}" y="${source.y - 55}" width="108" height="20" rx="8"></rect>
+                <text class="chain-label" x="${midX}" y="${source.y - 41}" text-anchor="middle">${escapeHtml(shortText(link.label, 16))}</text>
+            `;
+        }).join('');
+    const fallbackLinks = !linkSvg && nodes.length > 1
+        ? nodes.slice(0, -1).map((node, index) => {
+            const source = positions.get(node.nodeId);
+            const target = positions.get(nodes[index + 1].nodeId);
+            return `<path class="chain-arrow" d="M ${source.x + 66} ${source.y} C ${(source.x + target.x) / 2} ${source.y - 24}, ${(source.x + target.x) / 2} ${target.y - 24}, ${target.x - 66} ${target.y}" marker-end="url(#${markerId})"></path>`;
+        }).join('')
+        : '';
+    const nodeSvg = nodes.map((node, index) => {
+        const pos = positions.get(node.nodeId);
+        const cardX = pos.x - 72;
+        const cardY = pos.y - 58;
+        return `
+            <g>
+                <rect class="chain-node-card ${escapeHtml(node.eventType)}" x="${cardX}" y="${cardY}" width="144" height="116" rx="16"></rect>
+                <circle class="chain-stage-dot ${escapeHtml(node.eventType)}" cx="${cardX + 20}" cy="${cardY + 22}" r="10"></circle>
+                <text class="chain-label" x="${cardX + 20}" y="${cardY + 26}" text-anchor="middle" fill="#fff">${escapeHtml(index + 1)}</text>
+                <text class="chain-title" x="${cardX + 38}" y="${cardY + 26}">${escapeHtml(typePillText(node.eventType))}</text>
+                <text class="chain-label" x="${cardX + 14}" y="${cardY + 50}">${escapeHtml(shortText(node.action, 21))}</text>
+                <text class="chain-label" x="${cardX + 14}" y="${cardY + 70}">${escapeHtml(chainStageLabel(node.eventType))}</text>
+                <text class="chain-label" x="${cardX + 14}" y="${cardY + 90}">${escapeHtml(shortText(node.time || '-', 22))}</text>
+                <text class="chain-label" x="${cardX + 14}" y="${cardY + 108}">${escapeHtml(shortText(chainSourceEvidence(node), 22))}</text>
+            </g>
+        `;
+    }).join('');
+    const statusBlock = golden.valid
+        ? `<text class="chain-subtitle" x="24" y="54">已形成跨蜜点显式链路：${escapeHtml(golden.observedTypes.map(typePillText).join(' → '))}</text>`
+        : `
+            <rect class="chain-warning" x="22" y="40" width="${Math.min(width - 44, 720)}" height="44" rx="12"></rect>
+            <text class="chain-subtitle" x="38" y="58">证据不足：${escapeHtml(shortText(golden.reason, 92))}</text>
+            <text class="chain-subtitle" x="38" y="76">当前只展示候选事件序列，不能直接作为跨蜜点因果链结论。</text>
+        `;
+    return `
+        <svg class="paper-graph-svg attack-chain-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(title)}">
+            <defs>
+                <marker id="${markerId}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(14, 165, 233, 0.7)"></path>
+                </marker>
+            </defs>
+            <text class="chain-title" x="24" y="30">${escapeHtml(title)}</text>
+            ${statusBlock}
+            <line class="eval-axis" x1="48" y1="${y}" x2="${width - 48}" y2="${y}"></line>
+            ${linkSvg || fallbackLinks}
+            ${nodeSvg}
+            <text class="chain-subtitle" x="24" y="${height - 30}">节点按时间排序；边标签来自同源、阶段递进或受控链路关系。缺少显式关系时仅作为候选序列展示。</text>
+        </svg>
+    `;
+}
+
 function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') {
     const graph = prunedGraph || rawGraph;
     const golden = buildGoldenPath(rawGraph, graph);
@@ -3111,19 +3657,11 @@ function renderGraphCompare() {
     const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
     const evalData = controlledEval();
     rawPanel.innerHTML = analysisGraph
-        ? renderAggregatedAttackGraphSvg(analysisGraph, analysisGraph, {
-            title: 'Raw Graph',
-            mode: 'raw',
-            note: '裁剪前图谱：基于标准三元组构建聚合攻击图谱，只展示高权重主体、行为和资产关系；完整三元组规模保留在统计指标中。',
-        })
-        : '<div class="empty-row">暂无原始图输出。</div>';
+        ? renderPruningEvaluationSvg(analysisGraph, prunedGraph)
+        : '<div class="empty-row">暂无裁剪评估输出。</div>';
     prunedPanel.innerHTML = prunedGraph
-        ? renderAggregatedAttackGraphSvg(prunedGraph, analysisGraph, {
-            title: 'Pruned Graph',
-            mode: 'pruned',
-            note: '裁剪后图谱：使用与左图相同的聚合布局，仅展示裁剪后保留关系，便于观察噪声过滤后是否仍保留核心攻击链。',
-        })
-        : '<div class="empty-row">暂无裁剪图输出。</div>';
+        ? renderPruningDiagnosisPanel(analysisGraph, prunedGraph)
+        : '<div class="empty-row">暂无语义差异诊断。</div>';
     const before = evalData.before_guardrail || {};
     const dqnState = dqnStateInfo(analysisSummary);
     const metrics = [
@@ -3152,7 +3690,7 @@ function renderTimelineView() {
     const visual = document.getElementById('timelineVisual');
     const relationList = document.getElementById('relationEvidenceList');
     const prunedGraph = analysisPrunedGraph || analysisGraph;
-    visual.innerHTML = prunedGraph ? renderPrunedTopologySvg(analysisGraph, prunedGraph, 'Attacker Timeline') : '<div class="empty-row">暂无时序链路输出。</div>';
+    visual.innerHTML = prunedGraph ? renderAttackChainSvg(analysisGraph, prunedGraph, 'Cross-Honeypot Attack Chain') : '<div class="empty-row">暂无时序链路输出。</div>';
     const relations = relationEdges(prunedGraph || analysisGraph).slice(0, 12);
     relationList.innerHTML = relations.length ? relations.map(edge => `
         <div class="list-item">
