@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
+from step1_data_collection.campaign import extract_campaign_id
+
 
 @dataclass
 class CausalEdge:
@@ -155,12 +157,20 @@ class CausalGraphBuilder:
         evidence = data.get("evidence") or details
         session_id = data.get("session_id") or details.get("session_token")
         experiment_meta = details.get("experiment") if isinstance(details.get("experiment"), dict) else {}
-        scenario_id = data.get("scenario_id") or details.get("scenario_id") or experiment_meta.get("scenario_id")
+        campaign_id = (
+            data.get("campaign_id")
+            or details.get("campaign_id")
+            or evidence.get("campaign_id")
+            or experiment_meta.get("campaign_id")
+            or extract_campaign_id(data, details, evidence, source, obj)
+        )
+        scenario_id = data.get("scenario_id") or details.get("scenario_id") or experiment_meta.get("scenario_id") or campaign_id
         scenario_role = (
             data.get("scenario_role")
             or details.get("scenario_role")
             or experiment_meta.get("scenario_role")
             or experiment_meta.get("role")
+            or ("controlled_chain" if campaign_id else None)
         )
         evidence_refs = data.get("evidence_refs") or details.get("evidence_refs") or experiment_meta.get("evidence_refs") or []
         fingerprint = source.get("label") if source.get("type") == "browser" else None
@@ -198,6 +208,7 @@ class CausalGraphBuilder:
             "actor_intel": data.get("actor_intel") or {},
             "evidence": evidence,
             "raw_details": details,
+            "campaign_id": campaign_id,
             "scenario_id": scenario_id,
             "scenario_role": scenario_role,
             "evidence_refs": evidence_refs,
@@ -213,6 +224,7 @@ class CausalGraphBuilder:
         actor_group_id = (event.get("actor_intel") or {}).get("group_id")
         details = event.get("raw_details") or {}
         username = details.get("username")
+        campaign_id = event.get("campaign_id")
         scenario_id = event.get("scenario_id")
         scenario_role = event.get("scenario_role")
         experiment_meta = details.get("experiment") if isinstance(details.get("experiment"), dict) else {}
@@ -220,6 +232,8 @@ class CausalGraphBuilder:
 
         if actor_group_id:
             anchors.append(f"actor-group:{actor_group_id}")
+        if campaign_id:
+            anchors.append(f"campaign:{campaign_id}")
         if scenario_id and scenario_role == "controlled_chain":
             anchors.append(f"controlled-scenario:{scenario_id}")
         if chain_actor_id:
@@ -322,6 +336,8 @@ class CausalGraphBuilder:
                 group["anchors"].add(f"fp:{fingerprint}")
             if session_id:
                 group["anchors"].add(f"session:{session_id}")
+            if event.get("campaign_id"):
+                group["anchors"].add(f"campaign:{event['campaign_id']}")
             if event.get("scenario_id") and event.get("scenario_role"):
                 group["anchors"].add(f"{event['scenario_role']}:{event['scenario_id']}")
 
@@ -486,6 +502,7 @@ class CausalGraphBuilder:
                 "relation_type": relation_type,
                 "edge_scope": edge_scope,
                 "attacker_id": current.get("attacker_id"),
+                "campaign_id": current.get("campaign_id"),
                 "scenario_id": current.get("scenario_id"),
                 "scenario_role": current.get("scenario_role"),
                 "evidence_refs": current.get("evidence_refs") or [],
@@ -560,6 +577,8 @@ class CausalGraphBuilder:
             return "same_session"
         if previous.get("fingerprint") and previous.get("fingerprint") == current.get("fingerprint"):
             return "same_fingerprint"
+        if previous.get("campaign_id") and previous.get("campaign_id") == current.get("campaign_id"):
+            return "same_campaign"
         if prev_details.get("username") and prev_details.get("username") == curr_details.get("username"):
             return "same_account_probe"
         return None
@@ -577,6 +596,8 @@ class CausalGraphBuilder:
             evidence.append(f"same_fingerprint:{previous.get('fingerprint')}")
         if previous.get("session_id") and previous.get("session_id") == current.get("session_id"):
             evidence.append(f"same_session:{previous.get('session_id')}")
+        if previous.get("campaign_id") and previous.get("campaign_id") == current.get("campaign_id"):
+            evidence.append(f"same_campaign:{previous.get('campaign_id')}")
         if prev_details.get("username") and prev_details.get("username") == curr_details.get("username"):
             evidence.append(f"same_username:{prev_details.get('username')}")
         if previous.get("scenario_id") and previous.get("scenario_id") == current.get("scenario_id"):
@@ -591,6 +612,7 @@ class CausalGraphBuilder:
             "same_session": 0.98,
             "same_fingerprint": 0.95,
             "same_source_ip": 0.9,
+            "same_campaign": 0.99,
             "same_account_probe": 0.88,
             "same_attack_path": 0.82,
             "stage_transition": 0.86,
@@ -625,6 +647,7 @@ class CausalGraphBuilder:
             "event_type": event.get("event_type"),
             "path_id": event.get("path_id"),
             "attacker_id": event.get("attacker_id"),
+            "campaign_id": event.get("campaign_id"),
         }
         if existing:
             payload["first_seen"] = min(existing.get("first_seen") or payload["first_seen"], payload["first_seen"])
@@ -665,11 +688,13 @@ class CausalGraphBuilder:
             payload["path_id"] = event.get("path_id")
         if event.get("attacker_id"):
             payload["attacker_id"] = event.get("attacker_id")
+        if event.get("campaign_id"):
+            payload["campaign_id"] = event.get("campaign_id")
 
         if existing:
             payload["first_seen"] = min(existing.get("first_seen") or payload["first_seen"], payload["first_seen"])
             payload["last_seen"] = max(existing.get("last_seen") or payload["last_seen"], payload["last_seen"])
-            for key in ("ip", "info", "host", "path", "path_id", "attacker_id"):
+            for key in ("ip", "info", "host", "path", "path_id", "attacker_id", "campaign_id"):
                 if key not in payload and key in existing:
                     payload[key] = existing[key]
 
@@ -787,6 +812,7 @@ class CausalGraphBuilder:
                 "path_id": edge.path_id,
                 "relation_type": edge.relation_type,
                 "attacker_id": edge.raw_data.get("attacker_id"),
+                "campaign_id": event.get("campaign_id") or edge.raw_data.get("campaign_id"),
                 "scenario_id": event.get("scenario_id") or edge.raw_data.get("scenario_id"),
                 "scenario_role": event.get("scenario_role") or edge.raw_data.get("scenario_role"),
                 "evidence_refs": event.get("evidence_refs") or edge.raw_data.get("evidence_refs") or [],
@@ -811,6 +837,7 @@ class CausalGraphBuilder:
                         "confidence": edge.confidence,
                         "path_id": edge.path_id,
                         "attacker_id": event.get("attacker_id"),
+                        "campaign_id": event.get("campaign_id"),
                         "scenario_id": event.get("scenario_id"),
                         "scenario_role": event.get("scenario_role"),
                         "evidence_refs": event.get("evidence_refs") or [],
@@ -829,6 +856,13 @@ class CausalGraphBuilder:
                     "anchors": list(group.get("anchors", [])),
                     "start_time": group.get("start_time"),
                     "end_time": group.get("end_time"),
+                    "campaign_ids": sorted(
+                        {
+                            str(self.event_index.get(event_id, {}).get("campaign_id"))
+                            for event_id in group.get("event_ids", [])
+                            if self.event_index.get(event_id, {}).get("campaign_id")
+                        }
+                    ),
                     "scenario_ids": sorted(
                         {
                             str(self.event_index.get(event_id, {}).get("scenario_id"))
@@ -850,6 +884,13 @@ class CausalGraphBuilder:
                     "anchors": list(group.get("anchors", [])),
                     "start_time": group.get("start_time"),
                     "end_time": group.get("end_time"),
+                    "campaign_ids": sorted(
+                        {
+                            str(self.event_index.get(event_id, {}).get("campaign_id"))
+                            for event_id in group.get("event_ids", [])
+                            if self.event_index.get(event_id, {}).get("campaign_id")
+                        }
+                    ),
                     "scenario_ids": sorted(
                         {
                             str(self.event_index.get(event_id, {}).get("scenario_id"))
@@ -945,6 +986,7 @@ class CausalGraphBuilder:
                         "stage": event.get("stage"),
                         "source_id": (event.get("source") or {}).get("id"),
                         "object_id": (event.get("object") or {}).get("id"),
+                        "campaign_id": event.get("campaign_id"),
                         "scenario_id": event.get("scenario_id"),
                         "scenario_role": event.get("scenario_role"),
                     }
@@ -989,6 +1031,7 @@ class CausalGraphBuilder:
                     "start_time": events[0].get("timestamp") if events else "",
                     "end_time": events[-1].get("timestamp") if events else "",
                     "phase_label": " -> ".join(event_types),
+                    "campaign_ids": sorted({str(event.get("campaign_id")) for event in events if event.get("campaign_id")}),
                     "phase_sequence": phase_sequence,
                     "hop_edges": hop_edges,
                     "cross_honeypot_hop_count": len(cross_honeypot_hops),
@@ -1026,6 +1069,7 @@ class CausalGraphBuilder:
                     "start_time": events[0].get("timestamp") if events else "",
                     "end_time": events[-1].get("timestamp") if events else "",
                     "event_ids": [event.get("event_id") for event in events],
+                    "campaign_ids": sorted({str(event.get("campaign_id")) for event in events if event.get("campaign_id")}),
                     "attacker_ids": sorted({str(event.get("attacker_id")) for event in events if event.get("attacker_id")}),
                 }
             )

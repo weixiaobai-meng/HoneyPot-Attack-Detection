@@ -6,6 +6,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import List, Any
 
+from ..campaign import campaign_metadata, extract_campaign_id
 from ..models import UnifiedAlert, AlertType
 
 
@@ -20,6 +21,24 @@ class BaseAdapter(ABC):
     @staticmethod
     def generate_alert_id() -> str:
         return str(uuid.uuid4())
+
+    @staticmethod
+    def attach_campaign_metadata(alert: UnifiedAlert, *sources: Any) -> UnifiedAlert:
+        campaign_id = extract_campaign_id(*(sources or (alert.details, alert.evidence)))
+        if not campaign_id:
+            return alert
+
+        meta = campaign_metadata(campaign_id)
+        alert.campaign_id = campaign_id
+        alert.scenario_id = meta.get("scenario_id")
+        alert.scenario_role = meta.get("scenario_role")
+        alert.details = dict(alert.details or {})
+        alert.evidence = dict(alert.evidence or {})
+        alert.details.update(meta)
+        alert.evidence.setdefault("campaign_id", campaign_id)
+        alert.evidence.setdefault("scenario_id", meta.get("scenario_id"))
+        alert.evidence.setdefault("scenario_role", meta.get("scenario_role"))
+        return alert
 
 
 class AdapterFactory:

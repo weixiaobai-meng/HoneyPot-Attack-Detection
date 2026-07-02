@@ -39,7 +39,7 @@
             <details class="scenario-config">
                 <summary>
                     <span>受控链路配置</span>
-                    <small>限定真实时间窗与核心主体，用于验证跨蜜点链路与 DQN 裁剪</small>
+                    <small>限定真实时间窗与共同证据锚点，用于验证跨蜜点链路与 DQN 裁剪</small>
                 </summary>
                 <div class="scenario-fields">
                     <label>
@@ -51,8 +51,8 @@
                         <input id="scenarioEnd" class="analysis-input" type="datetime-local" step="60" onclick="openDateTimePicker('scenarioEnd')" title="受控链路结束时间，可手动输入或用下方按钮自动填入。">
                     </label>
                     <label>
-                        <span>核心主体标识</span>
-                        <input id="scenarioChainKey" class="analysis-input" placeholder="攻击 IP / Canvas 指纹 / session:会话ID">
+                        <span>核心证据锚点</span>
+                        <input id="scenarioChainKey" class="analysis-input" placeholder="推荐 campaign:controlled_20260702_01 / 攻击 IP / Canvas 指纹">
                     </label>
                     <button class="analysis-btn secondary" onclick="runScenarioAnalysis()">
                         <i class="fas fa-diagram-project"></i> 运行受控链路分析
@@ -64,7 +64,7 @@
                         <button class="mini-action-btn" type="button" onclick="fillRecentScenarioWindow(168)">
                             <i class="fas fa-clock"></i> 最近 7 天
                         </button>
-                        <p>核心主体标识用于把同一攻击者的真实告警标成核心链：填攻击 IP 可匹配账户/文件/寄生来源，填 Canvas 指纹可匹配寄生蜜点浏览器指纹；它不是服务器 IP。</p>
+                        <p>核心证据锚点用于把真实触发的三类告警标成同一受控链：优先填 campaign_id；也可填攻击 IP、Canvas 指纹、session:会话ID 或 alert:告警ID。它不是服务器 IP。</p>
                     </div>
                 </div>
             </details>
@@ -82,7 +82,7 @@
         </article>
         <article>
             <strong>受控链路分析</strong>
-            <span>限定时间窗和核心 IP/指纹，标注核心链与噪声，是验证 DQN 裁剪的主实验入口。</span>
+            <span>限定时间窗和共同证据锚点，标注核心链与噪声，是验证 DQN 裁剪的主实验入口。</span>
         </article>
     </section>
 
@@ -1570,7 +1570,7 @@ function currentModeInfo(summary) {
             chip: '受控链路',
             tone: 'ok',
             title: '跨蜜点链路验证',
-            body: '在真实告警时间窗内标注核心主体、核心链和噪声边，用于评估 DQN 保留链路与过滤噪声。'
+            body: '在真实告警时间窗内标注共同证据锚点、核心链和噪声边，用于评估 DQN 保留链路与过滤噪声。'
         };
     }
     return {
@@ -1737,6 +1737,10 @@ function currentScenarioIdentifiers(summary) {
     const scenario = (summary && summary.scenario) || {};
     const identifiers = scenario.chain_identifiers || {};
     const first = list => Array.isArray(list) && list.length ? String(list[0] || '').trim() : '';
+    const campaignId = first(identifiers.chain_campaign_ids);
+    if (campaignId) {
+        return `campaign:${campaignId}`;
+    }
     const ip = first(identifiers.chain_ips);
     if (ip) {
         return ip;
@@ -1784,10 +1788,10 @@ function fillScenarioFromCurrentResult() {
     prefillScenarioFields(analysisSummary, { onlyEmpty: false });
     const chainKey = document.getElementById('scenarioChainKey').value.trim();
     if (!chainKey) {
-        setStatus('当前结果没有记录核心主体标识；请从统一事件里选择一个攻击 IP 或寄生蜜点 Canvas 指纹填入。', true);
+        setStatus('当前结果没有记录核心证据锚点；请优先填写 campaign_id，也可以从统一事件里选择攻击 IP、Canvas 指纹、session 或 alert id。', true);
         return;
     }
-    setStatus('已填入当前受控结果的时间窗和核心主体标识。');
+    setStatus('已填入当前受控结果的时间窗和核心证据锚点。');
 }
 
 function fillRecentScenarioWindow(hours = 168) {
@@ -1799,7 +1803,7 @@ function fillRecentScenarioWindow(hours = 168) {
     };
     document.getElementById('scenarioStart').value = format(start);
     document.getElementById('scenarioEnd').value = format(end);
-    setStatus(`已填入最近 ${hours / 24} 天的时间窗，请再填写核心主体标识。`);
+    setStatus(`已填入最近 ${hours / 24} 天的时间窗，请再填写核心证据锚点。`);
 }
 
 function typePill(type) {
@@ -4253,7 +4257,7 @@ async function runScenarioAnalysis() {
     const end = document.getElementById('scenarioEnd').value;
     const chainKey = document.getElementById('scenarioChainKey').value.trim();
     if (!start || !end || !chainKey) {
-        setStatus('请填写受控链路的开始时间、结束时间，以及核心 IP 或 Canvas 指纹。', true);
+        setStatus('请填写受控链路的开始时间、结束时间，以及核心证据锚点。推荐使用 campaign_id。', true);
         return;
     }
     const payload = {
@@ -4263,17 +4267,22 @@ async function runScenarioAnalysis() {
         chain_fingerprints: [],
         chain_sessions: [],
         chain_alert_ids: [],
+        chain_campaign_ids: [],
     };
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(chainKey)) {
         payload.chain_ips = [chainKey];
+    } else if (/^campaign:/i.test(chainKey)) {
+        payload.chain_campaign_ids = [chainKey.replace(/^campaign:/i, '').trim()];
     } else if (/^session:/i.test(chainKey)) {
         payload.chain_sessions = [chainKey.replace(/^session:/i, '').trim()];
     } else if (/^alert:/i.test(chainKey)) {
         payload.chain_alert_ids = [chainKey.replace(/^alert:/i, '').trim()];
+    } else if (/^(controlled|campaign|scenario|experiment|exp|chain)[-_]/i.test(chainKey)) {
+        payload.chain_campaign_ids = [chainKey];
     } else {
         payload.chain_fingerprints = [chainKey];
     }
-    setStatus('正在运行受控链路分析：真实告警时间窗 + 核心链标注 + 背景噪声评价。');
+    setStatus('正在运行受控链路分析：真实告警时间窗 + 共同证据锚点标注 + 背景噪声评价。');
     try {
         const summary = await fetchJson('/api/analysis/live/scenario', {
             method: 'POST',

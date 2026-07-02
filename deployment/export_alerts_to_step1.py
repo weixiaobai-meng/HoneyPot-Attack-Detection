@@ -23,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from step1_data_collection import AlertType, DataCollector, UnifiedAlert
+from step1_data_collection.campaign import extract_campaign_id
 from step2_causal_graph import CausalGraphBuilder, CausalGraphVisualizer
 from step4_graph_to_text import GraphToTextConverter
 
@@ -290,6 +291,7 @@ def _alert_matches_chain(
     chain_fingerprints: Set[str],
     chain_sessions: Set[str],
     chain_alert_ids: Set[str],
+    chain_campaign_ids: Set[str],
 ) -> bool:
     if alert.alert_id and alert.alert_id in chain_alert_ids:
         return True
@@ -297,6 +299,16 @@ def _alert_matches_chain(
         return True
 
     details = alert.details or {}
+    evidence = alert.evidence or {}
+    campaign_id = (
+        getattr(alert, "campaign_id", None)
+        or details.get("campaign_id")
+        or evidence.get("campaign_id")
+        or extract_campaign_id(details, evidence, alert.target_path, alert.attacker_info)
+    )
+    if campaign_id and campaign_id in chain_campaign_ids:
+        return True
+
     fingerprint = str(details.get("fingerprint") or alert.attacker_info or "").strip()
     session_id = str(alert.session_id or details.get("session_token") or details.get("session_id") or "").strip()
     if fingerprint and fingerprint in chain_fingerprints:
@@ -314,32 +326,49 @@ def annotate_controlled_scenario_alerts(
     chain_fingerprints=None,
     chain_sessions=None,
     chain_alert_ids=None,
+    chain_campaign_ids=None,
 ) -> List[UnifiedAlert]:
     """Add experiment-only metadata to real alerts without changing the database."""
     chain_ips = _normalize_identifier_set(chain_ips)
     chain_fingerprints = _normalize_identifier_set(chain_fingerprints)
     chain_sessions = _normalize_identifier_set(chain_sessions)
     chain_alert_ids = _normalize_identifier_set(chain_alert_ids)
+    chain_campaign_ids = _normalize_identifier_set(chain_campaign_ids)
 
-    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids]):
-        raise ValueError("at least one chain identifier is required: --chain-ip, --chain-fingerprint, --chain-session, or --chain-alert-id")
+    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids, chain_campaign_ids]):
+        raise ValueError("at least one chain identifier is required: --chain-ip, --chain-fingerprint, --chain-session, --chain-alert-id, or --chain-campaign-id")
 
     annotated = []
     for alert in alerts:
         item = deepcopy(alert)
-        is_chain = _alert_matches_chain(item, chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids)
+        is_chain = _alert_matches_chain(item, chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids, chain_campaign_ids)
         role = "controlled_chain" if is_chain else "controlled_noise"
         item.details = deepcopy(item.details or {})
+        item.evidence = deepcopy(item.evidence or item.details)
+        item_campaign_id = (
+            getattr(item, "campaign_id", None)
+            or item.details.get("campaign_id")
+            or item.evidence.get("campaign_id")
+            or extract_campaign_id(item.details, item.evidence, item.target_path, item.attacker_info)
+        )
+        if item_campaign_id:
+            item.campaign_id = item_campaign_id
+            item.details.setdefault("campaign_id", item_campaign_id)
+            item.evidence.setdefault("campaign_id", item_campaign_id)
         item.details["scenario_id"] = scenario_id
         item.details["scenario_role"] = role
+        item.scenario_id = scenario_id
+        item.scenario_role = role
         item.details["experiment"] = {
+            "campaign_id": item_campaign_id or "",
             "scenario_id": scenario_id,
             "scenario_role": role,
             "chain_actor_id": chain_actor_id if is_chain else "",
             "data_source": "real_systemwire2_unified_alert",
             "annotation_only": True,
         }
-        item.evidence = deepcopy(item.evidence or item.details)
+        item.evidence["scenario_id"] = scenario_id
+        item.evidence["scenario_role"] = role
         item.actor_intel = deepcopy(item.actor_intel or {})
         if is_chain:
             item.actor_intel.setdefault("group_id", chain_actor_id)
@@ -1800,6 +1829,7 @@ def export_scenario_live(
     chain_fingerprints=None,
     chain_sessions=None,
     chain_alert_ids=None,
+    chain_campaign_ids=None,
 ):
     """Export a controlled live scenario from real collected alerts.
 
@@ -1825,6 +1855,7 @@ def export_scenario_live(
         chain_fingerprints=chain_fingerprints,
         chain_sessions=chain_sessions,
         chain_alert_ids=chain_alert_ids,
+        chain_campaign_ids=chain_campaign_ids,
     )
 
     groups = {"file": [], "account": [], "parasitic": [], "audit": []}
@@ -1876,6 +1907,7 @@ def export_scenario_live(
             "chain_fingerprints": sorted(_normalize_identifier_set(chain_fingerprints)),
             "chain_sessions": sorted(_normalize_identifier_set(chain_sessions)),
             "chain_alert_ids": sorted(_normalize_identifier_set(chain_alert_ids)),
+            "chain_campaign_ids": sorted(_normalize_identifier_set(chain_campaign_ids)),
         },
     }
     summary["edge_labels"] = label_meta
@@ -1935,6 +1967,7 @@ def main():
     scenario_parser.add_argument("--chain-fingerprint", action="append", default=[], help="browser fingerprint considered part of the core controlled chain; repeatable")
     scenario_parser.add_argument("--chain-session", action="append", default=[], help="session id considered part of the core controlled chain; repeatable")
     scenario_parser.add_argument("--chain-alert-id", action="append", default=[], help="explicit alert id considered part of the core controlled chain; repeatable")
+    scenario_parser.add_argument("--chain-campaign-id", action="append", default=[], help="controlled campaign id carried by real trigger traffic; repeatable")
 
     dqn_parser = subparsers.add_parser("train-dqn", help="train and evaluate a reproducible DQN pruning experiment")
     dqn_parser.add_argument("--graph-path", type=Path, default=build_default_paths()["step2"], help="causal_graph.json used for DQN training/evaluation")
@@ -1972,6 +2005,7 @@ def main():
             chain_fingerprints=args.chain_fingerprint,
             chain_sessions=args.chain_session,
             chain_alert_ids=args.chain_alert_id,
+            chain_campaign_ids=args.chain_campaign_id,
         )
     else:
         train_dqn_experiment(

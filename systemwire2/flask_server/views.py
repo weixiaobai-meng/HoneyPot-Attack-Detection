@@ -2540,13 +2540,14 @@ def api_analysis_live_scenario():
     chain_fingerprints = normalize_list(payload.get("chain_fingerprints", payload.get("chain_fingerprint", [])))
     chain_sessions = normalize_list(payload.get("chain_sessions", payload.get("chain_session", [])))
     chain_alert_ids = normalize_list(payload.get("chain_alert_ids", payload.get("chain_alert_id", [])))
+    chain_campaign_ids = normalize_list(payload.get("chain_campaign_ids", payload.get("chain_campaign_id", [])))
 
     if not start_value or not end_value:
         return jsonify({"code": 1, "message": "start and end are required", "data": {}}), 400
-    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids]):
+    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids, chain_campaign_ids]):
         return jsonify({
             "code": 1,
-            "message": "至少提供一个核心链标识：chain_ips、chain_fingerprints、chain_sessions 或 chain_alert_ids",
+            "message": "至少提供一个核心链标识：chain_campaign_ids、chain_ips、chain_fingerprints、chain_sessions 或 chain_alert_ids",
             "data": {},
         }), 400
 
@@ -2567,7 +2568,7 @@ def api_analysis_live_scenario():
         start_time = _parse_scenario_timestamp(start_value)
         end_time = _parse_scenario_timestamp(end_value)
         if not scenario_id:
-            scenario_id = f"controlled_chain_{start_time.strftime('%Y%m%d_%H%M%S')}"
+            scenario_id = chain_campaign_ids[0] if chain_campaign_ids else f"controlled_chain_{start_time.strftime('%Y%m%d_%H%M%S')}"
 
         summary = export_scenario_live_analysis(
             start_time=start_time,
@@ -2579,6 +2580,7 @@ def api_analysis_live_scenario():
             chain_fingerprints=chain_fingerprints,
             chain_sessions=chain_sessions,
             chain_alert_ids=chain_alert_ids,
+            chain_campaign_ids=chain_campaign_ids,
         )
         run_dir_text = _analysis_run_dir_text(run_dir_path)
         summary["run_dir"] = run_dir_text

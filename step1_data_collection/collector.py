@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 from urllib.parse import urlparse
 
 from .adapters import AdapterFactory
+from .campaign import campaign_metadata, extract_campaign_id
 from .models import AlertType, UnifiedAlert
 
 
@@ -202,6 +203,16 @@ class DataCollector:
             return text.split(":", 1)[0]
         return None
 
+    @staticmethod
+    def _apply_campaign_metadata(details: Dict, evidence: Dict, campaign_id: Optional[str]) -> None:
+        meta = campaign_metadata(campaign_id)
+        if not meta:
+            return
+        details.update(meta)
+        evidence.setdefault("campaign_id", meta["campaign_id"])
+        evidence.setdefault("scenario_id", meta["scenario_id"])
+        evidence.setdefault("scenario_role", meta["scenario_role"])
+
     def _map_unified_api_row_to_alert(self, row: Dict) -> UnifiedAlert:
         alert_type = self._parse_alert_type(row.get("alert_type"))
         timestamp = self._parse_time_value(row.get("timestamp"))
@@ -226,6 +237,8 @@ class DataCollector:
         session_id = None
         confidence = 0.9
         evidence = dict(details)
+        campaign_id = extract_campaign_id(row, details, evidence, row.get("target_path"))
+        self._apply_campaign_metadata(details, evidence, campaign_id)
 
         if alert_type == AlertType.FILE_HONEYPOT:
             attacker_info = details.get("report_agent") or None
@@ -302,6 +315,9 @@ class DataCollector:
             source_intel=source_intel,
             actor_intel=actor_intel,
             evidence=evidence,
+            campaign_id=campaign_id,
+            scenario_id=campaign_id,
+            scenario_role="controlled_chain" if campaign_id else None,
         )
 
     def _collect_from_systemwire2_unified_api(
@@ -554,6 +570,18 @@ class DataCollector:
             "status": row.get("status"),
             "legacy_row_id": row.get("legacy_row_id"),
         }
+        evidence = {
+            "token": row.get("token"),
+            "token_url": token_url,
+            "filename": filename,
+            "deploy_path": deploy_path,
+            "report_agent": report_agent,
+            "message": message,
+            "source_service": row.get("source_service") or "systemwire2",
+            "honeypot_name": row.get("honeypot_name"),
+        }
+        campaign_id = extract_campaign_id(row, details, evidence, token_url, filename, deploy_path)
+        self._apply_campaign_metadata(details, evidence, campaign_id)
 
         return UnifiedAlert(
             alert_id=f"systemwire-file-{row.get('event_id')}",
@@ -576,16 +604,10 @@ class DataCollector:
             technique="Honey File Access",
             confidence=0.96,
             severity=row.get("severity") or "high",
-            evidence={
-                "token": row.get("token"),
-                "token_url": token_url,
-                "filename": filename,
-                "deploy_path": deploy_path,
-                "report_agent": report_agent,
-                "message": message,
-                "source_service": row.get("source_service") or "systemwire2",
-                "honeypot_name": row.get("honeypot_name"),
-            },
+            evidence=evidence,
+            campaign_id=campaign_id,
+            scenario_id=campaign_id,
+            scenario_role="controlled_chain" if campaign_id else None,
         )
 
     def _parse_unified_account_alert(self, row: Dict) -> UnifiedAlert:
@@ -613,6 +635,17 @@ class DataCollector:
             "status": row.get("status"),
             "legacy_row_id": row.get("legacy_row_id"),
         }
+        evidence = {
+            "protocol": protocol,
+            "username": username,
+            "client_version": client_version,
+            "client_family": row.get("client_family"),
+            "attack_type": auth_type,
+            "source_service": row.get("source_service") or "systemwire2",
+            "honeypot_name": row.get("honeypot_name"),
+        }
+        campaign_id = extract_campaign_id(row, details, evidence, username, row.get("password"))
+        self._apply_campaign_metadata(details, evidence, campaign_id)
 
         return UnifiedAlert(
             alert_id=f"systemwire-account-{row.get('event_id')}",
@@ -635,15 +668,10 @@ class DataCollector:
             technique="External Remote Services",
             confidence=0.95,
             severity=row.get("severity") or "high",
-            evidence={
-                "protocol": protocol,
-                "username": username,
-                "client_version": client_version,
-                "client_family": row.get("client_family"),
-                "attack_type": auth_type,
-                "source_service": row.get("source_service") or "systemwire2",
-                "honeypot_name": row.get("honeypot_name"),
-            },
+            evidence=evidence,
+            campaign_id=campaign_id,
+            scenario_id=campaign_id,
+            scenario_role="controlled_chain" if campaign_id else None,
         )
 
     def _parse_unified_parasitic_alert(self, row: Dict) -> UnifiedAlert:
@@ -697,6 +725,20 @@ class DataCollector:
 
         severity = row.get("severity") or ("high" if is_bot or possible_proxy else "medium")
         confidence = 0.94 if is_bot or possible_proxy else 0.9
+        evidence = {
+            "fingerprint": fingerprint,
+            "session_token": session_token,
+            "url": url_value,
+            "real_ips": real_ips,
+            "proxy_detect_result": proxy_detect_result,
+            "possible_proxy": possible_proxy,
+            "bot_score": bot_score,
+            "is_bot": is_bot,
+            "source_service": row.get("source_service") or "systemwire2",
+            "honeypot_name": row.get("honeypot_name"),
+        }
+        campaign_id = extract_campaign_id(row, details, evidence, url_value, info)
+        self._apply_campaign_metadata(details, evidence, campaign_id)
 
         return UnifiedAlert(
             alert_id=f"systemwire-parasitic-{row.get('event_id')}",
@@ -720,18 +762,10 @@ class DataCollector:
             technique="Honey Web Resource Access",
             confidence=confidence,
             severity=severity,
-            evidence={
-                "fingerprint": fingerprint,
-                "session_token": session_token,
-                "url": url_value,
-                "real_ips": real_ips,
-                "proxy_detect_result": proxy_detect_result,
-                "possible_proxy": possible_proxy,
-                "bot_score": bot_score,
-                "is_bot": is_bot,
-                "source_service": row.get("source_service") or "systemwire2",
-                "honeypot_name": row.get("honeypot_name"),
-            },
+            evidence=evidence,
+            campaign_id=campaign_id,
+            scenario_id=campaign_id,
+            scenario_role="controlled_chain" if campaign_id else None,
         )
 
     def collect_all(

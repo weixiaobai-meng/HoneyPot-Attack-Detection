@@ -55,14 +55,30 @@ class UnifiedAlert:
     source_intel: Dict[str, Any] = field(default_factory=dict)
     actor_intel: Dict[str, Any] = field(default_factory=dict)
     evidence: Dict[str, Any] = field(default_factory=dict)
+    campaign_id: Optional[str] = None
+    scenario_id: Optional[str] = None
+    scenario_role: Optional[str] = None
 
     def to_canonical_event(self) -> Dict[str, Any]:
         """Serialize as a thesis-friendly canonical event."""
+        scenario_id = self.scenario_id or self.campaign_id
+        scenario_role = self.scenario_role or ("controlled_chain" if self.campaign_id else None)
+        evidence = dict(self.evidence or self.details or {})
+        if self.campaign_id:
+            evidence.setdefault("campaign_id", self.campaign_id)
+        if scenario_id:
+            evidence.setdefault("scenario_id", scenario_id)
+        if scenario_role:
+            evidence.setdefault("scenario_role", scenario_role)
+
         return {
             "event_id": self.alert_id,
             "event_type": self.alert_type.value,
             "timestamp": self.timestamp.isoformat(),
             "action": self.action,
+            "campaign_id": self.campaign_id,
+            "scenario_id": scenario_id,
+            "scenario_role": scenario_role,
             "source": {
                 "type": self.source_type,
                 "id": self.source_id,
@@ -86,7 +102,7 @@ class UnifiedAlert:
             "confidence": self.confidence,
             "source_intel": self.source_intel,
             "actor_intel": self.actor_intel,
-            "evidence": self.evidence or self.details,
+            "evidence": evidence,
             "raw_details": self.details,
         }
 
@@ -118,6 +134,9 @@ class UnifiedAlert:
             "source_intel": self.source_intel,
             "actor_intel": self.actor_intel,
             "evidence": self.evidence,
+            "campaign_id": self.campaign_id,
+            "scenario_id": self.scenario_id or self.campaign_id,
+            "scenario_role": self.scenario_role or ("controlled_chain" if self.campaign_id else None),
             "canonical_event": self.to_canonical_event(),
         }
 

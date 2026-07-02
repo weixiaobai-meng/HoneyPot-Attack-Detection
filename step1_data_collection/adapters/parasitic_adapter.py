@@ -120,4 +120,4 @@ class ParasiticHoneypotAdapter(BaseAdapter):
                 "details": details,
             },
         )
-        return [alert]
+        return [self.attach_campaign_metadata(alert, raw_data, alert.details, alert.evidence)]

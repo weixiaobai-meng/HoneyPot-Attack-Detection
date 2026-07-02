@@ -88,7 +88,7 @@ class AccountHoneypotAdapter(BaseAdapter):
                 },
             )
         
-        return [alert]
+        return [self.attach_campaign_metadata(alert, raw_data, alert.details, alert.evidence)]
     
     def _parse_time(self, time_str) -> datetime:
         if isinstance(time_str, datetime):
