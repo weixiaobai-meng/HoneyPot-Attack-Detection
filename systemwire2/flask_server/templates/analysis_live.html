@@ -217,6 +217,7 @@
         <div class="tab-content" id="tab-graph">
             <div class="graph-view-switch">
                 <button class="graph-view-btn active" data-graph-view="compare" onclick="switchGraphView('compare')">裁剪评估</button>
+                <button class="graph-view-btn" data-graph-view="pruned" onclick="switchGraphView('pruned')">裁剪后图谱</button>
                 <button class="graph-view-btn" data-graph-view="timeline" onclick="switchGraphView('timeline')">攻击链还原</button>
                 <button class="graph-view-btn" data-graph-view="evidence" onclick="switchGraphView('evidence')">证据边表</button>
                 <button class="graph-view-btn" data-graph-view="aggregate" onclick="switchGraphView('aggregate')">聚合总览</button>
@@ -242,6 +243,24 @@
                 <div class="graph-card">
                     <h3>DQN 裁剪与受控链路评价</h3>
                     <div id="pruningEvidenceGrid" class="kv-grid"></div>
+                </div>
+            </div>
+
+            <div class="graph-view" id="graph-view-pruned">
+                <div class="compare-grid">
+                    <div class="graph-card graph-render-card">
+                        <h3>裁剪前攻击图谱</h3>
+                        <div id="rawTopologyVisual" class="graph-visual">暂无裁剪前图谱输出。</div>
+                    </div>
+                    <div class="graph-card graph-render-card">
+                        <h3>裁剪后攻击图谱</h3>
+                        <div id="prunedTopologyVisual" class="graph-visual">暂无裁剪后图谱输出。</div>
+                    </div>
+                </div>
+                <div class="graph-card">
+                    <h3>裁剪结果说明</h3>
+                    <div id="prunedTopologyStats" class="kv-grid"></div>
+                    <p class="paper-panel-note">左图来自 step2/causal_graph.json，表示统一建模后的全量攻击图谱；右图来自 step3/pruned_graph.json，表示 DQN 或回退裁剪后实际保留的节点、边和核心链路。</p>
                 </div>
             </div>
 
@@ -3690,6 +3709,57 @@ function renderGraphCompare() {
     `).join('');
 }
 
+function renderPrunedTopologyView() {
+    const rawVisual = document.getElementById('rawTopologyVisual');
+    const visual = document.getElementById('prunedTopologyVisual');
+    const statsGrid = document.getElementById('prunedTopologyStats');
+    if (!rawVisual || !visual || !statsGrid) {
+        return;
+    }
+
+    const prunedGraph = analysisPrunedGraph || analysisGraph;
+    if (!prunedGraph) {
+        rawVisual.innerHTML = '<div class="empty-row">暂无裁剪前图谱输出。</div>';
+        visual.innerHTML = '<div class="empty-row">暂无裁剪后图谱输出。</div>';
+        statsGrid.innerHTML = '';
+        return;
+    }
+
+    const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
+    const outputs = (analysisSummary && analysisSummary.outputs) || {};
+    const evalData = controlledEval();
+    const dqnState = dqnStateInfo(analysisSummary);
+    const rawEdges = analysisGraph ? graphEdges(analysisGraph).length : 0;
+    const prunedEdges = graphEdges(prunedGraph).length;
+    const rawNodes = (analysisGraph && analysisGraph.nodes ? analysisGraph.nodes.length : 0);
+    const prunedNodes = (prunedGraph && prunedGraph.nodes ? prunedGraph.nodes.length : 0);
+    const prunedPath = outputs.step3_pruned_graph || outputs.pruned_graph || 'step3/pruned_graph.json';
+
+    rawVisual.innerHTML = analysisGraph
+        ? renderRawGraphSvg(analysisGraph)
+        : '<div class="empty-row">暂无裁剪前图谱输出。</div>';
+    visual.innerHTML = renderPrunedTopologySvg(analysisGraph, prunedGraph, 'Pruned Attack Graph');
+    const stats = [
+        ['裁剪前文件', outputs.step2_causal_graph || 'step2/causal_graph.json'],
+        ['图谱文件', prunedPath],
+        ['DQN 状态', dqnState.chip],
+        ['裁剪模式', pruning.mode || '-'],
+        ['回退原因', pruning.fallback_reason || '-'],
+        ['原始节点/边', `${rawNodes} / ${pruning.original_edges ?? rawEdges}`],
+        ['保留节点/边', `${prunedNodes} / ${pruning.kept_edges ?? prunedEdges}`],
+        ['剪除边数', pruning.pruned_edges ?? Math.max(rawEdges - prunedEdges, 0)],
+        ['压缩率', pruning.compression_ratio || '-'],
+        ['核心链保留率', formatPercentValue(evalData.core_chain_recall)],
+        ['噪声过滤率', formatPercentValue(evalData.noise_filter_rate)],
+    ];
+    statsGrid.innerHTML = stats.map(([label, value]) => `
+        <div class="kv-item">
+            <span>${escapeHtml(label)}</span>
+            <strong>${escapeHtml(value)}</strong>
+        </div>
+    `).join('');
+}
+
 function renderTimelineView() {
     const visual = document.getElementById('timelineVisual');
     const relationList = document.getElementById('relationEvidenceList');
@@ -4060,6 +4130,9 @@ function renderGraph() {
         overview.innerHTML = '';
         document.getElementById('rawGraphPanel').innerHTML = '<div class="empty-row">暂无原始图输出。</div>';
         document.getElementById('prunedGraphPanel').innerHTML = '<div class="empty-row">暂无裁剪图输出。</div>';
+        document.getElementById('rawTopologyVisual').innerHTML = '<div class="empty-row">暂无裁剪前图谱输出。</div>';
+        document.getElementById('prunedTopologyVisual').innerHTML = '<div class="empty-row">暂无裁剪后图谱输出。</div>';
+        document.getElementById('prunedTopologyStats').innerHTML = '';
         document.getElementById('timelineVisual').innerHTML = '<div class="empty-row">暂无时序链路输出。</div>';
         document.getElementById('pruningEvidenceGrid').innerHTML = '';
         document.getElementById('relationEvidenceList').innerHTML = '<div class="list-item"><p>暂无关系边证据。</p></div>';
@@ -4075,6 +4148,7 @@ function renderGraph() {
     const edges = analysisGraph.edges || [];
     const meta = analysisGraph.graph_meta || {};
     renderGraphCompare();
+    renderPrunedTopologyView();
     renderTimelineView();
     renderEvidenceTable();
     renderGraphOverview(meta, attackers, paths, edges);
