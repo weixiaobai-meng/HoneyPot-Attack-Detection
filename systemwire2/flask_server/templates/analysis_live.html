@@ -247,12 +247,12 @@
             </div>
 
             <div class="graph-view" id="graph-view-pruned">
-                <div class="compare-grid">
-                    <div class="graph-card graph-render-card">
+                <div class="pruned-compare-grid">
+                    <div class="graph-card pruned-compare-card">
                         <h3>裁剪前攻击图谱</h3>
                         <div id="rawTopologyVisual" class="graph-visual">暂无裁剪前图谱输出。</div>
                     </div>
-                    <div class="graph-card graph-render-card">
+                    <div class="graph-card pruned-compare-card">
                         <h3>裁剪后攻击图谱</h3>
                         <div id="prunedTopologyVisual" class="graph-visual">暂无裁剪后图谱输出。</div>
                     </div>
@@ -796,6 +796,20 @@ body,
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 12px;
+}
+.pruned-compare-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+    margin-bottom: 12px;
+    align-items: stretch;
+}
+.pruned-compare-card {
+    min-width: 0;
+}
+.pruned-compare-card .graph-visual {
+    min-height: 430px;
+    max-height: 620px;
 }
 .graph-card,
 .text-card {
@@ -1486,6 +1500,7 @@ body,
     .analysis-hero,
     .graph-grid,
     .compare-grid,
+    .pruned-compare-grid,
     .mode-guide,
     .run-state-panel,
     .text-grid,
@@ -3334,6 +3349,61 @@ function renderRawGraphSvg(graph) {
     `;
 }
 
+function renderRetainedEvidenceFlowSvg(graph, title, golden) {
+    const items = retainedEvidenceItems(graph).slice(0, 8);
+    const edgeCount = graphEdges(graph).length;
+    const width = Math.max(760, Math.max(items.length, 4) * 150 + 130);
+    const height = items.length ? 300 : 190;
+    if (!items.length) {
+        return `
+            <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后无保留证据">
+                <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
+                <text class="svg-subtitle" x="18" y="52">裁剪后未保留可标注事件，请检查时间窗口、DQN checkpoint 或受控链路标识。</text>
+            </svg>
+        `;
+    }
+
+    const nodeY = 126;
+    const startX = 78;
+    const stepX = items.length > 1 ? (width - 156) / (items.length - 1) : 0;
+    const linkSvg = items.slice(1).map((item, index) => {
+        const sx = startX + index * stepX;
+        const tx = startX + (index + 1) * stepX;
+        return `<path class="core-edge" d="M ${sx + 24} ${nodeY} C ${(sx + tx) / 2} ${nodeY - 28}, ${(sx + tx) / 2} ${nodeY - 28}, ${tx - 24} ${nodeY}" fill="none" marker-end="url(#paper-arrow-retained-flow)"></path>`;
+    }).join('');
+    const nodeSvg = items.map((item, index) => {
+        const x = startX + index * stepX;
+        const time = item.firstTime === item.lastTime ? item.firstTime : `${item.firstTime} ~ ${item.lastTime}`;
+        return `
+            <g>
+                <circle class="core-node ${escapeHtml(item.type)}" cx="${x}" cy="${nodeY}" r="22"></circle>
+                <text class="chain-index" x="${x}" y="${nodeY + 4}" text-anchor="middle">${escapeHtml(index + 1)}</text>
+                <text class="svg-title" x="${x}" y="${nodeY + 46}" text-anchor="middle">${escapeHtml(shortText(item.action, 18))}</text>
+                <text class="svg-label" x="${x}" y="${nodeY + 64}" text-anchor="middle">${escapeHtml(item.relation)} · n=${escapeHtml(item.count || 1)}</text>
+                <text class="svg-label" x="${x}" y="${nodeY + 82}" text-anchor="middle">${escapeHtml(shortText(time || '-', 22))}</text>
+                <text class="svg-label" x="${x}" y="${nodeY + 100}" text-anchor="middle">${escapeHtml(shortText(item.label || '-', 24))}</text>
+            </g>
+        `;
+    }).join('');
+    const missing = golden && golden.missingTypes && golden.missingTypes.length
+        ? `缺失 ${golden.missingTypes.map(typePillText).join(' / ')}，因此不强行画成完整攻击链。`
+        : '当前保留证据尚未形成完整跨蜜点因果链。';
+
+    return `
+        <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后保留证据序列">
+            <defs>
+                <marker id="paper-arrow-retained-flow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(125, 220, 139, 0.8)"></path>
+                </marker>
+            </defs>
+            <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
+            <text class="svg-subtitle" x="18" y="52">裁剪后保留 ${escapeHtml(edgeCount)} 条边；${escapeHtml(missing)}</text>
+            ${linkSvg}
+            ${nodeSvg}
+        </svg>
+    `;
+}
+
 function semanticOverlayLines(golden) {
     const identity = golden.links.find(link => isIdentityEdge(link.edge));
     const relationNames = Array.from(new Set(golden.links.map(link => relationLabel(link.relation)))).slice(0, 3);
@@ -3594,21 +3664,15 @@ function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') 
     const graph = prunedGraph || rawGraph;
     const golden = buildGoldenPath(rawGraph, graph);
     const width = Math.max(820, Math.max(golden.nodes.length, 4) * 168 + 150);
-    const height = golden.valid ? 320 : 250;
-    const layout = buildBackgroundLayout(rawGraph, width, height, golden.valid ? 44 : 50);
-    const background = renderBackgroundGraphParts(rawGraph, layout, golden.valid ? 85 : 95, false);
+    const height = golden.valid ? 320 : 300;
     const markerId = title.replace(/\W+/g, '-').toLowerCase() || 'pruned';
     if (!golden.valid) {
         const items = retainedEvidenceItems(graph);
         return `
             ${renderGoldenPathWarning(golden)}
-            <svg class="paper-graph-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="裁剪后证据不足提示图">
-                <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
-                <text class="svg-subtitle" x="18" y="50">保留边 ${escapeHtml(graphEdges(graph).length)} / 显式核心关系边 ${escapeHtml(golden.relationCount)} / 未形成跨三类蜜点链</text>
-                <g opacity="0.35">${background}</g>
-            </svg>
+            ${renderRetainedEvidenceFlowSvg(graph, title, golden)}
             ${renderEvidenceCards(items, '裁剪后未保留可标注事件')}
-            <p class="paper-panel-note">这里刻意不把单个告警画成攻击链；只有存在显式关系边并覆盖寄生、账户、文件三类蜜点时，才高亮核心链路。</p>
+            <p class="paper-panel-note">裁剪后视图只展示保留下来的证据序列；没有覆盖三类蜜点时，不再叠加原始噪声底图，避免把裁剪前后画成同一张图。</p>
         `;
     }
 
@@ -3656,14 +3720,13 @@ function renderPrunedTopologySvg(rawGraph, prunedGraph, title = 'Pruned Graph') 
                 </marker>
             </defs>
             <text class="svg-title" x="18" y="28">${escapeHtml(title)}</text>
-            <text class="svg-subtitle" x="18" y="50">灰色为原始噪声底图；高亮部分为裁剪后保留/保护的核心链路</text>
-            <g opacity="0.24">${background}</g>
+            <text class="svg-subtitle" x="18" y="50">仅展示裁剪后保留/保护的核心链路，噪声底图已隐藏，便于观察因果路径。</text>
             ${linkSvg}
             ${nodeSvg}
         </svg>
         ${renderSemanticSummaryBlock(golden)}
         ${renderGoldenNodeCards(golden)}
-        <p class="paper-panel-note">裁剪后视图保留原始噪声底图作为参照，只高亮经裁剪保留或证据保护恢复的跨蜜点因果链。</p>
+        <p class="paper-panel-note">裁剪后视图用于呈现精简后的核心链路；裁剪前噪声结构请看左侧 Raw Graph。</p>
     `;
 }
 
