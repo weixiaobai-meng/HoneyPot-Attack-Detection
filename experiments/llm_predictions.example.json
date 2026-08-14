@@ -1,0 +1,34 @@
+{
+  "cases": [
+    {
+      "case_id": "scenario_test_001",
+      "condition": "raw_alerts",
+      "facts": ["source ip accessed account honeypot"],
+      "ttps": ["T1110"],
+      "attack_stages": ["credential access"],
+      "input_tokens": 1800,
+      "output_tokens": 320,
+      "latency_ms": 2500
+    },
+    {
+      "case_id": "scenario_test_001",
+      "condition": "full_graph",
+      "facts": ["source ip accessed account honeypot", "bait file was opened"],
+      "ttps": ["T1110", "T1083"],
+      "attack_stages": ["credential access", "discovery"],
+      "input_tokens": 1500,
+      "output_tokens": 360,
+      "latency_ms": 2400
+    },
+    {
+      "case_id": "scenario_test_001",
+      "condition": "pruned_graph",
+      "facts": ["source ip accessed account honeypot", "bait file was opened"],
+      "ttps": ["T1110", "T1083"],
+      "attack_stages": ["credential access", "discovery"],
+      "input_tokens": 1200,
+      "output_tokens": 350,
+      "latency_ms": 2300
+    }
+  ]
+}

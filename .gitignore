@@ -31,6 +31,9 @@ __pycache__/
 
 # 实验生成目录
 /generated_runs/
+/experiments/data/
+/experiments/results/
+/experiments/runs/
 
 # 临时文件目录
 /tmp/

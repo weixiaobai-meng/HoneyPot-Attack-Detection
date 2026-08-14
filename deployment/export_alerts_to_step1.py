@@ -28,6 +28,10 @@ from step2_causal_graph import CausalGraphBuilder, CausalGraphVisualizer
 from step4_graph_to_text import GraphToTextConverter
 
 DQNTrainer = None
+EDGE_FEATURE_NAMES = None
+NUM_EDGE_FEATURES = None
+attack_origin_reasons = None
+attack_origin_score = None
 attach_manual_labels = None
 get_graph_statistics = None
 load_graph_from_file = None
@@ -38,6 +42,10 @@ DQN_TOOLS_LOADED = False
 
 def _load_dqn_tools() -> bool:
     global DQNTrainer
+    global EDGE_FEATURE_NAMES
+    global NUM_EDGE_FEATURES
+    global attack_origin_reasons
+    global attack_origin_score
     global attach_manual_labels
     global get_graph_statistics
     global load_graph_from_file
@@ -51,12 +59,20 @@ def _load_dqn_tools() -> bool:
     try:
         from step3_dqn_pruning import (  # type: ignore
             DQNTrainer as _DQNTrainer,
+            EDGE_FEATURE_NAMES as _EDGE_FEATURE_NAMES,
+            NUM_EDGE_FEATURES as _NUM_EDGE_FEATURES,
+            attack_origin_reasons as _attack_origin_reasons,
+            attack_origin_score as _attack_origin_score,
             attach_manual_labels as _attach_manual_labels,
             get_graph_statistics as _get_graph_statistics,
             load_graph_from_file as _load_graph_from_file,
             load_graphs_for_training as _load_graphs_for_training,
         )
         DQNTrainer = _DQNTrainer
+        EDGE_FEATURE_NAMES = _EDGE_FEATURE_NAMES
+        NUM_EDGE_FEATURES = _NUM_EDGE_FEATURES
+        attack_origin_reasons = _attack_origin_reasons
+        attack_origin_score = _attack_origin_score
         attach_manual_labels = _attach_manual_labels
         get_graph_statistics = _get_graph_statistics
         load_graph_from_file = _load_graph_from_file
@@ -73,7 +89,7 @@ def _load_dqn_tools() -> bool:
 
 DEFAULT_RUN_DIR = REPO_ROOT / "generated_runs" / "three_honeypot_pipeline"
 MAX_ALERTS_FOR_LIVE_ANALYSIS = 10000
-MAX_DQN_EDGES = 5000
+DQN_PARTITION_EDGES = 512
 MAX_SIMULATED_KEPT_EDGES = 5000
 MAX_PROMPT_EDGES = 200
 SYSTEMWIRE2_ROOT = REPO_ROOT / "systemwire2"
@@ -479,6 +495,7 @@ def build_run_paths(run_dir: Path):
         "step2_provenance_chains": run_dir / "step2" / "step2_provenance_chains.json",
         "step3": run_dir / "step3" / "pruned_graph.json",
         "step3_edge_labels": run_dir / "step3" / "edge_labels.json",
+        "step3_label_template": run_dir / "step3" / "edge_labels.annotation_template.json",
         "step3_checkpoint": REPO_ROOT / "step3_dqn_pruning" / "output" / "checkpoints" / "dqn_best.pt",
         "step4_intent": run_dir / "step4" / "llm_prompt_intent_analysis.txt",
         "step4_ttp": run_dir / "step4" / "llm_prompt_ttp_mapping.txt",
@@ -488,6 +505,13 @@ def build_run_paths(run_dir: Path):
         "step4_llm_report_meta": run_dir / "step4" / "llm_report_meta.json",
         "summary": run_dir / "summary.json",
     }
+
+
+def use_experiment_checkpoint(paths, checkpoint: Path = None):
+    """Override the deployment checkpoint with a scenario-benchmark artifact."""
+    if checkpoint:
+        paths["step3_checkpoint"] = _resolve_repo_path(checkpoint)
+    return paths
 
 
 def ensure_dirs(paths):
@@ -505,6 +529,7 @@ def ensure_dirs(paths):
         "step2_provenance_chains",
         "step3",
         "step3_edge_labels",
+        "step3_label_template",
         "step4_intent",
         "step4_ttp",
         "step4_report",
@@ -998,8 +1023,107 @@ def write_split_and_unified(alert_groups, paths, deployments=None):
     return all_alerts, split_paths
 
 
+def _edge_attack_origin_score(edge: Dict[str, Any]) -> float:
+    """Fallback-safe attack-origin score used for deterministic pruning/reporting."""
+    if attack_origin_score is not None:
+        try:
+            return float(attack_origin_score(edge))
+        except Exception:
+            pass
+
+    relation = edge.get("relation_type")
+    shared = edge.get("shared_evidence") or []
+    shared_text = " ".join(str(item) for item in shared)
+    score = 0.0
+    if relation in {
+        "web_to_account",
+        "account_to_file",
+        "web_to_file",
+        "stage_transition",
+        "same_fingerprint",
+        "same_session",
+        "same_campaign",
+        "web_to_account_causal",
+        "account_to_file_causal",
+        "web_to_file_causal",
+    }:
+        score += 2.0
+    if relation in {"same_source_ip", "same_fingerprint", "same_session", "same_campaign", "same_account_probe"}:
+        score += 1.0
+    if edge.get("campaign_id"):
+        score += 1.2
+    if "same_fingerprint:" in shared_text or "same_session:" in shared_text or "same_campaign:" in shared_text:
+        score += 1.2
+    if "same_ip:" in shared_text:
+        score += 0.6
+    score += min(float(edge.get("confidence") or 0.0), 1.0) * 0.5
+    return max(score, 0.0)
+
+
+def _edge_attack_origin_reasons(edge: Dict[str, Any]) -> List[str]:
+    if attack_origin_reasons is not None:
+        try:
+            return list(attack_origin_reasons(edge))
+        except Exception:
+            pass
+    reasons = []
+    relation = edge.get("relation_type")
+    if relation in {"web_to_account", "account_to_file", "web_to_file", "stage_transition"}:
+        reasons.append("跨蜜点/阶段转移")
+    if relation in {"same_source_ip", "same_fingerprint", "same_session", "same_campaign"}:
+        reasons.append("同源证据")
+    if edge.get("campaign_id"):
+        reasons.append("campaign_id 锚点")
+    return reasons
+
+
+def _annotate_pruning_basis(graph_data: Dict[str, Any], pruned: Dict[str, Any]) -> Dict[str, Any]:
+    kept_ids = {str(edge.get("edge_id")) for edge in pruned.get("edges", []) if edge.get("edge_id")}
+    evidence_rows = []
+    for edge in graph_data.get("edges", []):
+        edge_id = str(edge.get("edge_id") or "")
+        if not edge_id:
+            continue
+        evidence_rows.append({
+            "edge_id": edge_id,
+            "kept": edge_id in kept_ids,
+            "action": edge.get("action"),
+            "relation_type": edge.get("relation_type"),
+            "edge_kind": edge.get("edge_kind"),
+            "scenario_role": edge.get("scenario_role"),
+            "confidence": edge.get("confidence"),
+            "attack_origin_score": round(_edge_attack_origin_score(edge), 4),
+            "basis": _edge_attack_origin_reasons(edge),
+            "shared_evidence": edge.get("shared_evidence") or [],
+            "time_delta_seconds": edge.get("time_delta_seconds"),
+        })
+
+    kept_scores = [row["attack_origin_score"] for row in evidence_rows if row["kept"]]
+    pruned_scores = [row["attack_origin_score"] for row in evidence_rows if not row["kept"]]
+    pruned["pruning_basis"] = {
+        "basis_type": "attack_origin_constrained_honeypot_evidence",
+        "description": (
+            "DQN/fallback pruning uses graph edges enriched by upstream honeypot evidence: "
+            "relation_type, shared_evidence, campaign anchors, confidence and time_delta. "
+            "Controlled scenario ids/roles and test labels are excluded."
+        ),
+        "feature_source": "account/file/parasitic honeypot evidence encoded on graph edges",
+        "edge_feature_dim": NUM_EDGE_FEATURES,
+        "edge_feature_names": EDGE_FEATURE_NAMES or [],
+        "kept_avg_origin_score": round(sum(kept_scores) / max(len(kept_scores), 1), 4),
+        "pruned_avg_origin_score": round(sum(pruned_scores) / max(len(pruned_scores), 1), 4),
+        "top_kept_edges": sorted(
+            [row for row in evidence_rows if row["kept"]],
+            key=lambda item: item["attack_origin_score"],
+            reverse=True,
+        )[:20],
+    }
+    return pruned
+
+
 def simulate_pruning(graph_data, paths, fallback_reason=None):
-    important_actions = {"ssh_login", "file_access", "url_access", "read", "connect", "execve"}
+    _load_dqn_tools()
+    important_actions = {"file_access", "url_access", "read", "connect", "execve"}
     important_relations = {
         "web_to_account",
         "account_to_file",
@@ -1008,11 +1132,19 @@ def simulate_pruning(graph_data, paths, fallback_reason=None):
         "controlled_chain_member",
         "same_fingerprint",
         "same_session",
+        "same_campaign",
+        "web_to_account_causal",
+        "account_to_file_causal",
+        "web_to_file_causal",
     }
     edges = graph_data.get("edges", [])
     kept = [
         edge for edge in edges
-        if edge.get("action") in important_actions or edge.get("relation_type") in important_relations
+        if (
+            edge.get("action") in important_actions
+            or edge.get("relation_type") in important_relations
+            or _edge_attack_origin_score(edge) >= 2.0
+        )
     ]
     if not kept and edges:
         kept = edges[-1:]
@@ -1029,10 +1161,13 @@ def simulate_pruning(graph_data, paths, fallback_reason=None):
         "pruned_edges": max(len(edges) - len(kept), 0),
         "compression_ratio": f"{(100 * (len(edges) - len(kept)) / len(edges)):.1f}%" if edges else "0.0%",
         "kept_edge_cap_applied": capped,
+        "feature_source": "attack_origin_constrained_honeypot_evidence",
+        "basis_note": "Fallback pruning keeps edges with strong honeypot evidence, cross-honeypot transitions, identity anchors, or high attack-origin score.",
     }
     if fallback_reason:
         pruning_stats["fallback_reason"] = fallback_reason
     pruned = build_graph_subset(graph_data, kept, pruning_stats=pruning_stats)
+    pruned = _annotate_pruning_basis(graph_data, pruned)
     dump_json(paths["step3"], pruned)
     return pruned
 
@@ -1045,28 +1180,64 @@ def build_edge_labels_from_scenario(graph_data: Dict[str, Any]) -> Dict[str, int
     - 0: controlled-noise edge that should be pruned
     """
     labels = {}
-    core_relations = {
-        "web_to_account",
-        "account_to_file",
-        "web_to_file",
-        "stage_transition",
-        "controlled_chain_member",
-        "same_fingerprint",
-        "same_session",
-    }
     for edge in graph_data.get("edges", []):
         edge_id = edge.get("edge_id")
         if not edge_id:
             continue
         role = edge.get("scenario_role")
-        relation = edge.get("relation_type")
         if role == "controlled_chain":
             labels[edge_id] = 1
         elif role == "controlled_noise":
             labels[edge_id] = 0
-        elif relation in core_relations:
-            labels[edge_id] = 1
     return labels
+
+
+def _controlled_chain_alert_ids(
+    alerts: List[UnifiedAlert],
+    chain_ips=None,
+    chain_fingerprints=None,
+    chain_sessions=None,
+    chain_alert_ids=None,
+    chain_campaign_ids=None,
+) -> Set[str]:
+    chain_ips = _normalize_identifier_set(chain_ips)
+    chain_fingerprints = _normalize_identifier_set(chain_fingerprints)
+    chain_sessions = _normalize_identifier_set(chain_sessions)
+    chain_alert_ids = _normalize_identifier_set(chain_alert_ids)
+    chain_campaign_ids = _normalize_identifier_set(chain_campaign_ids)
+    if not any([chain_ips, chain_fingerprints, chain_sessions, chain_alert_ids, chain_campaign_ids]):
+        raise ValueError("at least one controlled-chain identifier is required")
+    return {
+        str(alert.alert_id)
+        for alert in alerts
+        if alert.alert_id and _alert_matches_chain(
+            alert,
+            chain_ips,
+            chain_fingerprints,
+            chain_sessions,
+            chain_alert_ids,
+            chain_campaign_ids,
+        )
+    }
+
+
+def build_controlled_edge_label_template(graph_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Create a blind review template without model scores or suggested labels."""
+    rows = []
+    for edge in graph_data.get("edges", []):
+        rows.append({
+            "edge_id": edge.get("edge_id"),
+            "label": None,
+            "annotation_note": "",
+            "source": edge.get("source"),
+            "action": edge.get("action"),
+            "target": edge.get("target"),
+            "relation_type": edge.get("relation_type"),
+            "timestamp": edge.get("timestamp"),
+            "confidence": edge.get("confidence"),
+            "shared_evidence": edge.get("shared_evidence") or [],
+        })
+    return rows
 
 
 def write_edge_labels(graph_data: Dict[str, Any], paths) -> Dict[str, Any]:
@@ -1082,6 +1253,8 @@ def write_edge_labels(graph_data: Dict[str, Any], paths) -> Dict[str, Any]:
             "1": "controlled attack-chain edge to keep",
             "0": "controlled background/noise edge to prune",
         },
+        "label_basis": "controlled experiment annotation only: scenario_role",
+        "used_as_model_feature": False,
     }
 
 
@@ -1120,65 +1293,7 @@ def evaluate_pruned_graph_against_labels(graph_data: Dict[str, Any], pruned_data
     }
 
 
-def apply_controlled_label_guardrail(graph_data: Dict[str, Any], pruned_data: Dict[str, Any], labels: Dict[str, int]) -> Dict[str, Any]:
-    """Restore controlled core-chain edges if a model checkpoint prunes them.
-
-    This is an evidence constraint, not a synthetic-data step: the restored edges
-    already exist in the original graph and are labeled as core by the controlled
-    experiment design.
-    """
-    if not labels:
-        return pruned_data
-
-    edge_by_id = {
-        str(edge.get("edge_id")): edge
-        for edge in graph_data.get("edges", [])
-        if edge.get("edge_id")
-    }
-    kept_ids = {
-        str(edge.get("edge_id"))
-        for edge in pruned_data.get("edges", [])
-        if edge.get("edge_id")
-    }
-    restore_ids = [
-        edge_id for edge_id, label in labels.items()
-        if int(label) == 1 and edge_id in edge_by_id and edge_id not in kept_ids
-    ]
-    if not restore_ids:
-        return pruned_data
-
-    restored = set(restore_ids)
-    kept_edges = [
-        edge for edge in graph_data.get("edges", [])
-        if str(edge.get("edge_id")) in kept_ids or str(edge.get("edge_id")) in restored
-    ]
-    stats = dict(pruned_data.get("pruning_stats", {}))
-    original_edges = len(graph_data.get("edges", []))
-    kept_count = len(kept_edges)
-    pruned_count = max(original_edges - kept_count, 0)
-    stats.update({
-        "mode": f"{stats.get('mode', 'unknown')}_with_controlled_evidence_guardrail",
-        "original_edges": original_edges,
-        "kept_edges": kept_count,
-        "pruned_edges": pruned_count,
-        "compression_ratio": f"{(100 * pruned_count / original_edges):.1f}%" if original_edges else "0.0%",
-        "evidence_guardrail_enabled": True,
-        "restored_core_edges": len(restore_ids),
-        "guardrail_note": "Restored controlled core-chain edges that already existed in the original graph and were marked as core evidence.",
-    })
-    guarded = build_graph_subset(graph_data, kept_edges, pruning_stats=stats)
-    guarded["controlled_label_guardrail"] = {
-        "enabled": True,
-        "restored_core_edges": restore_ids,
-        "note": "Evidence-constrained pruning protects controlled attack-chain labels from accidental model pruning.",
-    }
-    return guarded
-
-
 def run_dqn_pruning(paths, graph_data):
-    if len(graph_data.get("edges", [])) > MAX_DQN_EDGES:
-        return None, f"edge_count_exceeds_{MAX_DQN_EDGES}"
-
     checkpoint = paths.get("step3_checkpoint")
     if not checkpoint or not checkpoint.exists():
         return None, "dqn_checkpoint_missing"
@@ -1200,17 +1315,27 @@ def run_dqn_pruning(paths, graph_data):
         trainer = DQNTrainer(device="cpu")
         state = torch.load(checkpoint, map_location="cpu")
         trainer.model.load_state_dict(state)
-        pruned = trainer.predict_and_prune(str(paths["step2"]), str(paths["step3"]))
+        pruned = trainer.predict_and_prune(
+            str(paths["step2"]),
+            str(paths["step3"]),
+            evidence_guardrail=True,
+            max_edges_per_partition=DQN_PARTITION_EDGES,
+        )
         stats = pruned.get("pruning_stats", {})
         stats["mode"] = "dqn_checkpoint"
         stats["checkpoint"] = rel(checkpoint)
+        stats["feature_source"] = "attack_origin_constrained_honeypot_evidence"
         pruned["pruning_stats"] = stats
+        pruned = _annotate_pruning_basis(graph_data, pruned)
         dump_json(paths["step3"], pruned)
         return pruned, None
     except MemoryError:
         return None, "dqn_out_of_memory"
     except Exception as exc:
         print(f"[-] DQN pruning failed, fallback to deterministic pruning: {exc}")
+        message = str(exc)
+        if "size mismatch" in message or "Missing key" in message or "Unexpected key" in message:
+            return None, f"dqn_checkpoint_incompatible_after_feature_upgrade: {exc}"
         return None, f"dqn_runtime_error: {exc}"
 
 
@@ -1296,6 +1421,7 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "controlled_scenarios": graph_data.get("controlled_scenarios", []),
         },
         "pruning_stats": pruned.get("pruning_stats", {}),
+        "pruning_basis": pruned.get("pruning_basis", {}),
         "controlled_label_eval": pruned.get("controlled_label_eval", {}),
         "outputs": {
             "honeypot_deployments": rel(paths["deployments"]),
@@ -1313,6 +1439,7 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
             "step2_provenance_chains": rel(paths["step2_provenance_chains"]),
             "step3_pruned_graph": rel(paths["step3"]),
             "step3_edge_labels": rel(paths["step3_edge_labels"]) if paths["step3_edge_labels"].exists() else "",
+            "step3_edge_label_template": rel(paths["step3_label_template"]) if paths.get("step3_label_template") and paths["step3_label_template"].exists() else "",
             "step4_intent_analysis": rel(paths["step4_intent"]),
             "step4_ttp_mapping": rel(paths["step4_ttp"]),
             "step4_report": rel(paths["step4_report"]),
@@ -1447,7 +1574,7 @@ def _pruning_metrics_from_actions(actions, labels):
 
 
 def _evaluate_action_rule_baseline(graphs):
-    important_actions = {"ssh_login", "vpn_connect", "file_access", "url_access", "execve", "connect", "read"}
+    important_actions = {"vpn_connect", "file_access", "url_access", "execve", "connect", "read"}
     important_relations = {
         "web_to_account",
         "account_to_file",
@@ -1456,6 +1583,10 @@ def _evaluate_action_rule_baseline(graphs):
         "controlled_chain_member",
         "same_fingerprint",
         "same_session",
+        "same_campaign",
+        "web_to_account_causal",
+        "account_to_file_causal",
+        "web_to_file_causal",
     }
     metrics = []
     for graph in graphs:
@@ -1465,7 +1596,11 @@ def _evaluate_action_rule_baseline(graphs):
             continue
         label_values = labels.long().cpu().tolist()
         actions = [
-            0 if edge.get("action") in important_actions or edge.get("relation_type") in important_relations else 1
+            0 if (
+                edge.get("action") in important_actions
+                or edge.get("relation_type") in important_relations
+                or _edge_attack_origin_score(edge) >= 2.0
+            ) else 1
             for edge in edges_info
         ]
         metrics.append(_pruning_metrics_from_actions(actions, label_values))
@@ -1577,6 +1712,7 @@ def train_dqn_experiment(
         num_graphs=num_graphs,
         augment=augment,
         base_seed=seed,
+        allow_weak_label_smoke_test=True,
     )
     training_manual_label_coverage = None
     if train_with_manual_labels:
@@ -1603,7 +1739,11 @@ def train_dqn_experiment(
     stats = pruned.get("pruning_stats", {})
     stats["mode"] = "dqn_reproducible_experiment"
     stats["checkpoint"] = rel(checkpoint_path)
+    stats["feature_source"] = "attack_origin_constrained_honeypot_evidence"
     pruned["pruning_stats"] = stats
+    with open(graph_path, "r", encoding="utf-8") as f:
+        train_graph_data = json.load(f)
+    pruned = _annotate_pruning_basis(train_graph_data, pruned)
     dump_json(pruned_path, pruned)
 
     converter = GraphToTextConverter()
@@ -1623,6 +1763,12 @@ def train_dqn_experiment(
             "patience": patience,
             "lr": lr,
             "device": device,
+            "edge_feature_dim": NUM_EDGE_FEATURES,
+            "edge_feature_source": "attack_origin_constrained_honeypot_evidence",
+            "edge_feature_note": (
+                "Edge features encode upstream honeypot evidence: relation_type, cross-honeypot transition, "
+                "shared fingerprint/session/campaign, confidence and time delta. Experiment labels are excluded."
+            ),
             "label_source": (
                 "manual_controlled_labels_override_weak_labels"
                 if train_with_manual_labels
@@ -1657,7 +1803,7 @@ def train_dqn_experiment(
             **install_info,
         },
         "note": (
-            "By default labels are deterministic weak labels derived from edge actions. "
+            "By default labels are deterministic weak labels derived from attack-origin evidence on graph edges. "
             "When --train-with-manual-labels is set, controlled-scenario labels override weak labels "
             "for matching edge_ids and unmatched edges retain weak labels for trainability."
         ),
@@ -1692,8 +1838,9 @@ def simulate(run_dir: Path, write_defaults: bool):
     return summary
 
 
-def export_live(hours: int, run_dir: Path = None):
+def export_live(hours: int, run_dir: Path = None, checkpoint: Path = None):
     paths = build_run_paths(run_dir) if run_dir else build_default_paths()
+    use_experiment_checkpoint(paths, checkpoint)
     ensure_dirs(paths)
     end_time = datetime.now()
     start_time = None if hours <= 0 else end_time - timedelta(hours=hours)
@@ -1754,8 +1901,9 @@ def export_live(hours: int, run_dir: Path = None):
     return summary
 
 
-def export_balanced_live(hours: int, run_dir: Path, per_type: int, exclude_ips=None):
+def export_balanced_live(hours: int, run_dir: Path, per_type: int, exclude_ips=None, checkpoint: Path = None):
     paths = build_run_paths(run_dir)
+    use_experiment_checkpoint(paths, checkpoint)
     ensure_dirs(paths)
     end_time = datetime.now()
     start_time = None if hours <= 0 else end_time - timedelta(hours=hours)
@@ -1830,14 +1978,16 @@ def export_scenario_live(
     chain_sessions=None,
     chain_alert_ids=None,
     chain_campaign_ids=None,
+    checkpoint: Path = None,
 ):
-    """Export a controlled live scenario from real collected alerts.
+    """Export a controlled live scenario without leaking labels into its graph.
 
-    The function does not fabricate or insert alerts. It only annotates exported
-    events in the isolated run directory so the thesis pipeline can evaluate
-    controlled-chain recall and background-noise filtering.
+    Chain identifiers are used only to create a separate reviewer template.
+    The causal graph is built from unannotated real alerts, and no model metric
+    is emitted until independent edge labels have been completed.
     """
     paths = build_run_paths(run_dir)
+    use_experiment_checkpoint(paths, checkpoint)
     ensure_dirs(paths)
 
     live_alerts = collect_live_alerts_between(start_time, end_time)
@@ -1847,10 +1997,8 @@ def export_scenario_live(
             "please narrow the experiment window"
         )
 
-    annotated_alerts = annotate_controlled_scenario_alerts(
+    chain_ids = _controlled_chain_alert_ids(
         live_alerts,
-        scenario_id=scenario_id,
-        chain_actor_id=chain_actor_id,
         chain_ips=chain_ips,
         chain_fingerprints=chain_fingerprints,
         chain_sessions=chain_sessions,
@@ -1859,35 +2007,37 @@ def export_scenario_live(
     )
 
     groups = {"file": [], "account": [], "parasitic": [], "audit": []}
-    for alert in annotated_alerts:
+    for alert in live_alerts:
         groups.setdefault(_alert_type_value(alert), []).append(alert)
 
     alerts, split_paths = write_split_and_unified(groups, paths, deployments=None)
     graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
 
-    labels = build_edge_labels_from_scenario(graph_data)
-    label_meta = write_edge_labels(graph_data, paths)
-    controlled_eval_before_guard = evaluate_pruned_graph_against_labels(graph_data, pruned, labels)
-    pruned = apply_controlled_label_guardrail(graph_data, pruned, labels)
-    controlled_eval = evaluate_pruned_graph_against_labels(graph_data, pruned, labels)
-    controlled_eval["label_file"] = label_meta.get("file", "")
-    controlled_eval["before_guardrail"] = controlled_eval_before_guard
+    label_template = build_controlled_edge_label_template(graph_data)
+    dump_json(paths["step3_label_template"], label_template)
+    controlled_eval = {
+        "enabled": False,
+        "reason": "awaiting_independent_manual_edge_labels",
+        "template_file": rel(paths["step3_label_template"]),
+        "blind_annotation": True,
+        "total_edges": len(label_template),
+        "test_labels_used_for_inference": False,
+    }
     pruned["controlled_label_eval"] = controlled_eval
     pruned.setdefault("pruning_stats", {})["controlled_label_eval"] = controlled_eval
     dump_json(paths["step3"], pruned)
     write_step4_outputs(paths, graph_data, pruned)
 
     summary = summarize(alerts, graph_data, pruned, split_paths, paths, "export-scenario-live")
-    role_counts = Counter((alert.details or {}).get("scenario_role", "unknown") for alert in annotated_alerts)
     chain_type_counts = Counter(
         _alert_type_value(alert)
-        for alert in annotated_alerts
-        if (alert.details or {}).get("scenario_role") == "controlled_chain"
+        for alert in live_alerts
+        if alert.alert_id in chain_ids
     )
     noise_type_counts = Counter(
         _alert_type_value(alert)
-        for alert in annotated_alerts
-        if (alert.details or {}).get("scenario_role") == "controlled_noise"
+        for alert in live_alerts
+        if alert.alert_id not in chain_ids
     )
     summary["analysis_window"] = {
         "start_time": start_time.isoformat(),
@@ -1898,7 +2048,7 @@ def export_scenario_live(
     summary["scenario"] = {
         "scenario_id": scenario_id,
         "chain_actor_id": chain_actor_id,
-        "role_counts": dict(role_counts),
+        "chain_alert_count": len(chain_ids),
         "chain_alert_counts": dict(chain_type_counts),
         "noise_alert_counts": dict(noise_type_counts),
         "chain_has_all_honeypots": {"account", "file", "parasitic"}.issubset(set(chain_type_counts.keys())),
@@ -1910,19 +2060,23 @@ def export_scenario_live(
             "chain_campaign_ids": sorted(_normalize_identifier_set(chain_campaign_ids)),
         },
     }
-    summary["edge_labels"] = label_meta
+    summary["edge_labels"] = {
+        "template": rel(paths["step3_label_template"]),
+        "status": "manual_review_required",
+        "blind_annotation": True,
+    }
     summary["controlled_label_eval"] = controlled_eval
     summary["experiment_semantics"] = {
         "dataset_role": "controlled_multihoneypot_chain_with_real_background_noise",
-        "validity": "Use for controlled-chain reconstruction, graph-pruning evaluation, and explainable LLM report generation.",
-        "limitation": "Scenario labels are experiment annotations over real alerts and do not represent natural public-Internet prevalence.",
+        "validity": "Use for controlled-chain reconstruction and for preparing independently reviewed edge labels.",
+        "limitation": "Controlled-chain membership creates review suggestions only; pruning metrics require separately reviewed edge labels and scenario-level train/test separation.",
         "fabricated_alerts": False,
-        "annotation_note": "Original alert records are not modified; scenario labels exist only in this export run directory.",
+        "annotation_note": "Original alert records and graph construction are not modified by controlled-chain labels.",
     }
     dump_json(paths["summary"], summary)
     print_summary(summary)
     print(f"Scenario: {summary['scenario']}")
-    print(f"Controlled label evaluation: {controlled_eval}")
+    print(f"Controlled label preparation: {controlled_eval}")
     return summary
 
 
@@ -1950,24 +2104,27 @@ def main():
     live_parser = subparsers.add_parser("export-live", help="collect live logs and export to step outputs")
     live_parser.add_argument("--hours", type=int, default=24, help="time window for live collection")
     live_parser.add_argument("--run-dir", type=Path, default=None, help="optional isolated output directory instead of normal output paths")
+    live_parser.add_argument("--checkpoint", type=Path, help="validated benchmark DQN checkpoint to use for inference")
 
     balanced_parser = subparsers.add_parser("export-balanced-live", help="collect live logs and export a real-data balanced analysis subset")
     balanced_parser.add_argument("--hours", type=int, default=24, help="time window for live collection")
     balanced_parser.add_argument("--run-dir", type=Path, required=True, help="isolated output directory for the balanced subset")
     balanced_parser.add_argument("--per-type", type=int, default=50, help="maximum real alerts to keep for each honeypot type")
     balanced_parser.add_argument("--exclude-ip", action="append", default=[], help="source IP to exclude from the balanced subset; repeatable")
+    balanced_parser.add_argument("--checkpoint", type=Path, help="validated benchmark DQN checkpoint to use for inference")
 
-    scenario_parser = subparsers.add_parser("export-scenario-live", help="export a controlled real-alert scenario with chain/noise annotations")
+    scenario_parser = subparsers.add_parser("export-scenario-live", help="export a controlled real-alert scenario and external label-review template")
     scenario_parser.add_argument("--start", required=True, help="scenario start time, e.g. '2026-06-29 14:00:00'")
     scenario_parser.add_argument("--end", required=True, help="scenario end time, e.g. '2026-06-29 14:30:00'")
     scenario_parser.add_argument("--run-dir", type=Path, required=True, help="isolated output directory for the controlled scenario")
     scenario_parser.add_argument("--scenario-id", default="", help="stable scenario id; defaults to controlled_chain_<timestamp>")
-    scenario_parser.add_argument("--chain-actor-id", default="controlled_actor_001", help="actor id used only in experiment annotations")
+    scenario_parser.add_argument("--chain-actor-id", default="controlled_actor_001", help="reviewer note recorded in scenario metadata; never used to build the graph or infer labels")
     scenario_parser.add_argument("--chain-ip", action="append", default=[], help="source IP considered part of the core controlled chain; repeatable")
     scenario_parser.add_argument("--chain-fingerprint", action="append", default=[], help="browser fingerprint considered part of the core controlled chain; repeatable")
     scenario_parser.add_argument("--chain-session", action="append", default=[], help="session id considered part of the core controlled chain; repeatable")
     scenario_parser.add_argument("--chain-alert-id", action="append", default=[], help="explicit alert id considered part of the core controlled chain; repeatable")
     scenario_parser.add_argument("--chain-campaign-id", action="append", default=[], help="controlled campaign id carried by real trigger traffic; repeatable")
+    scenario_parser.add_argument("--checkpoint", type=Path, help="validated benchmark DQN checkpoint to use for inference")
 
     dqn_parser = subparsers.add_parser("train-dqn", help="train and evaluate a reproducible DQN pruning experiment")
     dqn_parser.add_argument("--graph-path", type=Path, default=build_default_paths()["step2"], help="causal_graph.json used for DQN training/evaluation")
@@ -1983,14 +2140,19 @@ def main():
     dqn_parser.add_argument("--require-label-balance", action="store_true", help="fail when manual labels lack either keep/core edges or prune/noise edges")
     dqn_parser.add_argument("--install-checkpoint", action="store_true", help="copy the trained checkpoint to the default step3 checkpoint path")
     dqn_parser.add_argument("--device", default="cpu", help="cpu, cuda, or auto")
+    dqn_parser.add_argument(
+        "--allow-single-scenario-smoke-test",
+        action="store_true",
+        help="allow legacy same-graph augmentation for software smoke tests only; results are invalid for thesis claims",
+    )
 
     args = parser.parse_args()
     if args.mode == "simulate":
         simulate(args.run_dir, args.write_defaults)
     elif args.mode == "export-live":
-        export_live(args.hours, args.run_dir)
+        export_live(args.hours, args.run_dir, args.checkpoint)
     elif args.mode == "export-balanced-live":
-        export_balanced_live(args.hours, args.run_dir, args.per_type, args.exclude_ip)
+        export_balanced_live(args.hours, args.run_dir, args.per_type, args.exclude_ip, args.checkpoint)
     elif args.mode == "export-scenario-live":
         start_time = _parse_scenario_timestamp(args.start)
         end_time = _parse_scenario_timestamp(args.end)
@@ -2006,8 +2168,16 @@ def main():
             chain_sessions=args.chain_session,
             chain_alert_ids=args.chain_alert_id,
             chain_campaign_ids=args.chain_campaign_id,
+            checkpoint=args.checkpoint,
         )
     else:
+        if not args.allow_single_scenario_smoke_test:
+            raise RuntimeError(
+                "single-graph DQN training is disabled for scientific experiments because augmented copies leak "
+                "across train/validation/test. Build an independent scenario manifest and run "
+                "`python -m experiments.run_benchmark --manifest ... --output-dir ...`. "
+                "Use --allow-single-scenario-smoke-test only for software diagnostics."
+            )
         train_dqn_experiment(
             graph_path=args.graph_path,
             output_dir=args.output_dir,

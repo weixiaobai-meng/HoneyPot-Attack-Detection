@@ -103,7 +103,8 @@ class CausalGraphBuilder:
         ("file", "parasitic"): "file_to_web_followup",
     }
 
-    def __init__(self):
+    def __init__(self, include_experiment_annotations: bool = False):
+        self.include_experiment_annotations = bool(include_experiment_annotations)
         self.nodes: Dict[str, Dict] = {}
         self.edges: List[CausalEdge] = []
         self.event_index: Dict[str, Dict] = {}
@@ -164,13 +165,12 @@ class CausalGraphBuilder:
             or experiment_meta.get("campaign_id")
             or extract_campaign_id(data, details, evidence, source, obj)
         )
-        scenario_id = data.get("scenario_id") or details.get("scenario_id") or experiment_meta.get("scenario_id") or campaign_id
+        scenario_id = data.get("scenario_id") or details.get("scenario_id") or experiment_meta.get("scenario_id")
         scenario_role = (
             data.get("scenario_role")
             or details.get("scenario_role")
             or experiment_meta.get("scenario_role")
             or experiment_meta.get("role")
-            or ("controlled_chain" if campaign_id else None)
         )
         evidence_refs = data.get("evidence_refs") or details.get("evidence_refs") or experiment_meta.get("evidence_refs") or []
         fingerprint = source.get("label") if source.get("type") == "browser" else None
@@ -234,9 +234,9 @@ class CausalGraphBuilder:
             anchors.append(f"actor-group:{actor_group_id}")
         if campaign_id:
             anchors.append(f"campaign:{campaign_id}")
-        if scenario_id and scenario_role == "controlled_chain":
+        if self.include_experiment_annotations and scenario_id and scenario_role == "controlled_chain":
             anchors.append(f"controlled-scenario:{scenario_id}")
-        if chain_actor_id:
+        if self.include_experiment_annotations and chain_actor_id:
             anchors.append(f"chain-actor:{chain_actor_id}")
         if fingerprint:
             anchors.append(f"fp:{fingerprint}")
@@ -338,7 +338,7 @@ class CausalGraphBuilder:
                 group["anchors"].add(f"session:{session_id}")
             if event.get("campaign_id"):
                 group["anchors"].add(f"campaign:{event['campaign_id']}")
-            if event.get("scenario_id") and event.get("scenario_role"):
+            if self.include_experiment_annotations and event.get("scenario_id") and event.get("scenario_role"):
                 group["anchors"].add(f"{event['scenario_role']}:{event['scenario_id']}")
 
             previous_by_attacker[attacker_key] = event
@@ -378,6 +378,8 @@ class CausalGraphBuilder:
         return False
 
     def _same_controlled_scenario(self, previous: Dict, current: Dict) -> bool:
+        if not self.include_experiment_annotations:
+            return False
         prev_scenario = previous.get("scenario_id")
         curr_scenario = current.get("scenario_id")
         if not prev_scenario or prev_scenario != curr_scenario:
@@ -600,7 +602,11 @@ class CausalGraphBuilder:
             evidence.append(f"same_campaign:{previous.get('campaign_id')}")
         if prev_details.get("username") and prev_details.get("username") == curr_details.get("username"):
             evidence.append(f"same_username:{prev_details.get('username')}")
-        if previous.get("scenario_id") and previous.get("scenario_id") == current.get("scenario_id"):
+        if (
+            self.include_experiment_annotations
+            and previous.get("scenario_id")
+            and previous.get("scenario_id") == current.get("scenario_id")
+        ):
             evidence.append(f"same_scenario:{previous.get('scenario_id')}")
         if previous.get("attacker_id") and previous.get("attacker_id") == current.get("attacker_id"):
             evidence.append(f"same_attacker:{previous.get('attacker_id')}")

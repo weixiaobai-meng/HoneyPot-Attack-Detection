@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "dataset_name": "controlled_honeypot_attack_graphs_v1",
+  "scenarios": [
+    {
+      "scenario_id": "scenario_train_001",
+      "split": "train",
+      "graph": "data/scenario_train_001/causal_graph.json",
+      "labels": "data/scenario_train_001/edge_labels.json",
+      "annotator_labels": [
+        "data/scenario_train_001/edge_labels.rater_a.json",
+        "data/scenario_train_001/edge_labels.rater_b.json"
+      ],
+      "annotation_review": "data/scenario_train_001/annotation_review.json",
+      "raw_alerts": "data/scenario_train_001/unified_alerts.json",
+      "source_type": "real_deployment",
+      "trigger_mode": "controlled_external_trigger",
+      "group_id": "campaign_train_001",
+      "attack_family": "web_to_account_to_file"
+    },
+    {
+      "scenario_id": "scenario_validation_001",
+      "split": "validation",
+      "graph": "data/scenario_validation_001/causal_graph.json",
+      "labels": "data/scenario_validation_001/edge_labels.json",
+      "annotator_labels": [
+        "data/scenario_validation_001/edge_labels.rater_a.json",
+        "data/scenario_validation_001/edge_labels.rater_b.json"
+      ],
+      "annotation_review": "data/scenario_validation_001/annotation_review.json",
+      "raw_alerts": "data/scenario_validation_001/unified_alerts.json",
+      "source_type": "real_deployment",
+      "trigger_mode": "controlled_external_trigger",
+      "group_id": "campaign_validation_001",
+      "attack_family": "account_to_file"
+    },
+    {
+      "scenario_id": "scenario_test_001",
+      "split": "test",
+      "graph": "data/scenario_test_001/causal_graph.json",
+      "labels": "data/scenario_test_001/edge_labels.json",
+      "annotator_labels": [
+        "data/scenario_test_001/edge_labels.rater_a.json",
+        "data/scenario_test_001/edge_labels.rater_b.json"
+      ],
+      "annotation_review": "data/scenario_test_001/annotation_review.json",
+      "raw_alerts": "data/scenario_test_001/unified_alerts.json",
+      "source_type": "real_deployment",
+      "trigger_mode": "controlled_external_trigger",
+      "group_id": "campaign_test_001",
+      "attack_family": "web_to_file"
+    }
+  ]
+}

@@ -1467,8 +1467,9 @@ body,
     border: 1px solid rgba(148, 163, 184, 0.12);
     background: rgba(255,255,255,.03);
 }
+.kv-item.kv-wide { grid-column: 1 / -1; }
 .kv-item span { display: block; color: var(--muted); font-size: 12px; }
-.kv-item strong { display: block; margin-top: 6px; }
+.kv-item strong { display: block; margin-top: 6px; line-height: 1.55; }
 .text-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -3741,6 +3742,7 @@ function renderGraphCompare() {
     const metricGrid = document.getElementById('pruningEvidenceGrid');
     const prunedGraph = analysisPrunedGraph || analysisGraph;
     const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
+    const pruningBasis = (analysisSummary && analysisSummary.pruning_basis) || (prunedGraph && prunedGraph.pruning_basis) || {};
     const evalData = controlledEval();
     rawPanel.innerHTML = analysisGraph
         ? renderPruningEvaluationSvg(analysisGraph, prunedGraph)
@@ -3763,13 +3765,29 @@ function renderGraphCompare() {
         ['噪声过滤率', formatPercentValue(evalData.noise_filter_rate)],
         ['保护前核心链', formatPercentValue(before.core_chain_recall)],
         ['证据保护恢复', pruning.restored_core_edges ?? '-'],
+        ['裁剪依据', pruningBasis.basis_type || pruning.feature_source || '-'],
+        ['边特征维度', pruningBasis.edge_feature_dim ?? pruning.edge_feature_dim ?? '-'],
+        ['保留边本源均分', pruningBasis.kept_avg_origin_score ?? '-'],
+        ['剪除边本源均分', pruningBasis.pruned_avg_origin_score ?? '-'],
     ];
+    const topEvidence = Array.isArray(pruningBasis.top_kept_edges)
+        ? pruningBasis.top_kept_edges.slice(0, 5)
+        : [];
+    const evidenceHtml = topEvidence.length
+        ? `<div class="kv-item kv-wide">
+            <span>Top 保留证据</span>
+            <strong>${topEvidence.map(item => {
+                const basis = Array.isArray(item.basis) && item.basis.length ? item.basis.join('、') : '证据边';
+                return `${item.edge_id || '-'}(${item.relation_type || item.action || '-'}: ${basis})`;
+            }).map(escapeHtml).join('<br>')}</strong>
+        </div>`
+        : '';
     metricGrid.innerHTML = metrics.map(([label, value]) => `
         <div class="kv-item">
             <span>${escapeHtml(label)}</span>
             <strong>${escapeHtml(value)}</strong>
         </div>
-    `).join('');
+    `).join('') + evidenceHtml;
 }
 
 function renderPrunedTopologyView() {
@@ -3789,6 +3807,7 @@ function renderPrunedTopologyView() {
     }
 
     const pruning = (analysisSummary && analysisSummary.pruning_stats) || (prunedGraph && prunedGraph.pruning_stats) || {};
+    const pruningBasis = (analysisSummary && analysisSummary.pruning_basis) || (prunedGraph && prunedGraph.pruning_basis) || {};
     const outputs = (analysisSummary && analysisSummary.outputs) || {};
     const evalData = controlledEval();
     const dqnState = dqnStateInfo(analysisSummary);
@@ -3814,6 +3833,9 @@ function renderPrunedTopologyView() {
         ['压缩率', pruning.compression_ratio || '-'],
         ['核心链保留率', formatPercentValue(evalData.core_chain_recall)],
         ['噪声过滤率', formatPercentValue(evalData.noise_filter_rate)],
+        ['裁剪依据', pruningBasis.basis_type || pruning.feature_source || '-'],
+        ['边特征来源', pruningBasis.feature_source || pruning.feature_source || '-'],
+        ['保留/剪除本源均分', `${pruningBasis.kept_avg_origin_score ?? '-'} / ${pruningBasis.pruned_avg_origin_score ?? '-'}`],
     ];
     statsGrid.innerHTML = stats.map(([label, value]) => `
         <div class="kv-item">
