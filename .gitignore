@@ -27,7 +27,6 @@ __pycache__/
 
 # PyTorch 模型检查点
 *.pt
-/shiyan/checkpoints/
 
 # 实验生成目录
 /generated_runs/
@@ -108,5 +107,3 @@ step3_dqn_pruning/output/
 step4_graph_to_text/output/
 
 experiment_report.json
-tmp_ppt_text_extract.json
-tmp_test_write.json

@@ -154,23 +154,23 @@ go build -o ssh-auth-logger
 }
 ```
 
-## 后续步骤（数据分析）
+## 后续步骤（正式实验）
 
-收集到告警数据后，使用数据处理流程：
+收集到真实告警后，先生成独立场景数据和盲标注模板：
 
-```bash
-# 第一步：数据汇聚
-python main.py step1 --hours 24
-
-# 第二步：因果图构建
-python main.py step2
-
-# 第三步：DQN裁剪
-python main.py step3 --mode train
-
-# 第四步：Graph-to-Text
-python main.py step4 --task intent_analysis
+```powershell
+python thesis_experiment_pipeline.py --run-name scenario_001 --hours 24
 ```
+
+完成双人标注并建立训练、验证、测试场景清单后，再运行数据校验和正式基准：
+
+```powershell
+python -m experiments.validate_dataset --manifest experiments/data/manifest.json
+python -m experiments.run_benchmark --manifest experiments/data/manifest.json --output-dir experiments/results/benchmark_v1
+```
+
+不得使用旧版合成告警、单图增强或自动生成的弱标签作为论文实验数据。完整步骤见
+`experiments/EXPERIMENT_EXECUTION_GUIDE.md`。
 
 ## 常见问题
 

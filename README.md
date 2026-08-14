@@ -25,10 +25,13 @@ deployment/scripts/start_systemwire2.bat
 
 ### 4. 运行实验
 
-```bash
+```powershell
 cd ..
-python run_experiment.py
+python thesis_experiment_pipeline.py --run-name scenario_001 --hours 24
 ```
+
+该命令只准备真实告警、攻击图和盲标注模板。形成双人标注和独立场景清单后，再按照
+`experiments/EXPERIMENT_EXECUTION_GUIDE.md` 运行正式基准、消融和规模实验。
 
 ## 目录结构
 
@@ -50,9 +53,10 @@ python run_experiment.py
 ├── step2_causal_graph/             # 因果图构建
 ├── step3_dqn_pruning/              # DQN裁剪
 ├── step4_graph_to_text/            # Graph-to-Text
+├── experiments/                    # 正式基准、消融、规模与LLM评估
+├── tests/                          # 实验完整性自动化测试
 │
-├── run_experiment.py               # 端到端实验
-└── main.py                         # 分步运行
+└── thesis_experiment_pipeline.py   # 真实数据实验准备入口
 ```
 
 ## 部署流程
@@ -86,7 +90,7 @@ python run_experiment.py
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  步骤5: 运行分析                                            │
-│  $ python run_experiment.py                                 │
+│  $ python thesis_experiment_pipeline.py --run-name <场景ID> │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -121,4 +125,5 @@ LLM推理 → 攻击意图分析
 - [部署指南](deployment/DEPLOY_GUIDE.md) - 完整的部署步骤
 - [本地 + 服务器实测部署指南](deployment/LOCAL_SERVER_DEPLOY_GUIDE.md) - 可直接复现实验环境与参数
 - [项目结构](项目结构与数据流.md) - 详细的目录说明
-- [论文实验](论文实验章节.md) - 实验内容和结果
+- [实验准备说明](THESIS_EXPERIMENT_GUIDE.md) - 正式实验的数据与证据要求
+- [实验执行指南](experiments/EXPERIMENT_EXECUTION_GUIDE.md) - 基准、消融、规模和LLM评估命令
