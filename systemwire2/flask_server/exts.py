@@ -111,6 +111,9 @@ def init_db(app):
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     os.makedirs(app.instance_path, exist_ok=True)
     db.create_all()
+    from flask_server.models import AccountAlertInfo
+    for index in AccountAlertInfo.__table__.indexes:
+        index.create(bind=db.engine, checkfirst=True)
     _ensure_honeyfile_runtime_columns(db_path)
     db.session.commit()
     app.logger.info("database ready: %s", db_path)

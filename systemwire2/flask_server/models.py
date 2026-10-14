@@ -295,6 +295,7 @@ class FileAlertInfo(db.Model):
 
 class AccountAlertInfo(db.Model):
     __tablename__ = "account_alert_info"
+    __table_args__ = (db.Index("idx_account_alert_info_source_time", "src_ip", "trigger_time"),)
     id = db.Column(db.Integer, autoincrement=True, primary_key=True)
     trigger_time = db.Column(db.DateTime(timezone=True), unique=False, nullable=False)
     report_time = db.Column(db.DateTime(timezone=True), server_default=func.now())
