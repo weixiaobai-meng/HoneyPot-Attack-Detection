@@ -1,5 +1,20 @@
 # 基于蜜点技术的APT攻击检测与意图推理系统
 
+## 实验代码入口
+
+论文主流程为 `step1_data_collection` → `step2_causal_graph` → `step3_dqn_pruning` →
+`step4_graph_to_text`，对比和评测统一放在 `experiments`。
+`systemwire2`、`agent-go`、`alert_server`、`ssh-vpn`、`js` 和 `deployment` 是采集与部署依赖。
+
+- 执行方法：[实验执行指南](experiments/EXPERIMENT_EXECUTION_GUIDE.md)
+- 当前进度、三项研究内容及裁剪依据：[代码评估记录](experiments/CODE_STATUS.md)
+- 证据与路径约束版本：训练使用`experiments.run_benchmark`，新图推理使用`experiments.prune_graph`；
+  三条件LLM实验使用`experiments.run_llm_benchmark`，默认离线准备，显式执行才请求模型服务。
+- 离线依赖：`experiments/requirements.txt`；在线采集另需管理端依赖和配置。
+
+运行前请使用包含 PyTorch 和 PyG 的 Python 环境，并安装 `experiments/requirements.txt`。
+独立测试脚本已按本项目整理要求移出仓库；正式实验程序保留在 `experiments`。
+
 ## 快速开始
 
 ### 1. 一键部署
@@ -54,7 +69,6 @@ python thesis_experiment_pipeline.py --run-name scenario_001 --hours 24
 ├── step3_dqn_pruning/              # DQN裁剪
 ├── step4_graph_to_text/            # Graph-to-Text
 ├── experiments/                    # 正式基准、消融、规模与LLM评估
-├── tests/                          # 实验完整性自动化测试
 │
 └── thesis_experiment_pipeline.py   # 真实数据实验准备入口
 ```

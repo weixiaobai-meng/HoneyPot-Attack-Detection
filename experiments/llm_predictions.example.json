@@ -3,9 +3,11 @@
     {
       "case_id": "scenario_test_001",
       "condition": "raw_alerts",
-      "facts": ["source ip accessed account honeypot"],
+      "facts": [{"id": "event_account_1", "text": "source ip accessed account honeypot", "evidence_ids": ["event_account_1"]}],
       "ttps": ["T1110"],
       "attack_stages": ["credential access"],
+      "intent": [{"text": "attempted credential use", "evidence_ids": ["event_account_1"]}],
+      "uncertainty": "Activity beyond the observed login attempt is unknown.",
       "input_tokens": 1800,
       "output_tokens": 320,
       "latency_ms": 2500
@@ -13,9 +15,11 @@
     {
       "case_id": "scenario_test_001",
       "condition": "full_graph",
-      "facts": ["source ip accessed account honeypot", "bait file was opened"],
+      "facts": [{"id": "event_account_1", "text": "source ip accessed account honeypot", "evidence_ids": ["event_account_1"]}, {"id": "event_file_1", "text": "bait file was opened", "evidence_ids": ["event_file_1"]}],
       "ttps": ["T1110", "T1083"],
       "attack_stages": ["credential access", "discovery"],
+      "intent": [{"text": "attempted credential use", "evidence_ids": ["event_account_1"]}],
+      "uncertainty": "The two events are not proven to share an actor.",
       "input_tokens": 1500,
       "output_tokens": 360,
       "latency_ms": 2400
@@ -23,9 +27,11 @@
     {
       "case_id": "scenario_test_001",
       "condition": "pruned_graph",
-      "facts": ["source ip accessed account honeypot", "bait file was opened"],
+      "facts": [{"id": "event_account_1", "text": "source ip accessed account honeypot", "evidence_ids": ["event_account_1"]}, {"id": "event_file_1", "text": "bait file was opened", "evidence_ids": ["event_file_1"]}],
       "ttps": ["T1110", "T1083"],
       "attack_stages": ["credential access", "discovery"],
+      "intent": [{"text": "attempted credential use", "evidence_ids": ["event_account_1"]}],
+      "uncertainty": "The two events are not proven to share an actor.",
       "input_tokens": 1200,
       "output_tokens": 350,
       "latency_ms": 2300

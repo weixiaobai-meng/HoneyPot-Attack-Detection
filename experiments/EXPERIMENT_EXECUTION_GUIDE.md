@@ -1,5 +1,70 @@
 # 实验执行指南
 
+## 新版代码的必要迁移
+
+旧图和checkpoint需要重新生成：新增了来源证据属性，正式构图也禁用了实验campaign锚点。
+不得通过手工修改图版本号绕过验证。正式测试场景清单增加`path_gold`，其内容为独立人工复核
+的有向连续边序列，例如：
+
+```json
+{"paths": [{"path_id": "reviewed_path_01", "edge_ids": ["实际边ID1", "实际边ID2"]}]}
+```
+
+人工路径是评价真值；图内`required_paths`是无标签构图产生的可达约束，二者不可混用。
+不把`causal_score`称为因果正确率。完整路径召回率、可达约束保持、证据保持和压缩率须分别报告。
+
+基准完成后，`graphs/<seed>/<method>/<场景哈希>/pruned.json`可直接作为LLM裁剪组输入。
+单独对新图推理时使用：
+
+```powershell
+python -m experiments.prune_graph --graph path/to/graph.json `
+  --checkpoint experiments/results/benchmark_v1/checkpoints/seed_42/dqn_path_constrained.pt `
+  --output experiments/results/new_pruned.json
+```
+
+## LLM三条件闭环
+
+准备清单，各路径相对于清单文件，同一case的原始告警与完整图必须具有相同事件ID集合，
+裁剪图只可包含完整图的原始边。原始日志和图在上传前应按
+相同规则去标识化；不要将生产凭据、密码或私钥放进输入。
+
+```json
+{"cases": [{"case_id": "scenario_test_001", "raw_alerts": "raw.json", "full_graph": "graph.json", "pruned_graph": "pruned.json"}]}
+```
+
+默认只生成可检查的`prepared.json`，不会调用LLM：
+
+```powershell
+python -m experiments.run_llm_benchmark --manifest path/to/llm_manifest.json --output experiments/results/llm
+```
+
+确认输入后，在已配置`DEEPSEEK_API_KEY`等环境变量的终端执行：
+
+```powershell
+python -m experiments.run_llm_benchmark --manifest path/to/llm_manifest.json `
+  --output experiments/results/llm --execute --gold path/to/llm_gold.json
+```
+
+金标准只在本地用于评估，绝不进入提示词。金标准按`cases`组织，包含case_id、facts、ttps、
+attack_stages及intent；facts/intent为人工规范化描述，或具有text字段的对象。
+自动精确匹配不能处理全部同义表达，需结合盲评，尤其不能把所有未匹配项直接叫幻觉。
+运行器验证输出schema和事件引用；引用正确仍可能存在错误解释，应由金标准和人工复核评判。
+全部组使用相同模型参数和输出预算。超出输入预算时整组拒绝；缩小真实采集窗口后重新构图。
+失败不自动填空为零分，也不挑选最有利响应。`--execute`若有失败返回非零退出码。
+
+## 实验产物验收
+
+```powershell
+python -m experiments.check_readiness `
+  --benchmark experiments/results/benchmark_v1/benchmark_results.json `
+  --scale experiments/results/scale_v1.json `
+  --llm experiments/results/llm/evaluation.json `
+  --output experiments/results/readiness.json
+```
+
+这是本项目实验协议的完整性检查，不是学校毕业标准的自动判定。真实数据规模、论文创新性、
+统计解释和负结果分析仍须导师审核。没有满足要求的真实数据时，不应用合成样本填充正式结果。
+
 本目录用于生成可信实验数据，不用于提前生成论文结论。没有通过场景隔离和人工标注校验的数据，不能用于报告模型准确率、召回率或压缩率。
 
 ## 1. 收集场景
@@ -56,11 +121,11 @@ python -m experiments.run_benchmark `
   --output-dir experiments/results/benchmark_v1 `
   --seeds 42,43,44,45,46 `
   --epochs 40 `
-  --feature-ablations identity,cross_honeypot,temporal,origin_score `
+  --feature-ablations identity,cross_honeypot,temporal,origin_score,evidence_contract `
   --mechanism-ablations dynamic_state,terminal_reward,shuffled_order
 ```
 
-输出包括 `benchmark_results.json` 和 `benchmark_results.csv`。对比方法固定为：全保留、同压缩率随机、证据规则、监督式GAT、原始DQN、DQN加可观测证据约束。结果以独立测试场景为统计单位，报告均值、标准差、95% bootstrap置信区间及配对随机化检验。
+输出包括JSON/CSV、各方法裁剪图、约束审计和输入哈希。九种对照为全保留、同压缩随机、证据规则、监督GAT、DQN、旧评分约束DQN、路径约束DQN、同约束规则和同约束监督GAT。以独立场景为统计单位，报告95%置信区间、配对检验和Holm校正。
 
 ## 6. 运行规模实验
 
@@ -69,7 +134,7 @@ python -m experiments.run_benchmark `
 ```powershell
 python -m experiments.run_scale_benchmark `
   --manifest experiments/data/manifest.json `
-  --checkpoint experiments/results/benchmark_v1/checkpoints/seed_42/dqn.pt `
+  --checkpoint experiments/results/benchmark_v1/checkpoints/seed_42/dqn_path_constrained.pt `
   --output experiments/results/scale_v1.json `
   --partition-edges 0,128,256,512,1024 `
   --decision-batch-sizes 1,8,16 `
@@ -100,7 +165,9 @@ python -m experiments.evaluate_llm_reports `
   --output experiments/results/llm_eval.json
 ```
 
-必须报告事实精确率、事实覆盖率、TTP F1、幻觉数、输入输出Token和时延；有人工评审时，每个条件至少两位评审者独立打分。
+必须报告事实精确率、事实覆盖率、TTP F1、未匹配事实数、输入输出Token和时延；
+未匹配事实不直接等于幻觉，需对同义表述与证据真实性进行人工复核。
+有人工评审时，每个条件至少两位评审者独立打分。
 
 ## 8. 不可使用的结果
 

@@ -7,6 +7,9 @@ import json
 import math
 import random
 import statistics
+import hashlib
+import platform
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -16,6 +19,9 @@ from experiments.baselines import evidence_rule_actions, keep_all_actions, rando
 from experiments.dataset import ScenarioDataset
 from step3_dqn_pruning import DQNTrainer, SupervisedGATTrainer, partition_graphs
 from step3_dqn_pruning.trainer import pruning_metrics_from_actions
+from step3_dqn_pruning.constraints import EvidencePathGuard
+from step2_causal_graph.graph_views import selected_edge_view
+from experiments.evaluate_paths import evaluate as evaluate_paths
 
 
 METRIC_NAMES = [
@@ -30,9 +36,15 @@ METRIC_NAMES = [
     "noise_filter_rate",
     "compression_ratio",
     "causal_score",
+    "protected_edge_count",
+    "protected_edges_kept",
+    "required_path_count",
+    "required_paths_kept",
+    "complete_path_recall",
+    "path_edge_recall",
 ]
 
-COMPARISON_METRICS = ["f1", "core_recall", "noise_filter_rate", "causal_score"]
+COMPARISON_METRICS = ["f1", "core_recall", "noise_filter_rate", "causal_score", "complete_path_recall"]
 MECHANISM_ABLATIONS = {
     "dynamic_state": {"use_dynamic_state": False},
     "terminal_reward": {"use_terminal_reward": False},
@@ -52,14 +64,30 @@ def _scenario_id(graph, fallback):
     return str(getattr(graph, "scenario_id", fallback))
 
 
-def _metric_row(method, seed, graph, actions, fallback_id):
+def _metric_row(method, seed, graph, actions, fallback_id, output_dir=None):
     metrics = pruning_metrics_from_actions(actions, graph.y)
+    metrics.update(EvidencePathGuard(graph).metrics(actions))
+    if getattr(graph, "source_graph_path", None):
+        original = json.loads(Path(graph.source_graph_path).read_text(encoding="utf-8-sig"))
+        pruned = selected_edge_view(original, [edge for i, edge in enumerate(original["edges"]) if int(actions[i]) == 0])
+        if getattr(graph, "path_gold_path", ""):
+            gold = json.loads(Path(graph.path_gold_path).read_text(encoding="utf-8-sig"))
+            path_metrics = evaluate_paths(original, pruned, gold)
+            metrics.update({key: path_metrics[key] for key in ("complete_path_recall", "path_edge_recall")})
+        if output_dir is not None:
+            case_key = hashlib.sha256(str(graph.scenario_id).encode()).hexdigest()[:16]
+            destination = Path(output_dir) / "graphs" / str(seed) / method / case_key
+            destination.mkdir(parents=True, exist_ok=True)
+            pruned["pruning_stats"] = {"method": method, "seed": seed, "scenario_id": graph.scenario_id,
+                                       "source_graph": graph.source_graph_path,
+                                       "constraint_audit": EvidencePathGuard(graph).metrics(actions)}
+            (destination / "pruned.json").write_text(json.dumps(pruned, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
         "method": method,
         "seed": int(seed),
         "scenario_id": _scenario_id(graph, fallback_id),
         "edge_count": int(graph.edge_index.size(1)),
-        **{name: float(metrics[name]) for name in METRIC_NAMES},
+        **{name: float(metrics[name]) for name in METRIC_NAMES if name in metrics},
     }
 
 
@@ -112,6 +140,8 @@ def _aggregate(rows):
             "aggregation_unit": "scenario_mean_over_seeds",
         }
         for metric_index, metric in enumerate(METRIC_NAMES):
+            if not all(metric in row for row in method_rows):
+                continue
             scenario_values = list(_scenario_metric_values(rows, method, metric).values())
             summary[f"{metric}_mean"] = statistics.fmean(scenario_values) if scenario_values else 0.0
             summary[f"{metric}_std"] = statistics.stdev(scenario_values) if len(scenario_values) > 1 else 0.0
@@ -167,7 +197,7 @@ def _paired_comparison(rows, reference, candidate, metric, seed=20260714):
 def _comparisons(rows):
     methods = sorted({row["method"] for row in rows})
     pairs = []
-    primary = "dqn_evidence_constraint"
+    primary = "dqn_path_constrained"
     for candidate in methods:
         if candidate == primary or "_no_" in candidate:
             continue
@@ -181,6 +211,8 @@ def _comparisons(rows):
     result = []
     for pair_index, (reference, candidate) in enumerate(sorted(set(pairs))):
         for metric_index, metric in enumerate(COMPARISON_METRICS):
+            if not all(metric in row for row in rows if row["method"] in (reference, candidate)):
+                continue
             result.append(_paired_comparison(
                 rows,
                 reference,
@@ -188,6 +220,12 @@ def _comparisons(rows):
                 metric,
                 seed=20260714 + pair_index * 101 + metric_index,
             ))
+    valid = sorted((row for row in result if row["paired_randomization_pvalue"] is not None),
+                   key=lambda row: row["paired_randomization_pvalue"])
+    previous = 0.0
+    for index, row in enumerate(valid):
+        previous = max(previous, min(1.0, (len(valid) - index) * row["paired_randomization_pvalue"]))
+        row["holm_adjusted_pvalue"] = previous
     return result
 
 
@@ -220,6 +258,13 @@ def _train_and_evaluate(
     )
     dqn.train(train_partitions, val_partitions, save_path=str(checkpoint_dir / "dqn.pt"))
 
+    constrained = DQNTrainer(
+        epochs=epochs, patience=max(5, epochs // 4), seed=seed, device=device,
+        use_path_constraints=True, **(dqn_options or {}),
+    )
+    constrained.train(train_partitions, val_partitions,
+                      save_path=str(checkpoint_dir / "dqn_path_constrained.pt"))
+
     supervised = None
     if include_baselines:
         supervised = SupervisedGATTrainer(
@@ -236,11 +281,15 @@ def _train_and_evaluate(
 
     rows = []
     suffix = method_suffix
+    def record(method, seed, graph, actions, index):
+        return _metric_row(method, seed, graph, actions, index, output_dir=output_dir)
     for graph_index, graph in enumerate(test_graphs):
         raw_actions, _ = dqn.predict_actions(graph, evidence_guardrail=False)
         constrained_actions, _ = dqn.predict_actions(graph, evidence_guardrail=True)
-        rows.append(_metric_row(f"dqn{suffix}", seed, graph, raw_actions, graph_index))
-        rows.append(_metric_row(
+        path_actions, _ = constrained.predict_actions(graph, evidence_guardrail=False)
+        rows.append(record(f"dqn_path_constrained{suffix}", seed, graph, path_actions, graph_index))
+        rows.append(record(f"dqn{suffix}", seed, graph, raw_actions, graph_index))
+        rows.append(record(
             f"dqn_evidence_constraint{suffix}",
             seed,
             graph,
@@ -250,17 +299,22 @@ def _train_and_evaluate(
 
         if supervised is not None:
             supervised_actions, _ = supervised.predict_actions(graph, evidence_guardrail=False)
-            rows.append(_metric_row("supervised_gat", seed, graph, supervised_actions, graph_index))
-            rows.append(_metric_row("keep_all", seed, graph, keep_all_actions(graph), graph_index))
-            rows.append(_metric_row(
+            guard = EvidencePathGuard(graph)
+            rule_guarded, _ = guard.filter_actions(evidence_rule_actions(graph))
+            supervised_guarded, _ = guard.filter_actions(supervised_actions)
+            rows.append(record("evidence_rule_path_constrained", seed, graph, rule_guarded, graph_index))
+            rows.append(record("supervised_gat_path_constrained", seed, graph, supervised_guarded, graph_index))
+            rows.append(record("supervised_gat", seed, graph, supervised_actions, graph_index))
+            rows.append(record("keep_all", seed, graph, keep_all_actions(graph), graph_index))
+            rows.append(record(
                 "evidence_rule",
                 seed,
                 graph,
                 evidence_rule_actions(graph),
                 graph_index,
             ))
-            prune_count = int((constrained_actions == 1).sum().item())
-            rows.append(_metric_row(
+            prune_count = int((path_actions == 1).sum().item())
+            rows.append(record(
                 "random_matched_compression",
                 seed,
                 graph,
@@ -328,6 +382,16 @@ def run_benchmark(
 
     payload = {
         "experiment": "attack_graph_pruning_benchmark_v1",
+        "reproducibility": {
+            "python": platform.python_version(), "torch": torch.__version__,
+            "git_revision": subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+            "working_tree_dirty": bool(subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip()),
+            "manifest_sha256": hashlib.sha256(Path(manifest).read_bytes()).hexdigest(),
+            "input_sha256": {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                             for record in dataset.records
+                             for path in (record.graph_path, record.label_path, record.raw_alerts_path, record.path_gold_path)
+                             if path is not None},
+        },
         "manifest": str(Path(manifest).resolve()),
         "dataset_validation": validation,
         "config": {
@@ -347,7 +411,7 @@ def run_benchmark(
     with open(output_dir / "benchmark_results.json", "w", encoding="utf-8") as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2)
     with open(output_dir / "benchmark_results.csv", "w", newline="", encoding="utf-8-sig") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]) if rows else ["method"])
+        writer = csv.DictWriter(handle, fieldnames=list(dict.fromkeys(key for row in rows for key in row)) if rows else ["method"])
         writer.writeheader()
         writer.writerows(rows)
     return payload

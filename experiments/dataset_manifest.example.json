@@ -36,6 +36,7 @@
     },
     {
       "scenario_id": "scenario_test_001",
+      "path_gold": "data/scenario_test_001/path_gold.json",
       "split": "test",
       "graph": "data/scenario_test_001/causal_graph.json",
       "labels": "data/scenario_test_001/edge_labels.json",

@@ -4,7 +4,8 @@
       "case_id": "scenario_test_001",
       "facts": ["source ip accessed account honeypot", "bait file was opened"],
       "ttps": ["T1110", "T1083"],
-      "attack_stages": ["credential access", "discovery"]
+      "attack_stages": ["credential access", "discovery"],
+      "intent": ["attempted credential use"]
     }
   ]
 }

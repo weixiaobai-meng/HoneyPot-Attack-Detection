@@ -548,75 +548,31 @@ def dump_json(path: Path, data):
 
 
 def build_graph_subset(graph_data, kept_edges, pruning_stats=None):
-    node_ids = set()
-    event_ids = set()
-    for edge in kept_edges:
-        if edge.get("source"):
-            node_ids.add(edge["source"])
-        if edge.get("target"):
-            node_ids.add(edge["target"])
-        if edge.get("event_id"):
-            event_ids.add(edge["event_id"])
-        for endpoint_key in ("source", "target"):
-            endpoint = str(edge.get(endpoint_key) or "")
-            if endpoint.startswith("event:"):
-                event_ids.add(endpoint.split("event:", 1)[1])
+    from step2_causal_graph.graph_views import selected_edge_view
 
-    nodes = [node for node in graph_data.get("nodes", []) if node.get("id") in node_ids]
-    triples = []
-    for triple in graph_data.get("triples", []):
-        if isinstance(triple, dict) and triple.get("event_id") in event_ids:
-            triples.append(triple)
-    event_sequence = [
-        item for item in graph_data.get("event_sequence", [])
-        if item.get("event_id") in event_ids
-    ]
-    provenance_chains = []
-    for chain in graph_data.get("provenance_chains", []):
-        phase_event_ids = {
-            str(item.get("event_id"))
-            for item in chain.get("phase_sequence", [])
-            if item.get("event_id")
-        }
-        if phase_event_ids.intersection(event_ids):
-            provenance_chains.append(chain)
-
-    meta = dict(graph_data.get("graph_meta", {}))
-    meta["node_count"] = len(nodes)
-    meta["edge_count"] = len(kept_edges)
-    meta["triple_count"] = len(triples)
-    meta["relation_counts"] = dict(Counter(edge.get("relation_type") or "unknown" for edge in kept_edges))
-    meta["provenance_chain_count"] = len(provenance_chains)
-    meta["strong_provenance_chain_count"] = sum(
-        1 for chain in provenance_chains if chain.get("chain_strength") == "strong"
-    )
-
-    subset = {
-        "graph_meta": meta,
-        "nodes": nodes,
-        "edges": kept_edges,
-        "triples": triples,
-        "event_sequence": event_sequence,
-        "attacker_groups": graph_data.get("attacker_groups", []),
-        "attack_paths": graph_data.get("attack_paths", []),
-        "provenance_chains": provenance_chains,
-        "controlled_scenarios": graph_data.get("controlled_scenarios", []),
-    }
+    subset = selected_edge_view(graph_data, kept_edges)
     if pruning_stats is not None:
         subset["pruning_stats"] = pruning_stats
     return subset
 
 
 def build_prompt_graph(graph_data, max_edges=MAX_PROMPT_EDGES):
+    if max_edges < 1:
+        raise ValueError("prompt edge limit must be positive")
     edges = graph_data.get("edges", [])
     if len(edges) <= max_edges:
-        return graph_data
-    prompt_edges = edges[-max_edges:]
-    prompt_graph = build_graph_subset(graph_data, prompt_edges, pruning_stats=graph_data.get("pruning_stats", {}))
+        prompt_graph = deepcopy(graph_data)
+        prompt_edges = edges
+    else:
+        prompt_edges = sorted(edges, key=lambda edge: str(edge.get("timestamp") or ""))[-max_edges:]
+        prompt_graph = build_graph_subset(graph_data, prompt_edges, pruning_stats=graph_data.get("pruning_stats", {}))
     prompt_graph["prompt_scope"] = {
         "edge_limit": max_edges,
         "original_edge_count": len(edges),
         "selected_recent_edges": len(prompt_edges),
+        "complete_graph": len(prompt_edges) == len(edges),
+        "selection": "all_edges" if len(prompt_edges) == len(edges) else "recent_timestamp_window",
+        "path_guarantee_applies": len(prompt_edges) == len(edges),
     }
     return prompt_graph
 
@@ -1104,8 +1060,8 @@ def _annotate_pruning_basis(graph_data: Dict[str, Any], pruned: Dict[str, Any]) 
         "basis_type": "attack_origin_constrained_honeypot_evidence",
         "description": (
             "DQN/fallback pruning uses graph edges enriched by upstream honeypot evidence: "
-            "relation_type, shared_evidence, campaign anchors, confidence and time_delta. "
-            "Controlled scenario ids/roles and test labels are excluded."
+            "relation_type, shared_evidence, source-event references, confidence and time_delta. "
+            "Experiment campaign/scenario anchors and test labels are excluded."
         ),
         "feature_source": "account/file/parasitic honeypot evidence encoded on graph edges",
         "edge_feature_dim": NUM_EDGE_FEATURES,
@@ -1154,6 +1110,9 @@ def simulate_pruning(graph_data, paths, fallback_reason=None):
         kept = kept[-MAX_SIMULATED_KEPT_EDGES:]
         capped = True
 
+    from step2_causal_graph.evidence import restore_required_evidence
+    kept, constraint_audit = restore_required_evidence(graph_data, kept)
+
     pruning_stats = {
         "mode": "deterministic_simulation",
         "original_edges": len(edges),
@@ -1161,6 +1120,9 @@ def simulate_pruning(graph_data, paths, fallback_reason=None):
         "pruned_edges": max(len(edges) - len(kept), 0),
         "compression_ratio": f"{(100 * (len(edges) - len(kept)) / len(edges)):.1f}%" if edges else "0.0%",
         "kept_edge_cap_applied": capped,
+        "kept_edge_cap_overridden_for_constraints": len(kept) > MAX_SIMULATED_KEPT_EDGES,
+        "path_constraints_enabled": True,
+        "global_constraint_check": constraint_audit,
         "feature_source": "attack_origin_constrained_honeypot_evidence",
         "basis_note": "Fallback pruning keeps edges with strong honeypot evidence, cross-honeypot transitions, identity anchors, or high attack-origin score.",
     }
@@ -1234,7 +1196,6 @@ def build_controlled_edge_label_template(graph_data: Dict[str, Any]) -> List[Dic
             "target": edge.get("target"),
             "relation_type": edge.get("relation_type"),
             "timestamp": edge.get("timestamp"),
-            "confidence": edge.get("confidence"),
             "shared_evidence": edge.get("shared_evidence") or [],
         })
     return rows
@@ -1312,8 +1273,8 @@ def run_dqn_pruning(paths, graph_data):
         raise
 
     try:
-        trainer = DQNTrainer(device="cpu")
-        state = torch.load(checkpoint, map_location="cpu")
+        trainer = DQNTrainer(device="cpu", use_path_constraints=True)
+        state = torch.load(checkpoint, map_location="cpu", weights_only=True)
         trainer.model.load_state_dict(state)
         pruned = trainer.predict_and_prune(
             str(paths["step2"]),
@@ -1340,7 +1301,8 @@ def run_dqn_pruning(paths, graph_data):
 
 
 def write_step4_outputs(paths, graph_data, pruned):
-    analysis_graph = build_prompt_graph(deepcopy(graph_data))
+    analysis_graph = build_prompt_graph(pruned)
+    analysis_graph["analysis_input"] = "pruned_graph"
     analysis_graph["pruning_stats"] = pruned.get("pruning_stats", {})
     analysis_graph["pruned_graph_meta"] = pruned.get("graph_meta", {})
     analysis_graph["pruned_edge_count"] = len(pruned.get("edges", []))
@@ -1720,7 +1682,8 @@ def train_dqn_experiment(
     train_graphs, val_graphs, test_graphs = _split_graphs(graphs, seed)
 
     trainer_device = None if str(device).lower() == "auto" else device
-    trainer = DQNTrainer(lr=lr, epochs=epochs, patience=patience, device=trainer_device)
+    trainer = DQNTrainer(lr=lr, epochs=epochs, patience=patience, device=trainer_device,
+                         use_path_constraints=True)
     trainer.train(train_graphs, val_graphs, save_path=str(checkpoint_path))
 
     train_metrics = trainer._evaluate(train_graphs)

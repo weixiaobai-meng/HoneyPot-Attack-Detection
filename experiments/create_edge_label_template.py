@@ -4,12 +4,8 @@ import argparse
 import json
 from pathlib import Path
 
-def main():
-    parser = argparse.ArgumentParser(description="Create edge-label annotation template")
-    parser.add_argument("--graph", required=True)
-    parser.add_argument("--output", required=True)
-    args = parser.parse_args()
-    with open(args.graph, "r", encoding="utf-8") as handle:
+def create_edge_label_template(graph_path, output_path):
+    with open(graph_path, "r", encoding="utf-8") as handle:
         graph = json.load(handle)
     rows = []
     for edge in graph.get("edges", []):
@@ -22,14 +18,22 @@ def main():
             "target": edge.get("target"),
             "relation_type": edge.get("relation_type"),
             "timestamp": edge.get("timestamp"),
-            "confidence": edge.get("confidence"),
             "shared_evidence": edge.get("shared_evidence") or [],
         })
-    output = Path(args.output)
+    output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w", encoding="utf-8") as handle:
         json.dump(rows, handle, ensure_ascii=False, indent=2)
-    print(f"created {len(rows)} edge-label rows: {output.resolve()}")
+    return {"file": str(output), "rows": len(rows), "labels_completed": 0}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Create edge-label annotation template")
+    parser.add_argument("--graph", required=True)
+    parser.add_argument("--output", required=True)
+    args = parser.parse_args()
+    result = create_edge_label_template(args.graph, args.output)
+    print(f"created {result['rows']} edge-label rows: {Path(args.output).resolve()}")
 
 
 if __name__ == "__main__":

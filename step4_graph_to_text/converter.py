@@ -8,6 +8,7 @@ from typing import List, Dict
 from collections import Counter, defaultdict
 
 from .prompts import PromptTemplates
+from step2_causal_graph.graph_views import selected_edge_view
 
 
 class GraphToTextConverter:
@@ -84,7 +85,10 @@ class GraphToTextConverter:
     def __init__(self):
         self.node_cache: Dict[str, str] = {}
 
-    def convert(self, graph_data: Dict, include_timestamps: bool = True) -> str:
+    def convert(self, graph_data: Dict, include_timestamps: bool = True,
+                include_experiment_annotations: bool = False) -> str:
+        if graph_data.get("pruning_stats"):
+            graph_data = selected_edge_view(graph_data, graph_data.get("edges", []))
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
         triples = graph_data.get("triples", [])
@@ -100,7 +104,14 @@ class GraphToTextConverter:
 
         sections = [
             self._generate_summary(meta, nodes, edges, triples),
-            self._generate_controlled_scenarios(controlled_scenarios, controlled_label_eval, pruning_stats),
+            ("Partial evidence window: the input was truncated for the prompt budget. "
+             "Do not claim complete attack-path coverage or infer absence from omitted events."
+             if graph_data.get("prompt_scope", {}).get("complete_graph") is False else ""),
+            ("Cached path/group summaries were invalidated after pruning. "
+             "Their absence does not establish that no attack path exists."
+             if meta.get("cached_path_summaries_invalidated") else ""),
+            (self._generate_controlled_scenarios(controlled_scenarios, controlled_label_eval, pruning_stats)
+             if include_experiment_annotations else ""),
             self._generate_attackers(attacker_groups),
             self._generate_attack_paths(attack_paths, node_map),
             self._generate_provenance_chains(provenance_chains),
@@ -178,6 +189,8 @@ class GraphToTextConverter:
 
     def convert_to_thesis_analysis(self, graph_data: Dict) -> str:
         """Generate a deterministic Chinese experiment analysis summary."""
+        if graph_data.get("pruning_stats"):
+            graph_data = selected_edge_view(graph_data, graph_data.get("edges", []))
         nodes = graph_data.get("nodes", [])
         edges = graph_data.get("edges", [])
         meta = graph_data.get("graph_meta", {})
@@ -213,12 +226,13 @@ class GraphToTextConverter:
             "## 1. 实验输入与图规模",
             "",
             (
-                "本次分析以统一告警事件为输入，先构建未剪枝攻击溯源图，再记录剪枝后的证据保留情况。"
-                f"未剪枝图实际包含 {actual_node_count} 个节点、{actual_edge_count} 条边，"
+                "本次分析只描述当前输入的证据图，裁剪统计与当前可见证据分别列示。"
+                f"当前输入图实际包含 {actual_node_count} 个节点、{actual_edge_count} 条边，"
                 f"其中事件边 {actual_event_edge_count} 条、关联边 {actual_correlation_edge_count} 条。"
             ),
             (
-                f"系统共重建 {len(attacker_groups)} 个攻击者簇和 {len(attack_paths)} 条攻击路径。"
+                f"当前提供 {len(attacker_groups)} 个关联簇摘要和 {len(attack_paths)} 条建模路径摘要，"
+                "这些摘要不等同于已验证的攻击者身份或真实因果链。"
             ),
             "",
             "### 受控实验与关系边说明",
@@ -261,7 +275,10 @@ class GraphToTextConverter:
             if len(cross_groups) > 5:
                 lines.append(f"- 其余 {len(cross_groups) - 5} 个跨蜜点攻击者簇已省略。")
         else:
-            lines.append("当前图中尚未形成覆盖多类蜜点的同源攻击者簇，后续应继续补充文件蜜点和寄生蜜点样本。")
+            lines.append("当前视图未提供跨蜜点关联簇摘要；摘要缺失不能证明没有跨蜜点活动。")
+
+        if graph_data.get("prompt_scope", {}).get("complete_graph") is False:
+            lines.append("当前仅展示预算内的局部证据窗口，完整图的路径保持约束不适用于该截断视图。")
 
         lines.extend([
             "",
@@ -277,7 +294,7 @@ class GraphToTextConverter:
                     f"锚点={', '.join(path.get('anchors') or []) or '无'}"
                 )
         else:
-            lines.append("- 当前剪枝图未保留可还原的攻击路径。")
+            lines.append("- 当前未提供经核验的路径摘要；不能据此判定不存在攻击路径。")
 
         lines.extend([
             "",
@@ -352,12 +369,12 @@ class GraphToTextConverter:
             "## 7. 实验结论与适用边界",
             "",
             (
-                "实验表明，统一告警模型能够把账户蜜点、文件蜜点和寄生蜜点产生的异构日志转化为统一事件，"
-                "并进一步构建包含事件边与同源关联边的攻击溯源图。"
+                "本报告是当前证据图的确定性摘要，不是算法有效性的对照实验结论。"
+                "事件边表示直接记录，关联边表示具有不同证据强度的建模关系。"
             ),
             (
-                "当同一来源 IP、浏览器指纹、会话标识或 actor group 在不同蜜点之间重复出现时，"
-                "系统能够将离散告警聚合为攻击者簇，并形成跨蜜点攻击路径，为后续攻击意图推断提供结构化证据。"
+                "共享 IP、浏览器指纹或会话标识可以作为候选关联依据，"
+                "但不能单独证明同一攻击者或因果关系；意图识别仍需独立标注评价。"
             ),
             (
                 "需要注意的是，受真实公网暴露面影响，三类蜜点天然存在样本不平衡。实验报告中应将自然采集集、"
@@ -425,6 +442,12 @@ class GraphToTextConverter:
             return "\n".join(lines)
 
         for item in attack_paths[:10]:
+            if item.get("basis") == "retained_modeled_reachability":
+                lines.append(
+                    f"- {item.get('path_id')}: retained modeled route via edges "
+                    f"{', '.join(item.get('edge_ids', []))}; not independently verified causality."
+                )
+                continue
             path_id = item.get("path_id") or "unknown_path"
             event_count = item.get("event_count", len(item.get("event_ids", [])))
             anchors = item.get("anchors", [])

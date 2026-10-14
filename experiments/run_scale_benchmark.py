@@ -79,7 +79,7 @@ def run(
     )
     validation = dataset.assert_valid(require_all_splits=True)
     graphs = dataset.load_split(split)
-    trainer = DQNTrainer(device=device)
+    trainer = DQNTrainer(device=device, use_path_constraints=True)
     state = torch.load(checkpoint, map_location=trainer.device, weights_only=True)
     trainer.model.load_state_dict(state)
     trainer.target_model.load_state_dict(state)
@@ -100,7 +100,7 @@ def run(
                     for _ in range(max(int(warmup), 0)):
                         trainer.predict_actions(
                             graph,
-                            evidence_guardrail=True,
+                            evidence_guardrail=False,
                             max_edges_per_partition=partition_limit or None,
                             decision_batch_size=batch_size,
                         )
@@ -116,7 +116,7 @@ def run(
                         started = time.perf_counter()
                         actions, details = trainer.predict_actions(
                             graph,
-                            evidence_guardrail=True,
+                            evidence_guardrail=False,
                             max_edges_per_partition=partition_limit or None,
                             decision_batch_size=batch_size,
                         )
@@ -142,6 +142,9 @@ def run(
                             if trainer.device.type == "cuda" else None
                         ),
                         "partition_count": details["partition_count"],
+                        "constraints_satisfied": details["constraints_satisfied"],
+                        "required_paths_kept": details["required_paths_kept"],
+                        "required_path_count": details["required_path_count"],
                         "partition_edges": partition_limit,
                         "decision_batch_size": batch_size,
                         "core_recall": metrics["core_recall"],
@@ -187,6 +190,9 @@ def run(
             "repeats": int(repeats),
             "warmup": int(warmup),
             "device": device,
+            "method": "dqn_path_constrained",
+            "use_path_constraints": True,
+            "evidence_guardrail": False,
             "data_repetition_or_synthetic_scaling": False,
             "formal_dataset_requirements_enforced": not allow_small_dataset_smoke_test,
         },

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from step1_data_collection.campaign import extract_campaign_id
+from .evidence import annotate_evidence, derive_required_paths, EVIDENCE_VERSION
 
 
 @dataclass
@@ -173,9 +174,16 @@ class CausalGraphBuilder:
             or experiment_meta.get("role")
         )
         evidence_refs = data.get("evidence_refs") or details.get("evidence_refs") or experiment_meta.get("evidence_refs") or []
+        # Experimental group labels must not create edges in a formal graph.
+        if not self.include_experiment_annotations:
+            campaign_id = None
+            scenario_id = None
+            scenario_role = None
         fingerprint = source.get("label") if source.get("type") == "browser" else None
         if not fingerprint:
-            fingerprint = data.get("attacker_info") or details.get("fingerprint")
+            fingerprint = details.get("fingerprint")
+            if not fingerprint and data.get("source_type") == "browser":
+                fingerprint = data.get("attacker_info")
 
         normalized = {
             "event_id": data.get("event_id") or data.get("alert_id") or str(uuid.uuid4()),
@@ -230,7 +238,7 @@ class CausalGraphBuilder:
         experiment_meta = details.get("experiment") if isinstance(details.get("experiment"), dict) else {}
         chain_actor_id = details.get("chain_actor_id") or experiment_meta.get("chain_actor_id")
 
-        if actor_group_id:
+        if self.include_experiment_annotations and actor_group_id:
             anchors.append(f"actor-group:{actor_group_id}")
         if campaign_id:
             anchors.append(f"campaign:{campaign_id}")
@@ -293,13 +301,14 @@ class CausalGraphBuilder:
             group["event_count"] = len(group["event_ids"])
 
     def _assign_attack_paths(self, events: List[Dict]) -> None:
-        current_index = 1
+        current_index = 0
         previous_by_attacker: Dict[str, Dict] = {}
 
         for event in events:
             attacker_key = event.get("attacker_id") or "unknown_attacker"
             previous_event = previous_by_attacker.get(attacker_key)
             if previous_event is None:
+                current_index += 1
                 path_id = f"path_{current_index:03d}"
             elif self._is_same_attack_path(previous_event, event):
                 path_id = previous_event["path_id"]
@@ -800,6 +809,8 @@ class CausalGraphBuilder:
             event = self.event_index.get(edge.event_id, edge.raw_data)
             edge_dict = {
                 "edge_id": edge.edge_id,
+                "source_event_ids": ([edge.raw_data.get("previous_event_id"), edge.event_id]
+                                     if edge.edge_kind == "correlation" else [edge.event_id]),
                 "event_id": edge.event_id,
                 "source": edge.subject_id,
                 "target": edge.object_id,
@@ -912,10 +923,16 @@ class CausalGraphBuilder:
         relation_counts = Counter(edge.relation_type or "unknown" for edge in self.edges)
         scenario_summaries = self._build_scenario_summaries()
         provenance_chains = self._build_provenance_chains()
+        annotate_evidence(edge_dicts)
+        required_paths, unbounded_groups = derive_required_paths(edge_dicts)
 
         return {
             "graph_meta": {
                 "graph_type": "attack_provenance_graph",
+                "evidence_contract_version": EVIDENCE_VERSION,
+                "experiment_anchors_used": self.include_experiment_annotations,
+                "path_groups_without_boundaries": unbounded_groups,
+                "modeled_path_constraint_count": len(required_paths),
                 "node_count": len(self.nodes),
                 "edge_count": len(edge_dicts),
                 "event_edge_count": event_edge_count,
@@ -932,6 +949,7 @@ class CausalGraphBuilder:
                 "generated_at": datetime.now().isoformat(),
             },
             "nodes": list(self.nodes.values()),
+            "required_paths": required_paths,
             "edges": edge_dicts,
             "triples": triples,
             "event_sequence": event_sequence,

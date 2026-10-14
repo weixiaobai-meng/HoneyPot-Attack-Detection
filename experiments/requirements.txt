@@ -1,0 +1,8 @@
+# Offline experiment pipeline. Install a suitable torch CPU/CUDA build first.
+# Checked on Python 3.13.5 with torch 2.12.0+cpu and torch-geometric 2.7.0.
+torch>=2.6
+torch-geometric>=2.7
+numpy>=1.26
+requests>=2.31
+psutil>=5.9
+# Live collection also needs systemwire2/requirements.txt and its configured DB.

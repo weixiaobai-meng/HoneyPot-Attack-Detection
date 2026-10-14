@@ -179,6 +179,9 @@ EVIDENCE_FEATURES = [
     "severity_score",
     "time_delta_log",
     "attack_origin_score",
+    "observed_event_evidence",
+    "supported_association_evidence",
+    "source_event_count",
 ]
 
 EDGE_FEATURE_NAMES = (
@@ -192,6 +195,7 @@ EDGE_FEATURE_NAMES = (
 NUM_EDGE_FEATURES = len(EDGE_FEATURE_NAMES)
 
 FEATURE_GROUPS = {
+    "evidence_contract": {"observed_event_evidence", "supported_association_evidence", "source_event_count"},
     "identity": {
         "shared_same_ip",
         "shared_same_fingerprint",
@@ -270,6 +274,9 @@ def causal_graph_to_pyg(
     
     data.node_id_map = node_id_map
     data.edges_info = valid_edges
+    if len(valid_edges) != len(edges):
+        raise ValueError("graph has edges with missing endpoints")
+    data.required_paths = graph_data.get("required_paths", [])
     data.edge_feature_names = EDGE_FEATURE_NAMES
     data.edge_attr_dim = NUM_EDGE_FEATURES
     data.disabled_feature_groups = sorted(set(disabled_feature_groups or []))
@@ -489,7 +496,8 @@ def build_edge_feature_vector(
         ),
         "is_identity_relation": float(_relation(edge, groups) in IDENTITY_RELATIONS),
         "has_token_or_file_evidence": float(
-            "token" in json.dumps(edge, ensure_ascii=False).lower()
+            any(_has_shared(edge, prefix, groups) for prefix in ("same_token:", "same_file:"))
+            or bool(edge.get("token_id"))
             or infer_honeypot_hint(edge, groups) == "file"
         ),
         "has_browser_fingerprint_evidence": float(
@@ -501,6 +509,9 @@ def build_edge_feature_vector(
         "severity_score": SEVERITY_SCORE.get(severity, 0.5),
         "time_delta_log": time_delta_log,
         "attack_origin_score": min(attack_origin_score(edge, groups) / 8.0, 1.0),
+        "observed_event_evidence": float(edge.get("evidence_basis") == "observed_event"),
+        "supported_association_evidence": float(edge.get("evidence_basis") == "supported_association"),
+        "source_event_count": min(len(edge.get("source_event_ids") or []) / 2.0, 1.0),
     }
 
     disabled_features = _disabled_evidence_features(disabled_feature_groups)

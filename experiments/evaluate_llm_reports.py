@@ -17,7 +17,10 @@ def _items(case, field):
     result = set()
     for value in values:
         if isinstance(value, dict):
-            value = value.get("id") or value.get("text") or value.get("name") or ""
+            if field == "facts":
+                value = value.get("text") or ""
+            else:
+                value = value.get("id") or value.get("text") or value.get("name") or ""
         normalized = _normalize(value)
         if normalized:
             result.add(normalized)
@@ -42,6 +45,7 @@ def _set_metrics(predicted, gold):
 
 def evaluate_structured(prediction_payload, gold_payload, expected_conditions=None):
     gold_by_id = {str(case["case_id"]): case for case in gold_payload.get("cases", [])}
+    intent_available = bool(gold_by_id) and all("intent" in case for case in gold_by_id.values())
     rows = []
     errors = []
     seen = set()
@@ -66,7 +70,7 @@ def evaluate_structured(prediction_payload, gold_payload, expected_conditions=No
             "fact_precision": fact["precision"],
             "fact_recall": fact["recall"],
             "fact_f1": fact["f1"],
-            "hallucination_count": fact["unsupported"],
+            "unmatched_fact_count": fact["unsupported"],
             "ttp_precision": ttp["precision"],
             "ttp_recall": ttp["recall"],
             "ttp_f1": ttp["f1"],
@@ -75,6 +79,9 @@ def evaluate_structured(prediction_payload, gold_payload, expected_conditions=No
             "output_tokens": float(case.get("output_tokens") or 0),
             "latency_ms": float(case.get("latency_ms") or 0),
         })
+        if intent_available:
+            intent = _set_metrics(_items(case, "intent"), _items(gold, "intent"))
+            rows[-1].update({"intent_precision": intent["precision"], "intent_recall": intent["recall"], "intent_f1": intent["f1"]})
     expected_conditions = [str(value) for value in (expected_conditions or []) if str(value)]
     for case_id in sorted(gold_by_id):
         for condition in expected_conditions:
@@ -91,7 +98,9 @@ def evaluate_structured(prediction_payload, gold_payload, expected_conditions=No
             values = [float(row[metric]) for row in condition_rows]
             aggregate[condition][f"{metric}_mean"] = statistics.fmean(values)
             aggregate[condition][f"{metric}_std"] = statistics.stdev(values) if len(values) > 1 else 0.0
-    return {"errors": errors, "aggregate": aggregate, "per_case": rows}
+    return {"errors": errors, "aggregate": aggregate, "per_case": rows,
+            "intent_evaluation_available": intent_available,
+            "fact_scoring": "normalized exact-text match; unmatched facts need human review, not proof of hallucination"}
 
 
 def _quadratic_weighted_kappa(pairs, minimum=1, maximum=5):

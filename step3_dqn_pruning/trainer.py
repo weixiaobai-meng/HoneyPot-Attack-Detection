@@ -17,6 +17,8 @@ from .environment import AttackGraphEnv
 from .graph_loader import NUM_EDGE_FEATURES, is_protected_origin_edge, load_graph_from_file
 from .model import DynamicEdgeQNetwork
 from .scaling import edge_partition, partition_edge_indices
+from step2_causal_graph.graph_views import selected_edge_view
+from .constraints import EvidencePathGuard
 
 
 @dataclass
@@ -157,6 +159,7 @@ class DQNTrainer:
         use_dynamic_state=True,
         use_terminal_reward=True,
         use_origin_reward=True,
+        use_path_constraints=False,
         shuffle_edges=True,
         seed=42,
         device=None,
@@ -175,6 +178,8 @@ class DQNTrainer:
         self.epsilon_decay_steps = max(int(epsilon_decay_steps), 1)
         self.use_dynamic_state = bool(use_dynamic_state)
         self.use_terminal_reward = bool(use_terminal_reward)
+        self.use_path_constraints = bool(use_path_constraints)
+        self._guards = {}
         self.use_origin_reward = bool(use_origin_reward)
         self.shuffle_edges = bool(shuffle_edges)
         self.seed = int(seed)
@@ -213,6 +218,8 @@ class DQNTrainer:
         return q_values
 
     def _select_action(self, graph, edge_mask, edge_idx, explore=True):
+        if self.use_path_constraints and self._guard(graph).rejection_reason(edge_mask, edge_idx):
+            return 0
         if explore and self.rng.random() < self._epsilon():
             return self.rng.randint(0, 1)
         self.model.eval()
@@ -238,7 +245,12 @@ class DQNTrainer:
                     target = reward
                 else:
                     next_q = self._model_q(self.target_model, graph, item.next_edge_mask)
-                    target = reward + self.gamma * next_q[item.next_edge_idx].max()
+                    choices = next_q[item.next_edge_idx]
+                    if self.use_path_constraints and self._guard(graph).rejection_reason(
+                        item.next_edge_mask, item.next_edge_idx
+                    ):
+                        choices = choices[:1]
+                    target = reward + self.gamma * choices.max()
                 target_values.append(target)
 
         predicted = torch.stack(predicted_values)
@@ -253,6 +265,14 @@ class DQNTrainer:
             self.target_model.load_state_dict(self.model.state_dict())
         return float(loss.item())
 
+    def _guard(self, graph):
+        key = id(graph)
+        if key not in self._guards:
+            self._guards[key] = (graph, EvidencePathGuard(graph))
+            if len(self._guards) > 2:
+                self._guards.pop(next(iter(self._guards)))
+        return self._guards[key][1]
+
     @staticmethod
     def _validate_graphs(graphs, name):
         if not graphs:
@@ -265,6 +285,7 @@ class DQNTrainer:
                 raise ValueError(f"{name}[{index}] has unlabeled edges; complete labels are required")
 
     def train(self, train_graphs: List, val_graphs: List, save_path="output/checkpoints/dqn_best.pt"):
+        self._guards.clear()
         self._validate_graphs(train_graphs, "train")
         self._validate_graphs(val_graphs, "validation")
         os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
@@ -347,6 +368,7 @@ class DQNTrainer:
         raw_actions = torch.zeros(edge_count, dtype=torch.long)
         edge_mask = torch.ones(edge_count, dtype=torch.bool)
         overrides = []
+        guard = EvidencePathGuard(data) if self.use_path_constraints else None
         self.model.eval()
         decision_batch_size = max(int(decision_batch_size), 1)
         for batch_start in range(0, edge_count, decision_batch_size):
@@ -356,6 +378,9 @@ class DQNTrainer:
             for edge_idx in range(batch_start, batch_end):
                 action = int(q_values[edge_idx].argmax().item())
                 raw_actions[edge_idx] = action
+                if guard and action == 1 and guard.rejection_reason(edge_mask, edge_idx):
+                    action = 0
+                    overrides.append(edge_idx)
                 edge = data.edges_info[edge_idx] if edge_idx < len(getattr(data, "edges_info", [])) else {}
                 disabled_groups = getattr(data, "disabled_feature_groups", [])
                 if (
@@ -390,6 +415,9 @@ class DQNTrainer:
             )
             details["partition_count"] = 1 if edge_count else 0
             details["max_edges_per_partition"] = int(max_edges_per_partition or edge_count or 1)
+            if self.use_path_constraints:
+                actions, guard_details = EvidencePathGuard(data).filter_actions(actions)
+                details.update(guard_details)
             return actions, details
 
         actions = torch.zeros(edge_count, dtype=torch.long)
@@ -407,13 +435,17 @@ class DQNTrainer:
                 actions[original_idx] = local_actions[local_idx]
                 raw_actions[original_idx] = local_details["raw_actions"][local_idx]
             overrides.extend(indices[local_idx] for local_idx in local_details["evidence_constraint_overrides"])
-        return actions, {
+        details = {
             "raw_actions": raw_actions,
             "evidence_constraint_overrides": overrides,
             "partition_count": len(partitions),
             "max_edges_per_partition": int(max_edges_per_partition),
             "decision_batch_size": int(decision_batch_size),
         }
+        if self.use_path_constraints:
+            actions, guard_details = EvidencePathGuard(data).filter_actions(actions)
+            details.update(guard_details)
+        return actions, details
 
     def _evaluate(self, graphs, evidence_guardrail=False):
         rows = []
@@ -444,10 +476,12 @@ class DQNTrainer:
         with open(graph_path, "r", encoding="utf-8") as handle:
             graph_data = json.load(handle)
         edges = graph_data.get("edges", [])
+        if len(data.edges_info) != len(edges) or len(actions) != len(edges):
+            raise ValueError("graph edges and model actions are not aligned; check edge endpoints")
         kept_edges = [edge for idx, edge in enumerate(edges) if idx < len(actions) and int(actions[idx]) == 0]
         original_edges = len(edges)
         pruned_edges = original_edges - len(kept_edges)
-        graph_data["edges"] = kept_edges
+        graph_data = selected_edge_view(graph_data, kept_edges)
         graph_data["pruning_stats"] = {
             "algorithm": self.algorithm_name,
             "original_edges": original_edges,
@@ -466,6 +500,11 @@ class DQNTrainer:
             "training_edge_order_shuffled": self.shuffle_edges,
             "test_labels_used_for_inference": False,
             "evidence_constraint_enabled": bool(evidence_guardrail),
+            "path_constraints_enabled": self.use_path_constraints,
+            "global_constraint_check": {key: value for key, value in details.items()
+                                        if key in {"constraints_satisfied", "required_path_count",
+                                                   "required_paths_kept", "protected_edge_count",
+                                                   "protected_edges_kept", "constraint_overrides"}},
             "evidence_constraint_overrides": len(details["evidence_constraint_overrides"]),
             "partition_count": details["partition_count"],
             "max_edges_per_partition": details["max_edges_per_partition"],

@@ -3,6 +3,8 @@
 import hashlib
 import json
 from collections import Counter
+from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -27,6 +29,7 @@ class ScenarioRecord:
     attack_family: str = "unknown"
     annotator_label_paths: Tuple[Path, ...] = ()
     annotation_review_path: Optional[Path] = None
+    path_gold_path: Optional[Path] = None
 
 
 def _resolve(base: Path, value: str) -> Path:
@@ -129,6 +132,7 @@ class ScenarioDataset:
                 raw_alerts_path=_resolve(base, raw_alerts) if raw_alerts else None,
                 group_id=str(item.get("group_id") or "unknown").strip(),
                 attack_family=str(item.get("attack_family") or "unknown").strip(),
+                path_gold_path=_resolve(base, item["path_gold"]) if item.get("path_gold") else None,
                 annotator_label_paths=tuple(
                     _resolve(base, str(path)) for path in annotator_labels if str(path).strip()
                 ),
@@ -203,6 +207,26 @@ class ScenarioDataset:
             with open(record.graph_path, "r", encoding="utf-8-sig") as handle:
                 graph_data = json.load(handle)
             graph_edges = graph_data.get("edges", [])
+            if self.require_raw_alerts:
+                if record.source_type != "real_deployment":
+                    errors.append(f"{record.scenario_id}: formal data must declare real_deployment provenance")
+                meta = graph_data.get("graph_meta", {})
+                if meta.get("evidence_contract_version") != 1 or meta.get("experiment_anchors_used") is not False:
+                    errors.append(f"{record.scenario_id}: rebuild graph with the observable-evidence contract")
+                if any(not edge.get("source_event_ids") or not edge.get("evidence_basis") for edge in graph_edges):
+                    errors.append(f"{record.scenario_id}: missing source-event references or evidence basis")
+                if any(edge.get("campaign_id") or any(str(item).startswith("same_campaign:")
+                       for item in (edge.get("shared_evidence") or [])) for edge in graph_edges):
+                    errors.append(f"{record.scenario_id}: campaign anchors must not enter formal graph features")
+                if record.split == "test" and record.path_gold_path is None:
+                    errors.append(f"{record.scenario_id}: test scenario requires independent path_gold")
+            if record.path_gold_path:
+                try:
+                    from experiments.evaluate_paths import evaluate as evaluate_paths
+                    gold_paths = json.loads(record.path_gold_path.read_text(encoding="utf-8-sig"))
+                    evaluate_paths(graph_data, graph_data, gold_paths)
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    errors.append(f"{record.scenario_id}: invalid path_gold ({type(exc).__name__})")
             edge_ids = [str(edge.get("edge_id") or "") for edge in graph_edges]
             if any(not edge_id for edge_id in edge_ids):
                 errors.append(f"{record.scenario_id} contains edges without edge_id")
@@ -391,18 +415,34 @@ class ScenarioDataset:
         split = str(split).lower()
         if split not in VALID_SPLITS:
             raise ValueError(f"unknown split {split!r}")
-        graphs = []
-        for record in self.records:
-            if record.split != split:
-                continue
-            graph = load_graph_from_file(
-                str(record.graph_path),
-                disabled_feature_groups=disabled_feature_groups,
-            )
-            graph = attach_manual_labels(graph, str(record.label_path), strict=self.require_complete_labels)
-            graph.scenario_id = record.scenario_id
+        return ScenarioGraphs([record for record in self.records if record.split == split],
+                              disabled_feature_groups, self.require_complete_labels)
+
+
+class ScenarioGraphs(Sequence):
+    """Load at most two full scenarios per split, instead of the whole dataset."""
+
+    def __init__(self, records, disabled_groups, strict):
+        self.records, self.disabled_groups, self.strict = records, disabled_groups, strict
+        self.cache = OrderedDict()
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(len(self)))]
+        record = self.records[index]
+        if index not in self.cache:
+            graph = load_graph_from_file(str(record.graph_path), disabled_feature_groups=self.disabled_groups)
+            graph = attach_manual_labels(graph, str(record.label_path), strict=self.strict)
+            for name in ("scenario_id", "source_type", "trigger_mode"):
+                setattr(graph, name, getattr(record, name))
             graph.dataset_split = record.split
-            graph.source_type = record.source_type
-            graph.trigger_mode = record.trigger_mode
-            graphs.append(graph)
-        return graphs
+            graph.source_graph_path = str(record.graph_path)
+            graph.path_gold_path = str(record.path_gold_path) if record.path_gold_path else ""
+            self.cache[index] = graph
+            if len(self.cache) > 2:
+                self.cache.popitem(last=False)
+        self.cache.move_to_end(index)
+        return self.cache[index]

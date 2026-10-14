@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from deployment.export_alerts_to_step1 import build_live_analysis_collector_config
-from experiments.run_benchmark import run_benchmark
+from experiments.create_edge_label_template import create_edge_label_template
 from step1_data_collection import DataCollector
 from step2_causal_graph import CausalGraphBuilder, CausalGraphVisualizer
 
@@ -69,28 +69,6 @@ def run_step2(run_dir: Path, step1_file: Path):
     }
 
 
-def create_edge_label_template(graph_path: Path, output_path: Path):
-    with open(graph_path, "r", encoding="utf-8") as handle:
-        graph = json.load(handle)
-    rows = []
-    for edge in graph.get("edges", []):
-        rows.append({
-            "edge_id": edge.get("edge_id"),
-            "label": None,
-            "annotation_note": "",
-            "source": edge.get("source"),
-            "action": edge.get("action"),
-            "target": edge.get("target"),
-            "relation_type": edge.get("relation_type"),
-            "timestamp": edge.get("timestamp"),
-            "confidence": edge.get("confidence"),
-            "shared_evidence": edge.get("shared_evidence") or [],
-        })
-    with open(output_path, "w", encoding="utf-8") as handle:
-        json.dump(rows, handle, ensure_ascii=False, indent=2)
-    return {"file": str(output_path), "rows": len(rows), "labels_completed": 0}
-
-
 def run_pipeline(
     run_name: str,
     hours: int,
@@ -114,6 +92,8 @@ def run_pipeline(
 
     benchmark = None
     if dataset_manifest:
+        from experiments.run_benchmark import run_benchmark
+
         benchmark = run_benchmark(
             dataset_manifest,
             run_dir / "benchmark",
