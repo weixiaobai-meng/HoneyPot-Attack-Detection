@@ -37,11 +37,13 @@ beijing_tz = pytz.timezone('Asia/Shanghai')
 def set_sqlite_pragma(dbapi_connection, connection_record):
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")  # 寮€鍚閿害鏉?
-    # The local Windows lab environment shows repeated on-disk journal I/O
-    # failures for SQLite under the instance DB path. MEMORY mode keeps the DB
-    # writable here while avoiding corrupting WAL/rollback-journal files.
-    cursor.execute("PRAGMA journal_mode=MEMORY")
-    cursor.execute("PRAGMA busy_timeout=5000")
+    cursor.execute("PRAGMA busy_timeout=30000")
+    # Preserve the Windows lab workaround; Linux services need concurrent reads
+    # during heartbeat and scheduled alert writes.
+    journal_mode = os.getenv("SYSTEMWIRE_SQLITE_JOURNAL_MODE", "MEMORY" if os.name == "nt" else "WAL").upper()
+    if journal_mode not in {"WAL", "DELETE", "TRUNCATE", "PERSIST", "MEMORY"}:
+        raise ValueError("Unsupported SYSTEMWIRE_SQLITE_JOURNAL_MODE")
+    cursor.execute("PRAGMA journal_mode=" + journal_mode)
     cursor.close()
 
 # 鐢ㄦ埛妯″瀷

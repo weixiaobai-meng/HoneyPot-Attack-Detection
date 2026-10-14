@@ -1448,6 +1448,10 @@ def get_parasitic_alert(last_query_time, page_size=100):
     # ── 修复 SQLite 读回 naive datetime 导致与 aware datetime 比较报错 ──
     if last_query_time is not None and last_query_time.tzinfo is None:
         last_query_time = pytz.timezone("Asia/Shanghai").localize(last_query_time)
+    # The upstream log cache refreshes after the event timestamp. Revisit a
+    # bounded interval and let event deduplication discard already imported rows.
+    if last_query_time is not None:
+        last_query_time = last_query_time - timedelta(minutes=5)
 
     page = 1
     inserted = 0
@@ -6531,6 +6535,8 @@ def get_account_alert(last_query_time, page_size=100):
     # 确保 last_query_time 是 offset-naive 用于 API 请求
     if last_query_time and last_query_time.tzinfo is not None:
         last_query_time = last_query_time.replace(tzinfo=None)
+    if last_query_time is not None:
+        last_query_time = last_query_time - timedelta(minutes=5)
     since_param = last_query_time.strftime("%Y-%m-%dT%H:%M:%S") if last_query_time else ""
 
     req_err, resp = _alert_server_request(
@@ -6549,6 +6555,21 @@ def get_account_alert(last_query_time, page_size=100):
 
         payload = resp.json()
         rows = payload.get("data") or []
+        total = int(payload.get("total") or len(rows))
+        page = 1
+        while len(rows) < total:
+            page += 1
+            req_err, next_response = _alert_server_request(
+                "account alert pull", "GET", api_url,
+                params={"page": page, "size": page_size, "since": since_param}, timeout=15,
+            )
+            if req_err or next_response.status_code != 200:
+                return 1, "account alert pagination failed"
+            next_payload = next_response.json()
+            next_rows = next_payload.get("data") or []
+            if not next_rows:
+                break
+            rows.extend(next_rows)
         if not rows:
             return 0, 0
 
@@ -6571,10 +6592,19 @@ def get_account_alert(last_query_time, page_size=100):
             if last_query_time and trigger_naive <= last_query_time:
                 continue
 
-            # 去重：检查是否已存在相同 src_ip 和 trigger_time 的记录
+            # A connection and its authentication attempt can share IP and time.
+            # Compare the complete event rather than collapsing those stages.
             dup = AccountAlertInfo.query.filter(
                 AccountAlertInfo.src_ip == item.get("src_ip", ""),
                 AccountAlertInfo.trigger_time == trigger_time,
+                AccountAlertInfo.src_port == item.get("src_port", ""),
+                AccountAlertInfo.dst_ip == item.get("dst_ip", ""),
+                AccountAlertInfo.dst_port == item.get("dst_port", ""),
+                AccountAlertInfo.username == item.get("username", ""),
+                AccountAlertInfo.password == item.get("password", ""),
+                AccountAlertInfo.protocol == item.get("protocol", "ssh"),
+                AccountAlertInfo.message == item.get("message", ""),
+                AccountAlertInfo.client_version == item.get("client_version", ""),
             ).first()
             if dup:
                 current_app.logger.debug("[Account Alert] 跳过重复: %s @ %s", item.get("src_ip"), trigger_time_str)
