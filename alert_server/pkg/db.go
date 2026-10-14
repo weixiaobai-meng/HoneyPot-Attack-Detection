@@ -80,6 +80,11 @@ func InitDB() (*gorm.DB, error) {
 		log.Fatalf("数据库迁移失败: %v", err)
 		return nil, err
 	}
+	// Incremental pulls filter both soft deletion and time. Separate indexes
+	// otherwise let SQLite scan the entire active history for a small new batch.
+	if err := Db.Exec("CREATE INDEX IF NOT EXISTS idx_account_alerts_active_time ON account_alerts(deleted_at, trigger_time)").Error; err != nil {
+		return nil, err
+	}
 
 	log.Println("数据库连接及迁移成功")
 	return Db, nil
