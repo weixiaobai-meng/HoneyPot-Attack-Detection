@@ -16,9 +16,10 @@
                 <div class="soc-form-row">
                     <label class="soc-field">
                         <span>查询天数</span>
-                        <input type="text" id="days" name="days" class="soc-input" placeholder="默认 7，最多 30" value="{{ last_days }}">
+                        <input type="number" min="0" max="3650" step="1" id="days" name="days" class="soc-input" placeholder="0 表示全部历史" value="{{ last_days }}">
                     </label>
                     <button type="submit" class="soc-btn primary"><i class="fas fa-search"></i> 查询</button>
+                    <a class="soc-btn" href="{{ url_for('api.manage_alert_file', days=0) }}"><i class="fas fa-clock-rotate-left"></i> 全部历史</a>
                     <button type="button" class="soc-btn file" onclick="pullFileAlerts()"><i class="fas fa-cloud-arrow-down"></i> 从 alert_server 拉取</button>
                 </div>
             </form>
@@ -83,8 +84,8 @@
                         <td colspan="7">
                             <div class="empty-row">
                                 <i class="fas fa-shield-alt"></i>
-                                <h3>暂无文件蜜点告警</h3>
-                                <p>请先确认 alert_server 已启动，并且诱饵文件打开后已经命中 <code>http://127.0.0.1:9090/static/img/logo-&lt;token&gt;.png</code>，然后再点击“从 alert_server 拉取”。</p>
+                                <h3>{% if last_days %}最近 {{ last_days }} 天暂无文件蜜点告警{% else %}暂无文件蜜点告警{% endif %}</h3>
+                                <p>{% if last_days %}<a href="{{ url_for('api.manage_alert_file', days=0) }}">查看全部历史告警</a>{% else %}尚无已入库的文件告警。{% endif %}</p>
                             </div>
                         </td>
                     </tr>
@@ -102,16 +103,18 @@ function validateForm() {
         return true;
     }
     const num = Number(value);
-    if (!Number.isInteger(num) || num < 1 || num > 30) {
-        alert('查询天数必须是 1-30 的整数');
+    if (!Number.isInteger(num) || num < 0 || num > 3650) {
+        alert('查询天数必须是 0-3650 的整数，0 表示全部历史');
         return false;
     }
     return true;
 }
 
 async function pullFileAlerts() {
+    if (!validateForm()) return;
     const status = document.getElementById('pullStatus');
-    const days = document.getElementById('days').value.trim() || '30';
+    const queryDays = Number(document.getElementById('days').value.trim() || '7');
+    const days = queryDays === 0 ? 30 : Math.min(queryDays, 30);
     status.className = 'soc-status';
     status.style.display = 'block';
     status.textContent = `正在从 alert_server 拉取最近 ${days} 天文件告警...`;

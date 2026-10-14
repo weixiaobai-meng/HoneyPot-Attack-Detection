@@ -2289,19 +2289,14 @@ def _build_agent_infos(grpc_server, include_offline=False):
 @api.route("/manage/alert/file")
 def manage_alert_file():
     days = request.args.get("days", default=7, type=int)
-    if days == "" or not days:
-        days = 7    # 默认查询七天内的告警
-    elif not isinstance(days,int):
-        return jsonify({"code": 1, "message": "参数格式有误", "data": {}})
-    elif days<0 or days>30: # 最多支持查询30天内告警
-        return jsonify({"code": 1, "message": "最多支持查询30天内告警", "data": {}})
+    if days < 0 or days > 3650:
+        return jsonify({"code": 1, "message": "查询天数需为 0-3650，0 表示全部历史", "data": {}})
     alert_infos, raw_alert_total = get_file_alert_page_rows(days=days)
     if not alert_infos:
-        time_period = get_time_bj() - timedelta(days=days)
-        alerts = FileAlertInfo.query\
-            .filter(FileAlertInfo.trigger_time>time_period)\
-            .order_by(FileAlertInfo.trigger_time.desc())\
-            .all()
+        query = FileAlertInfo.query
+        if days > 0:
+            query = query.filter(FileAlertInfo.trigger_time > get_time_bj() - timedelta(days=days))
+        alerts = query.order_by(FileAlertInfo.trigger_time.desc()).all()
         alert_infos = _aggregate_file_alert_infos(alerts)
         raw_alert_total = len(alerts)
     data = {
