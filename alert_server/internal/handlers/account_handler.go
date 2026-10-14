@@ -110,7 +110,7 @@ func AccountAlertsHandler(c *gin.Context) {
 		return
 	}
 
-	query := pkg.Db.Model(&models.AccountAlert{}).Order("id desc")
+	query := pkg.Db.Model(&models.AccountAlert{}).Order("trigger_time desc, id desc")
 
 	if since != "" {
 		if t, err := time.Parse(time.RFC3339, since); err == nil {
