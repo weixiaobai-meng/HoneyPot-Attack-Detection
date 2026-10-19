@@ -402,7 +402,8 @@ func (m *AuditdMonitor) ParseAuditLogs(rawLog string) ([]*models.AuditRecord, er
 						// 拆分时间部分和序号部分
 						timeStr := content[:colonIdx]
 						seqNumber := content[colonIdx+1:]
-						if t, err := time.Parse("01/02/2006 15:04:05.000", timeStr); err == nil {
+						// ausearch renders its timestamp in the host's local timezone.
+						if t, err := time.ParseInLocation("01/02/2006 15:04:05.000", timeStr, time.Local); err == nil {
 							record.Time = t
 						} else {
 							m.logger.Errorf("时间解析出错:%v", err)
