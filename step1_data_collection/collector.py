@@ -27,9 +27,9 @@ class DataCollector:
         if value is None:
             return None
         if value.tzinfo is not None and value.utcoffset() is not None:
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
+            return value.astimezone(timezone.utc)
         from zoneinfo import ZoneInfo
-        return value.replace(tzinfo=ZoneInfo('Asia/Shanghai')).astimezone(timezone.utc).replace(tzinfo=None)
+        return value.replace(tzinfo=ZoneInfo('Asia/Shanghai')).astimezone(timezone.utc)
 
     def _in_time_range(
         self,
@@ -338,7 +338,7 @@ class DataCollector:
         if not analysis_types:
             analysis_types = ["file", "account", "parasitic"]
 
-        end = self._normalize_dt(end_time) or datetime.now()
+        end = self._normalize_dt(end_time) or datetime.now(timezone.utc)
         start = self._normalize_dt(start_time)
         hours = 24
         if start is not None:
@@ -356,7 +356,7 @@ class DataCollector:
                 if self._in_time_range(alert.timestamp, start_time, end_time):
                     alerts.append(alert)
 
-        alerts.sort(key=lambda item: item.timestamp)
+        alerts.sort(key=lambda item: self._normalize_dt(item.timestamp))
         return alerts
 
     def _use_unified_store_for(self, alert_type: str) -> bool:
@@ -828,7 +828,7 @@ class DataCollector:
         else:
             print("[*] audit event collection disabled")
 
-        all_alerts.sort(key=lambda alert: alert.timestamp)
+        all_alerts.sort(key=lambda alert: self._normalize_dt(alert.timestamp))
         return all_alerts
 
     def describe_sources(self) -> Dict[str, object]:
