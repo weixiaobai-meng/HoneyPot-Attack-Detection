@@ -34,7 +34,7 @@
                 <h2><i class="fas fa-list"></i> 文件蜜点触发记录</h2>
                 <p>重点看文件名、Token、告警消息、攻击源 IP、User-Agent，以及该文件的诱饵名称和部署摘要。</p>
             </div>
-            <span class="soc-count">逻辑告警 {{ alert_infos|length }} 条 / 底层请求 {{ raw_alert_total|default(alert_infos|length) }} 次</span>
+            <span class="soc-count">共 {{ total_rows }} 条告警 / 本页 {{ alert_infos|length }} 条、{{ raw_alert_total|default(alert_infos|length) }} 次请求</span>
         </div>
 
         <div class="soc-table-wrap">
@@ -93,6 +93,7 @@
                 </tbody>
             </table>
         </div>
+        {% include 'alert_pagination.html' %}
     </section>
 </div>
 

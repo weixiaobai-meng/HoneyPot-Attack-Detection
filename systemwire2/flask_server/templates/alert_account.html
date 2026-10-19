@@ -33,7 +33,7 @@
                 <h2><i class="fas fa-list"></i> 账户蜜点认证尝试</h2>
                 <p>重点不是“能否登录成功”，而是攻击者是否连到蜜罐、使用什么协议/账号/口令/客户端和来源端口尝试访问诱饵服务。</p>
             </div>
-            <span class="soc-count">共 {{ alert_infos|length }} 条告警</span>
+            <span class="soc-count">共 {{ total_rows }} 条告警 / 本页 {{ alert_infos|length }} 条</span>
         </div>
 
         <div class="soc-table-wrap">
@@ -90,6 +90,7 @@
                 </tbody>
             </table>
         </div>
+        {% include 'alert_pagination.html' %}
     </section>
 </div>
 

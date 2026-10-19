@@ -2303,23 +2303,38 @@ def _build_agent_infos(grpc_server, include_offline=False):
 
 
 # 告警-文件
+def _alert_page_metadata(alert_type, days):
+    page = max(1, request.args.get('page', default=1, type=int))
+    size = min(500, max(1, request.args.get('size', default=100, type=int)))
+    query = UnifiedAlertEvent.query.filter_by(alert_type=alert_type)
+    if days > 0:
+        query = query.filter(UnifiedAlertEvent.alert_time >= get_time_bj() - timedelta(days=days))
+    total = query.count()
+    pages = max(1, math.ceil(total / size))
+    return {'page': min(page, pages), 'page_size': size, 'total_rows': total, 'total_pages': pages}
+
+
 @api.route("/manage/alert/file")
 def manage_alert_file():
     days = request.args.get("days", default=7, type=int)
     if days < 0 or days > 3650:
         return jsonify({"code": 1, "message": "查询天数需为 0-3650，0 表示全部历史", "data": {}})
-    alert_infos, raw_alert_total = get_file_alert_page_rows(days=days)
-    if not alert_infos:
+    paging = _alert_page_metadata('file', days)
+    alert_infos, raw_alert_total = get_file_alert_page_rows(days=days, page=paging['page'], size=paging['page_size'])
+    if not alert_infos and paging['total_rows'] == 0:
         query = FileAlertInfo.query
         if days > 0:
             query = query.filter(FileAlertInfo.trigger_time > get_time_bj() - timedelta(days=days))
-        alerts = query.order_by(FileAlertInfo.trigger_time.desc()).all()
+        paging['total_rows'] = query.count()
+        paging['total_pages'] = max(1, math.ceil(paging['total_rows'] / paging['page_size']))
+        alerts = query.order_by(FileAlertInfo.trigger_time.desc(), FileAlertInfo.id.desc()).offset((paging['page']-1)*paging['page_size']).limit(paging['page_size']).all()
         alert_infos = _aggregate_file_alert_infos(alerts)
         raw_alert_total = len(alerts)
     data = {
         "alert_infos":alert_infos,  # 查询结果
         "raw_alert_total":raw_alert_total,
-        "last_days":days    # 上一次查询条件
+        "last_days":days,
+        **paging,
     }
     return render_template('alert_file.html',**data)
 
@@ -2342,13 +2357,14 @@ def manage_alert_account():
     elif days < 0 or days > 30:
         return jsonify({"code": 1, "message": "Only support up to 30 days", "data": {}})
 
-    alert_infos = get_account_alert_page_rows(days=days)
-    if not alert_infos:
+    paging = _alert_page_metadata('account', days)
+    alert_infos = get_account_alert_page_rows(days=days, page=paging['page'], size=paging['page_size'])
+    if not alert_infos and paging['total_rows'] == 0:
         time_period = get_time_bj() - timedelta(days=days)
-        alerts = AccountAlertInfo.query\
-            .filter(AccountAlertInfo.trigger_time > time_period)\
-            .order_by(AccountAlertInfo.trigger_time.desc())\
-            .all()
+        query = AccountAlertInfo.query.filter(AccountAlertInfo.trigger_time > time_period)
+        paging['total_rows'] = query.count()
+        paging['total_pages'] = max(1, math.ceil(paging['total_rows'] / paging['page_size']))
+        alerts = query.order_by(AccountAlertInfo.trigger_time.desc(), AccountAlertInfo.id.desc()).offset((paging['page']-1)*paging['page_size']).limit(paging['page_size']).all()
         alert_infos = []
         for item in alerts:
             alert_info = _enrich_account_alert_json(item.to_json())
@@ -2357,6 +2373,7 @@ def manage_alert_account():
     data = {
         "alert_infos": alert_infos,
         "last_days": days
+        , **paging
     }
     return render_template('alert_account.html', **data)
 

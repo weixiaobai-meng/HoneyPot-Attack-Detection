@@ -1,0 +1,11 @@
+{% if total_pages > 1 %}
+<nav class="soc-form-row" aria-label="告警分页" style="padding: 16px; flex-wrap: wrap;">
+    {% if page > 1 %}
+    <a class="soc-btn" href="{{ url_for(request.endpoint, days=last_days, page=page-1, size=page_size) }}" title="上一页" aria-label="上一页"><i class="fas fa-chevron-left"></i></a>
+    {% endif %}
+    <span>{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+    <a class="soc-btn" href="{{ url_for(request.endpoint, days=last_days, page=page+1, size=page_size) }}" title="下一页" aria-label="下一页"><i class="fas fa-chevron-right"></i></a>
+    {% endif %}
+</nav>
+{% endif %}

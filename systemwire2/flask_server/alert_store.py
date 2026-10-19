@@ -11,6 +11,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import pytz
 from flask import current_app
 from sqlalchemy import func, or_
+from sqlalchemy.orm import selectinload
 
 from config.config import LEGACY_DB_FILE_PATH
 from flask_server.exts import db
@@ -1653,11 +1654,14 @@ def _parasitic_query(hours: int = 0, target_filter: str = ""):
     return query.order_by(UnifiedAlertEvent.alert_time.desc(), UnifiedAlertEvent.id.desc())
 
 
-def get_file_alert_page_rows(days: int = 7) -> Tuple[List[Dict], int]:
+def get_file_alert_page_rows(days: int = 7, page=None, size=100) -> Tuple[List[Dict], int]:
     alert_infos: List[Dict] = []
     raw_alert_total = 0
 
-    for event in _file_page_query(days).all():
+    query = _file_page_query(days).options(selectinload(UnifiedAlertEvent.file_detail))
+    if page is not None:
+        query = query.offset((page - 1) * size).limit(size)
+    for event in query.all():
         detail = event.file_detail
         raw_ids = [item for item in _json_list(detail.raw_alert_ids_json if detail else None) if item not in (None, "")]
         deployments = _json_list(detail.deployments_json if detail else None)
@@ -1697,10 +1701,13 @@ def get_file_alert_page_rows(days: int = 7) -> Tuple[List[Dict], int]:
     return alert_infos, raw_alert_total
 
 
-def get_account_alert_page_rows(days: int = 7) -> List[Dict]:
+def get_account_alert_page_rows(days: int = 7, page=None, size=100) -> List[Dict]:
     alert_infos: List[Dict] = []
 
-    for event in _account_page_query(days).all():
+    query = _account_page_query(days).options(selectinload(UnifiedAlertEvent.account_detail))
+    if page is not None:
+        query = query.offset((page - 1) * size).limit(size)
+    for event in query.all():
         detail = event.account_detail
         raw_event = _json_obj(detail.raw_event_json if detail else None)
         attack_type = (detail.auth_type if detail else "") or event.title or "账户蜜点告警"
