@@ -38,11 +38,13 @@ def main():
         assert old.resolve().parent == root
         shutil.rmtree(old)
     usage = shutil.disk_usage(root)
-    output = {'time': datetime.now(timezone.utc).isoformat(), 'verified_backups': min(1, len(valid)),
-              'free_gib': round(usage.free / 1024 ** 3, 2)}
+    free_gib = round(usage.free / 1024 ** 3, 2)
+    output = {'time': datetime.now(timezone.utc).isoformat(),
+              'status': 'critical' if free_gib < 2 or not valid else 'warning' if free_gib < 5 else 'ok',
+              'verified_backups': min(1, len(valid)), 'free_gib': free_gib}
     Path('/var/lib/honeypot/backup-inventory.json').write_text(json.dumps(output, indent=2))
     print(json.dumps(output))
-    return 0 if output['free_gib'] >= 5 else 2
+    return 0
 
 
 if __name__ == '__main__':

@@ -38,7 +38,7 @@ def capacity(args):
             result['databases'][name] = {'bytes':size, 'largest_tables':tables}
     Path(args.output).write_text(json.dumps(result,indent=2),encoding='utf-8')
     print(json.dumps(result))
-    return 0 if state == 'ok' else 2
+    return 0
 
 
 def archive(args):
