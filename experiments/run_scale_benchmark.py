@@ -68,14 +68,13 @@ def run(
     device,
     repeats=3,
     warmup=1,
-    allow_small_dataset_smoke_test=False,
 ):
     dataset = ScenarioDataset(
         manifest,
         require_complete_labels=True,
-        require_double_annotation=not allow_small_dataset_smoke_test,
-        require_raw_alerts=not allow_small_dataset_smoke_test,
-        minimum_split_counts=None if allow_small_dataset_smoke_test else {"train": 6, "validation": 2, "test": 2},
+        require_double_annotation=True,
+        require_raw_alerts=True,
+        minimum_split_counts={"train": 6, "validation": 2, "test": 2},
     )
     validation = dataset.assert_valid(require_all_splits=True)
     graphs = dataset.load_split(split)
@@ -194,7 +193,7 @@ def run(
             "use_path_constraints": True,
             "evidence_guardrail": False,
             "data_repetition_or_synthetic_scaling": False,
-            "formal_dataset_requirements_enforced": not allow_small_dataset_smoke_test,
+            "formal_dataset_requirements_enforced": True,
         },
         "aggregate": _aggregate(rows),
         "results": rows,
@@ -222,7 +221,6 @@ def main():
     parser.add_argument("--decision-batch-sizes", default="1,8,16")
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--warmup", type=int, default=1)
-    parser.add_argument("--allow-small-dataset-smoke-test", action="store_true")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
     result = run(
@@ -235,7 +233,6 @@ def main():
         args.device,
         repeats=args.repeats,
         warmup=args.warmup,
-        allow_small_dataset_smoke_test=args.allow_small_dataset_smoke_test,
     )
     print(json.dumps(result["results"], ensure_ascii=False, indent=2))
 

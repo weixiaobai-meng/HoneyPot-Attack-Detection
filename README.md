@@ -13,7 +13,8 @@
 - 离线依赖：`experiments/requirements.txt`；在线采集另需管理端依赖和配置。
 
 运行前请使用包含 PyTorch 和 PyG 的 Python 环境，并安装 `experiments/requirements.txt`。
-独立测试脚本已按本项目整理要求移出仓库；正式实验程序保留在 `experiments`。
+旧的单图合成弱标签训练和模拟告警入口已移除。`experiments` 中保留的是正式数据校验、
+基线/消融、规模与LLM评估程序，不是可绕过正式数据要求的测试模式。
 
 ## 快速开始
 

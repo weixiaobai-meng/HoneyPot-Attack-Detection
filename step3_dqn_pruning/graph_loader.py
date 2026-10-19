@@ -3,13 +3,11 @@
 将因果图JSON转换为PyTorch Geometric格式
 """
 
-import copy
 import json
 import math
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Set
 
-import numpy as np
 import torch
 from torch_geometric.data import Data
 
@@ -542,64 +540,6 @@ def is_protected_origin_edge(
     return attack_origin_score(edge, groups) >= threshold and (strong_identity or cross_stage)
 
 
-def _edge_hash(seed: int, idx: int) -> float:
-    """基于种子和边索引的确定性伪随机数 [0, 1)"""
-    import hashlib
-    h = hashlib.md5(f"{seed}_{idx}".encode()).hexdigest()
-    return int(h[:8], 16) / 0xFFFFFFFF
-
-
-def generate_synthetic_labels(data: Data, core_ratio: float = 0.25,
-                              seed: int = 42) -> Data:
-    """
-    生成合成标签（确定性）
-
-    相同 seed + 相同边列表 → 相同标签，保证训练/测试/裁剪一致。
-    core_ratio 控制非关键边类型的核心比例，默认 0.25 以保持类别平衡。
-    """
-    num_edges = data.edge_index.size(1)
-    labels = torch.zeros(num_edges)
-
-    edges_info = data.edges_info if hasattr(data, 'edges_info') else []
-
-    for i, edge in enumerate(edges_info):
-        action = edge.get("action", "unknown")
-        relation_type = edge.get("relation_type", "")
-        origin_score = attack_origin_score(edge)
-        r = _edge_hash(seed, i)
-
-        if str(edge.get("scenario_role") or "") == "controlled_chain":
-            labels[i] = 1.0
-        elif str(edge.get("scenario_role") or "") == "controlled_noise":
-            labels[i] = 0.0
-        elif origin_score >= 3.0:
-            labels[i] = 1.0
-        elif relation_type in {
-            "web_to_account",
-            "account_to_file",
-            "web_to_file",
-            "stage_transition",
-            "controlled_chain_member",
-            "same_fingerprint",
-            "same_session",
-            "same_campaign",
-        }:
-            labels[i] = 1.0
-        elif action in ["file_access", "url_access"] and origin_score >= 1.5:
-            labels[i] = 1.0
-        elif action in ["ssh_login"] and origin_score >= 2.0:
-            labels[i] = 1.0
-        elif action in ["execve", "fork", "connect"]:
-            if r < 0.3:
-                labels[i] = 1.0
-        else:
-            if r < core_ratio:
-                labels[i] = 1.0
-
-    data.y = labels
-    return data
-
-
 def load_manual_labels(label_path: str) -> Dict[str, float]:
     """
     Load human-labeled edge decisions.
@@ -660,54 +600,6 @@ def attach_manual_labels(data: Data, label_path: str, strict: bool = False) -> D
     data.manual_label_path = str(Path(label_path).resolve())
     data.manual_label_coverage = float((labels >= 0).sum().item()) / max(len(edges_info), 1)
     return data
-
-
-def load_graphs_for_training(filepath: str, num_graphs: int = 100,
-                             augment: bool = True, base_seed: int = 42,
-                             allow_weak_label_smoke_test: bool = False) -> List[Data]:
-    """Generate weak-label graph copies for explicit software smoke tests.
-
-    These copies are not independent attack scenarios and must never be used to
-    report thesis train/validation/test performance.
-    """
-    if not allow_weak_label_smoke_test:
-        raise RuntimeError(
-            "weak-label same-graph augmentation is disabled for scientific experiments; "
-            "use experiments.dataset.ScenarioDataset with independently split scenarios"
-        )
-    with open(filepath, 'r', encoding='utf-8') as f:
-        graph_data = json.load(f)
-    
-    graphs = []
-    for i in range(num_graphs):
-        if augment:
-            aug_data = augment_graph(graph_data, seed=base_seed + i)
-        else:
-            aug_data = copy.deepcopy(graph_data)
-        
-        data = causal_graph_to_pyg(aug_data)
-        # 每个样本用不同 seed，但整体确定性可复现
-        core_r = 0.2 + _edge_hash(base_seed, i) * 0.2  # 0.2 ~ 0.4
-        data = generate_synthetic_labels(data, core_ratio=core_r,
-                                         seed=base_seed + i)
-        graphs.append(data)
-    
-    return graphs
-
-
-def augment_graph(graph_data: Dict, drop_ratio: float = 0.1,
-                  seed: int = 0) -> Dict:
-    """图数据增强（确定性）"""
-    aug_data = copy.deepcopy(graph_data)
-    
-    edges = aug_data.get("edges", [])
-    if len(edges) > 2:
-        num_drop = max(1, int(len(edges) * drop_ratio))
-        rng = np.random.RandomState(seed)
-        drop_indices = rng.choice(len(edges), num_drop, replace=False)
-        aug_data["edges"] = [e for i, e in enumerate(edges) if i not in drop_indices]
-    
-    return aug_data
 
 
 def get_graph_statistics(filepath: str) -> Dict:

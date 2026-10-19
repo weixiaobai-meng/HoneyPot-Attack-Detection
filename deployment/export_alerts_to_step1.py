@@ -4,13 +4,12 @@ Export honeypot alerts into the thesis experiment pipeline.
 This script separates the useful data-export path from the old one-click
 installation/deployment path.
 
-Workflows:`r`n1. simulate: create a reproducible three-honeypot experiment under generated_runs/.
-2. export-live: collect live logs and write the normal step1-step4 pipeline files.
+Workflows: export live honeypot alerts into the step1-step4 pipeline or prepare a
+controlled scenario for independent human annotation.
 """
 
 import argparse
 import json
-import random
 import sys
 from collections import Counter, defaultdict
 from copy import deepcopy
@@ -32,10 +31,6 @@ EDGE_FEATURE_NAMES = None
 NUM_EDGE_FEATURES = None
 attack_origin_reasons = None
 attack_origin_score = None
-attach_manual_labels = None
-get_graph_statistics = None
-load_graph_from_file = None
-load_graphs_for_training = None
 DQN_IMPORT_ERROR = None
 DQN_TOOLS_LOADED = False
 
@@ -46,10 +41,6 @@ def _load_dqn_tools() -> bool:
     global NUM_EDGE_FEATURES
     global attack_origin_reasons
     global attack_origin_score
-    global attach_manual_labels
-    global get_graph_statistics
-    global load_graph_from_file
-    global load_graphs_for_training
     global DQN_IMPORT_ERROR
     global DQN_TOOLS_LOADED
 
@@ -63,20 +54,12 @@ def _load_dqn_tools() -> bool:
             NUM_EDGE_FEATURES as _NUM_EDGE_FEATURES,
             attack_origin_reasons as _attack_origin_reasons,
             attack_origin_score as _attack_origin_score,
-            attach_manual_labels as _attach_manual_labels,
-            get_graph_statistics as _get_graph_statistics,
-            load_graph_from_file as _load_graph_from_file,
-            load_graphs_for_training as _load_graphs_for_training,
         )
         DQNTrainer = _DQNTrainer
         EDGE_FEATURE_NAMES = _EDGE_FEATURE_NAMES
         NUM_EDGE_FEATURES = _NUM_EDGE_FEATURES
         attack_origin_reasons = _attack_origin_reasons
         attack_origin_score = _attack_origin_score
-        attach_manual_labels = _attach_manual_labels
-        get_graph_statistics = _get_graph_statistics
-        load_graph_from_file = _load_graph_from_file
-        load_graphs_for_training = _load_graphs_for_training
         DQN_IMPORT_ERROR = None
     except ModuleNotFoundError as exc:
         if getattr(exc, "name", "") not in {"torch", "torch_geometric"}:
@@ -87,10 +70,9 @@ def _load_dqn_tools() -> bool:
     return DQNTrainer is not None
 
 
-DEFAULT_RUN_DIR = REPO_ROOT / "generated_runs" / "three_honeypot_pipeline"
 MAX_ALERTS_FOR_LIVE_ANALYSIS = 10000
 DQN_PARTITION_EDGES = 512
-MAX_SIMULATED_KEPT_EDGES = 5000
+MAX_FALLBACK_KEPT_EDGES = 5000
 MAX_PROMPT_EDGES = 200
 SYSTEMWIRE2_ROOT = REPO_ROOT / "systemwire2"
 
@@ -431,19 +413,6 @@ def enrich_alerts_with_systemwire2_intel(alerts: List[UnifiedAlert]) -> List[Uni
     return enriched_alerts
 
 
-def enrich_simulated_alert_groups(alert_groups: Dict[str, List[UnifiedAlert]]) -> Dict[str, List[UnifiedAlert]]:
-    all_alerts: List[UnifiedAlert] = []
-    ordered_group_names = ["file", "account", "parasitic", "audit"]
-    for group_name in ordered_group_names:
-        all_alerts.extend(alert_groups.get(group_name, []))
-
-    enriched = enrich_alerts_with_systemwire2_intel(all_alerts)
-    grouped: Dict[str, List[UnifiedAlert]] = {name: [] for name in ordered_group_names}
-    for alert in enriched:
-        grouped.setdefault(alert.alert_type.value, []).append(alert)
-    return grouped
-
-
 def rel(path: Path) -> str:
     try:
         return str(path.resolve().relative_to(REPO_ROOT.resolve())).replace("\\", "/")
@@ -575,219 +544,6 @@ def build_prompt_graph(graph_data, max_edges=MAX_PROMPT_EDGES):
         "path_guarantee_applies": len(prompt_edges) == len(edges),
     }
     return prompt_graph
-
-
-def create_simulated_deployments():
-    created_at = "2026-06-03T09:50:00"
-    return [
-        {
-            "deployment_id": "deploy_file_001",
-            "honeypot_type": "file",
-            "agent_id": "localprobe01",
-            "created_at": created_at,
-            "bait_name": "2026_Q2_budget_plan.docx",
-            "deploy_path": "/finance/share/2026_Q2_budget_plan.docx",
-            "alert_sink": "alert_server:/contact/file-token-budget-001",
-            "purpose": "Bait access to high-value business document",
-        },
-        {
-            "deployment_id": "deploy_account_001",
-            "honeypot_type": "account",
-            "agent_id": "localprobe01",
-            "created_at": created_at,
-            "service": "ssh",
-            "listen_port": 22,
-            "bait_accounts": ["root", "opsadmin"],
-            "alert_sink": "ssh-vpn/ssh_auth_log.json",
-            "purpose": "Capture credential guessing and SSH client characteristics",
-        },
-        {
-            "deployment_id": "deploy_parasitic_001",
-            "honeypot_type": "parasitic",
-            "agent_id": "localprobe01",
-            "created_at": created_at,
-            "target_dir": "/var/www/intranet",
-            "inject_mode": "script_tag",
-            "js_source": "js/latest/bot/static/inject.js",
-            "alert_sink": "js/latest/bot log/database",
-            "purpose": "Collect browser fingerprint and session behavior after web access",
-        },
-    ]
-
-
-def create_simulated_honeypot_alerts():
-    """Create a small but complete story covering all three honeypots."""
-    base = datetime(2026, 6, 3, 10, 0, 0)
-    attacker = "203.0.113.77"
-    probe_host = "10.10.30.21"
-
-    account_alerts = [
-        UnifiedAlert(
-            alert_id="sim_account_001",
-            alert_type=AlertType.ACCOUNT_HONEYPOT,
-            timestamp=base,
-            attacker_ip=attacker,
-            target_host=probe_host,
-            action="ssh_login",
-            details={
-                "protocol": "ssh",
-                "attack_type": "SSH password authentication attempt",
-                "username": "root",
-                "password": "123456",
-                "client_version": "SSH-2.0-libssh2_1.11.1",
-                "client_family": "libssh2 scanner/automation tool",
-                "src_port": "51244",
-                "dst_port": "22",
-            },
-        ),
-        UnifiedAlert(
-            alert_id="sim_account_002",
-            alert_type=AlertType.ACCOUNT_HONEYPOT,
-            timestamp=base + timedelta(minutes=2),
-            attacker_ip=attacker,
-            target_host=probe_host,
-            action="ssh_login",
-            details={
-                "protocol": "ssh",
-                "attack_type": "SSH password authentication attempt",
-                "username": "opsadmin",
-                "password": "Admin@2024",
-                "client_version": "SSH-2.0-OpenSSH_8.9",
-                "client_family": "OpenSSH client",
-                "src_port": "51288",
-                "dst_port": "22",
-            },
-        ),
-    ]
-
-    file_alerts = [
-        UnifiedAlert(
-            alert_id="sim_file_001",
-            alert_type=AlertType.FILE_HONEYPOT,
-            timestamp=base + timedelta(minutes=6),
-            attacker_ip=attacker,
-            target_path="/finance/share/2026_Q2_budget_plan.docx",
-            action="file_access",
-            details={
-                "filename": "2026_Q2_budget_plan.docx",
-                "token": "file-token-budget-001",
-                "token_url": "http://127.0.0.1:9090/contact/file-token-budget-001",
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-                "deployment_summary": f"{probe_host}:/finance/share/2026_Q2_budget_plan.docx",
-            },
-        ),
-        UnifiedAlert(
-            alert_id="sim_file_002",
-            alert_type=AlertType.FILE_HONEYPOT,
-            timestamp=base + timedelta(minutes=9),
-            attacker_ip=attacker,
-            target_path="/finance/share/vpn_accounts.xlsx",
-            action="file_access",
-            details={
-                "filename": "vpn_accounts.xlsx",
-                "token": "file-token-vpn-002",
-                "token_url": "http://127.0.0.1:9090/contact/file-token-vpn-002",
-                "user_agent": "curl/8.1.2",
-                "deployment_summary": f"{probe_host}:/finance/share/vpn_accounts.xlsx",
-            },
-        ),
-    ]
-
-    parasitic_alerts = [
-        UnifiedAlert(
-            alert_id="sim_parasitic_001",
-            alert_type=AlertType.PARASITIC_HONEYPOT,
-            timestamp=base + timedelta(minutes=12),
-            attacker_ip=attacker,
-            target_path="http://intranet.local/login.html",
-            action="url_access",
-            details={
-                "fingerprint": "fp-win-chrome-8842",
-                "url": "http://intranet.local/login.html",
-                "browser": "Chrome 121",
-                "os": "Windows 10",
-                "user_agent": "Mozilla/5.0 Chrome/121.0",
-                "session_id": "sess-sim-001",
-                "real_ips": ["192.168.56.20"],
-                "test_info": "Injected JS beacon collected browser fingerprint and session metadata",
-            },
-            session_id="sess-sim-001",
-        ),
-        UnifiedAlert(
-            alert_id="sim_parasitic_002",
-            alert_type=AlertType.PARASITIC_HONEYPOT,
-            timestamp=base + timedelta(minutes=14),
-            attacker_ip=attacker,
-            target_path="http://intranet.local/admin.html",
-            action="url_access",
-            details={
-                "fingerprint": "fp-win-chrome-8842",
-                "url": "http://intranet.local/admin.html",
-                "browser": "Chrome 121",
-                "os": "Windows 10",
-                "user_agent": "Mozilla/5.0 Chrome/121.0",
-                "session_id": "sess-sim-001",
-                "real_ips": ["192.168.56.20"],
-                "test_info": "Same browser fingerprint revisited a higher-value page",
-            },
-            session_id="sess-sim-001",
-        ),
-    ]
-
-    audit_alerts = [
-        UnifiedAlert(
-            alert_id="sim_audit_001",
-            alert_type=AlertType.AUDIT_EVENT,
-            timestamp=base + timedelta(minutes=16),
-            action="execve",
-            target_path="/usr/bin/cat",
-            process_info={"pid": "4201", "ppid": "4190", "exe": "/usr/bin/cat", "user": "opsadmin"},
-            details={"reason": "attacker tried reading collected credential file"},
-        ),
-        UnifiedAlert(
-            alert_id="sim_audit_002",
-            alert_type=AlertType.AUDIT_EVENT,
-            timestamp=base + timedelta(minutes=16, seconds=15),
-            action="read",
-            target_path="/finance/share/vpn_accounts.xlsx",
-            process_info={"pid": "4201", "ppid": "4190", "exe": "/usr/bin/cat", "user": "opsadmin"},
-            details={"reason": "file honeypot bait was opened from shell"},
-        ),
-        UnifiedAlert(
-            alert_id="sim_audit_003",
-            alert_type=AlertType.AUDIT_EVENT,
-            timestamp=base + timedelta(minutes=18),
-            action="openat",
-            target_path="/tmp/browser-cache.tmp",
-            process_info={"pid": "4205", "ppid": "4190", "exe": "/usr/bin/browser-helper", "user": "opsadmin"},
-            details={"reason": "low-value local cache access used as pruning noise"},
-        ),
-        UnifiedAlert(
-            alert_id="sim_audit_004",
-            alert_type=AlertType.AUDIT_EVENT,
-            timestamp=base + timedelta(minutes=19),
-            action="write",
-            target_path="/tmp/session.tmp",
-            process_info={"pid": "4206", "ppid": "4190", "exe": "/usr/bin/browser-helper", "user": "opsadmin"},
-            details={"reason": "low-value temporary write used as pruning noise"},
-        ),
-        UnifiedAlert(
-            alert_id="sim_audit_005",
-            alert_type=AlertType.AUDIT_EVENT,
-            timestamp=base + timedelta(minutes=20),
-            action="connect",
-            target_path="198.51.100.23:443",
-            process_info={"pid": "4210", "ppid": "4190", "exe": "/usr/bin/curl", "user": "opsadmin"},
-            details={"reason": "possible command-and-control or exfiltration connection"},
-        ),
-    ]
-
-    return {
-        "file": file_alerts,
-        "account": account_alerts,
-        "parasitic": parasitic_alerts,
-        "audit": audit_alerts,
-    }
 
 
 def alert_to_dict(alert: UnifiedAlert):
@@ -1077,7 +833,7 @@ def _annotate_pruning_basis(graph_data: Dict[str, Any], pruned: Dict[str, Any]) 
     return pruned
 
 
-def simulate_pruning(graph_data, paths, fallback_reason=None):
+def deterministic_fallback_pruning(graph_data, paths, fallback_reason=None):
     _load_dqn_tools()
     important_actions = {"file_access", "url_access", "read", "connect", "execve"}
     important_relations = {
@@ -1106,21 +862,21 @@ def simulate_pruning(graph_data, paths, fallback_reason=None):
         kept = edges[-1:]
 
     capped = False
-    if len(kept) > MAX_SIMULATED_KEPT_EDGES:
-        kept = kept[-MAX_SIMULATED_KEPT_EDGES:]
+    if len(kept) > MAX_FALLBACK_KEPT_EDGES:
+        kept = kept[-MAX_FALLBACK_KEPT_EDGES:]
         capped = True
 
     from step2_causal_graph.evidence import restore_required_evidence
     kept, constraint_audit = restore_required_evidence(graph_data, kept)
 
     pruning_stats = {
-        "mode": "deterministic_simulation",
+        "mode": "deterministic_fallback",
         "original_edges": len(edges),
         "kept_edges": len(kept),
         "pruned_edges": max(len(edges) - len(kept), 0),
         "compression_ratio": f"{(100 * (len(edges) - len(kept)) / len(edges)):.1f}%" if edges else "0.0%",
         "kept_edge_cap_applied": capped,
-        "kept_edge_cap_overridden_for_constraints": len(kept) > MAX_SIMULATED_KEPT_EDGES,
+        "kept_edge_cap_overridden_for_constraints": len(kept) > MAX_FALLBACK_KEPT_EDGES,
         "path_constraints_enabled": True,
         "global_constraint_check": constraint_audit,
         "feature_source": "attack_origin_constrained_honeypot_evidence",
@@ -1340,7 +1096,7 @@ def run_steps_from_unified(alerts, paths):
 
     pruned, fallback_reason = run_dqn_pruning(paths, graph_data)
     if pruned is None:
-        pruned = simulate_pruning(graph_data, paths, fallback_reason=fallback_reason)
+        pruned = deterministic_fallback_pruning(graph_data, paths, fallback_reason=fallback_reason)
     return write_step4_outputs(paths, graph_data, pruned)
 
 
@@ -1414,391 +1170,8 @@ def summarize(alerts, graph_data, pruned, split_paths, paths, mode, deployments=
     return summary
 
 
-def copy_run_to_defaults(source_paths):
-    default_paths = build_default_paths()
-    ensure_dirs(default_paths)
-    mapping = [
-        (source_paths["deployments"], default_paths["deployments"]),
-        (source_paths["collected_alerts"], default_paths["collected_alerts"]),
-        (source_paths["step1"], default_paths["step1"]),
-        (source_paths["canonical_events"], default_paths["canonical_events"]),
-        (source_paths["step2"], default_paths["step2"]),
-        (source_paths["step2_mermaid"], default_paths["step2_mermaid"]),
-        (source_paths["step2_triples"], default_paths["step2_triples"]),
-        (source_paths["step2_event_sequence"], default_paths["step2_event_sequence"]),
-        (source_paths["step2_provenance_chains"], default_paths["step2_provenance_chains"]),
-        (source_paths["step3"], default_paths["step3"]),
-        (source_paths["step4_intent"], default_paths["step4_intent"]),
-        (source_paths["step4_ttp"], default_paths["step4_ttp"]),
-        (source_paths["step4_report"], default_paths["step4_report"]),
-        (source_paths["step4_thesis"], default_paths["step4_thesis"]),
-        (source_paths["summary"], default_paths["summary"]),
-    ]
-    optional_mapping = [
-        (source_paths.get("step3_edge_labels"), default_paths.get("step3_edge_labels")),
-        (source_paths.get("step4_llm_report"), default_paths.get("step4_llm_report")),
-        (source_paths.get("step4_llm_report_meta"), default_paths.get("step4_llm_report_meta")),
-    ]
-    for name in ["file_alerts.json", "account_alerts.json", "parasitic_alerts.json", "audit_alerts.json"]:
-        mapping.append((source_paths["alerts_dir"] / name, default_paths["alerts_dir"] / name))
-    for src, dst in mapping:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_bytes(src.read_bytes())
-    for src, dst in optional_mapping:
-        if src and dst and src.exists():
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            dst.write_bytes(src.read_bytes())
-    return default_paths
-
-
 def _resolve_repo_path(path: Path) -> Path:
     return path if path.is_absolute() else REPO_ROOT / path
-
-
-def _set_reproducible_seed(seed: int) -> None:
-    random.seed(seed)
-    try:
-        import numpy as np
-        np.random.seed(seed)
-    except Exception:
-        pass
-    try:
-        import torch
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-    except Exception:
-        pass
-
-
-def _split_graphs(graphs, seed: int):
-    graphs = list(graphs)
-    random.Random(seed).shuffle(graphs)
-    total = len(graphs)
-    if total == 0:
-        return [], [], []
-    if total == 1:
-        return graphs, graphs, graphs
-    if total == 2:
-        return graphs[:1], graphs[1:], graphs[1:]
-
-    train_count = max(1, int(total * 0.7))
-    val_count = max(1, int(total * 0.15))
-    if train_count + val_count >= total:
-        train_count = max(1, total - 2)
-        val_count = 1
-    train_graphs = graphs[:train_count]
-    val_graphs = graphs[train_count:train_count + val_count]
-    test_graphs = graphs[train_count + val_count:]
-    return train_graphs, val_graphs, test_graphs or val_graphs
-
-
-def _pruning_metrics_from_actions(actions, labels):
-    pairs = [(int(action), int(label)) for action, label in zip(actions, labels) if int(label) >= 0]
-    if not pairs:
-        return {
-            "accuracy": 0.0,
-            "precision": 0.0,
-            "recall": 0.0,
-            "f1": 0.0,
-            "core_recall": 0.0,
-            "ckc": 0.0,
-            "cpr": 0.0,
-            "wpc": 0.0,
-            "wkr": 0.0,
-            "labeled_edges": 0.0,
-            "label_coverage": 0.0,
-        }
-
-    ckc = sum(1 for action, label in pairs if action == 0 and label == 1)
-    cpr = sum(1 for action, label in pairs if action == 1 and label == 0)
-    wpc = sum(1 for action, label in pairs if action == 1 and label == 1)
-    wkr = sum(1 for action, label in pairs if action == 0 and label == 0)
-    total = max(len(pairs), 1)
-    accuracy = (ckc + cpr) / total
-    precision = cpr / max(cpr + wpc, 1)
-    recall = cpr / max(cpr + wkr, 1)
-    f1 = 2 * precision * recall / max(precision + recall, 1e-8)
-    core_recall = ckc / max(ckc + wpc, 1)
-    return {
-        "accuracy": accuracy,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "core_recall": core_recall,
-        "ckc": float(ckc),
-        "cpr": float(cpr),
-        "wpc": float(wpc),
-        "wkr": float(wkr),
-        "labeled_edges": float(total),
-        "label_coverage": 1.0,
-    }
-
-
-def _evaluate_action_rule_baseline(graphs):
-    important_actions = {"vpn_connect", "file_access", "url_access", "execve", "connect", "read"}
-    important_relations = {
-        "web_to_account",
-        "account_to_file",
-        "web_to_file",
-        "stage_transition",
-        "controlled_chain_member",
-        "same_fingerprint",
-        "same_session",
-        "same_campaign",
-        "web_to_account_causal",
-        "account_to_file_causal",
-        "web_to_file_causal",
-    }
-    metrics = []
-    for graph in graphs:
-        labels = getattr(graph, "y", None)
-        edges_info = getattr(graph, "edges_info", [])
-        if labels is None:
-            continue
-        label_values = labels.long().cpu().tolist()
-        actions = [
-            0 if (
-                edge.get("action") in important_actions
-                or edge.get("relation_type") in important_relations
-                or _edge_attack_origin_score(edge) >= 2.0
-            ) else 1
-            for edge in edges_info
-        ]
-        metrics.append(_pruning_metrics_from_actions(actions, label_values))
-    if not metrics:
-        return _pruning_metrics_from_actions([], [])
-    return {key: sum(item[key] for item in metrics) / len(metrics) for key in metrics[0]}
-
-
-def _install_dqn_checkpoint(checkpoint_path: Path):
-    target = build_default_paths()["step3_checkpoint"]
-    target.parent.mkdir(parents=True, exist_ok=True)
-    result = {"installed_checkpoint": rel(target)}
-    if target.exists():
-        backup = target.with_name(f"{target.stem}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}{target.suffix}")
-        backup.write_bytes(target.read_bytes())
-        result["previous_checkpoint_backup"] = rel(backup)
-    target.write_bytes(checkpoint_path.read_bytes())
-    return result
-
-
-def _read_label_class_counts(label_file: Path) -> Dict[str, int]:
-    with open(label_file, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-
-    values = []
-    if isinstance(payload, dict):
-        values = list(payload.values())
-    elif isinstance(payload, list):
-        values = [item.get("label") for item in payload if isinstance(item, dict) and item.get("label") is not None]
-
-    counts = Counter()
-    for value in values:
-        try:
-            label = str(int(float(value)))
-        except (TypeError, ValueError):
-            label = "other"
-        counts[label] += 1
-    return {key: int(counts.get(key, 0)) for key in ["1", "0", "other"]}
-
-
-def _apply_manual_labels_to_training_graphs(graphs, label_file: Path):
-    """Overlay controlled-scenario labels onto weak labels for DQN training."""
-    labeled_graphs = []
-    coverages = []
-    for graph in graphs:
-        weak_labels = graph.y.clone() if hasattr(graph, "y") and graph.y is not None else None
-        labeled = attach_manual_labels(graph, str(label_file), strict=False)
-        coverage = getattr(labeled, "manual_label_coverage", None)
-        if coverage is not None:
-            coverages.append(float(coverage))
-        if weak_labels is not None:
-            missing_mask = labeled.y < 0
-            labeled.y[missing_mask] = weak_labels[missing_mask]
-        labeled_graphs.append(labeled)
-    avg_coverage = sum(coverages) / len(coverages) if coverages else 0.0
-    return labeled_graphs, avg_coverage
-
-
-def train_dqn_experiment(
-    graph_path: Path,
-    output_dir: Path,
-    num_graphs: int,
-    epochs: int,
-    patience: int,
-    lr: float,
-    seed: int,
-    augment: bool,
-    label_file: Path = None,
-    train_with_manual_labels: bool = False,
-    require_label_balance: bool = False,
-    install_checkpoint: bool = False,
-    device: str = "cpu",
-):
-    if not _load_dqn_tools() or load_graphs_for_training is None:
-        reason = f"step3 DQN dependencies unavailable: {DQN_IMPORT_ERROR}"
-        raise RuntimeError(reason)
-
-    graph_path = _resolve_repo_path(graph_path)
-    output_dir = _resolve_repo_path(output_dir)
-    label_file = _resolve_repo_path(label_file) if label_file else None
-    if not graph_path.exists():
-        raise FileNotFoundError(f"graph path not found: {graph_path}")
-    if label_file and not label_file.exists():
-        raise FileNotFoundError(f"label file not found: {label_file}")
-    manual_label_class_counts = _read_label_class_counts(label_file) if label_file else {}
-    label_balance_warning = ""
-    if train_with_manual_labels:
-        if not label_file:
-            raise ValueError("--train-with-manual-labels requires --label-file")
-        has_core = manual_label_class_counts.get("1", 0) > 0
-        has_noise = manual_label_class_counts.get("0", 0) > 0
-        if not has_core or not has_noise:
-            label_balance_warning = (
-                "manual labels do not contain both core edges (1) and noise edges (0); "
-                "this run can validate chain retention but should not be claimed as a full pruning experiment"
-            )
-            if require_label_balance:
-                raise ValueError(label_balance_warning)
-
-    _set_reproducible_seed(seed)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = output_dir / "checkpoints" / "dqn_best.pt"
-    pruned_path = output_dir / "pruned_graph.json"
-    summary_path = output_dir / "dqn_experiment_summary.json"
-    thesis_path = output_dir / "thesis_analysis_after_dqn.md"
-
-    graphs = load_graphs_for_training(
-        str(graph_path),
-        num_graphs=num_graphs,
-        augment=augment,
-        base_seed=seed,
-        allow_weak_label_smoke_test=True,
-    )
-    training_manual_label_coverage = None
-    if train_with_manual_labels:
-        graphs, training_manual_label_coverage = _apply_manual_labels_to_training_graphs(graphs, label_file)
-    train_graphs, val_graphs, test_graphs = _split_graphs(graphs, seed)
-
-    trainer_device = None if str(device).lower() == "auto" else device
-    trainer = DQNTrainer(lr=lr, epochs=epochs, patience=patience, device=trainer_device,
-                         use_path_constraints=True)
-    trainer.train(train_graphs, val_graphs, save_path=str(checkpoint_path))
-
-    train_metrics = trainer._evaluate(train_graphs)
-    val_metrics = trainer._evaluate(val_graphs)
-    test_metrics = trainer.evaluate_on_test(test_graphs)
-    baseline_metrics = _evaluate_action_rule_baseline(test_graphs)
-
-    manual_metrics = None
-    manual_label_coverage = None
-    if label_file:
-        manual_graph = attach_manual_labels(load_graph_from_file(str(graph_path)), str(label_file), strict=False)
-        manual_label_coverage = getattr(manual_graph, "manual_label_coverage", None)
-        manual_metrics = trainer.evaluate_on_test([manual_graph])
-
-    pruned = trainer.predict_and_prune(str(graph_path), str(pruned_path))
-    stats = pruned.get("pruning_stats", {})
-    stats["mode"] = "dqn_reproducible_experiment"
-    stats["checkpoint"] = rel(checkpoint_path)
-    stats["feature_source"] = "attack_origin_constrained_honeypot_evidence"
-    pruned["pruning_stats"] = stats
-    with open(graph_path, "r", encoding="utf-8") as f:
-        train_graph_data = json.load(f)
-    pruned = _annotate_pruning_basis(train_graph_data, pruned)
-    dump_json(pruned_path, pruned)
-
-    converter = GraphToTextConverter()
-    converter.save(converter.convert_to_thesis_analysis(pruned), str(thesis_path))
-
-    install_info = _install_dqn_checkpoint(checkpoint_path) if install_checkpoint else {}
-    summary = {
-        "mode": "train-dqn",
-        "generated_at": datetime.now().isoformat(),
-        "graph_path": rel(graph_path),
-        "output_dir": rel(output_dir),
-        "config": {
-            "seed": seed,
-            "num_graphs": num_graphs,
-            "augment": augment,
-            "epochs": epochs,
-            "patience": patience,
-            "lr": lr,
-            "device": device,
-            "edge_feature_dim": NUM_EDGE_FEATURES,
-            "edge_feature_source": "attack_origin_constrained_honeypot_evidence",
-            "edge_feature_note": (
-                "Edge features encode upstream honeypot evidence: relation_type, cross-honeypot transition, "
-                "shared fingerprint/session/campaign, confidence and time delta. Experiment labels are excluded."
-            ),
-            "label_source": (
-                "manual_controlled_labels_override_weak_labels"
-                if train_with_manual_labels
-                else "deterministic_weak_labels"
-            ),
-            "manual_label_eval_file": rel(label_file) if label_file else "",
-            "manual_labels_used_for_training": bool(train_with_manual_labels),
-            "training_manual_label_coverage": training_manual_label_coverage,
-            "manual_label_class_counts": manual_label_class_counts,
-            "label_balance_warning": label_balance_warning,
-            "require_label_balance": bool(require_label_balance),
-        },
-        "splits": {
-            "train_graphs": len(train_graphs),
-            "validation_graphs": len(val_graphs),
-            "test_graphs": len(test_graphs),
-        },
-        "graph_statistics": get_graph_statistics(str(graph_path)),
-        "metrics": {
-            "train": train_metrics,
-            "validation": val_metrics,
-            "test": test_metrics,
-            "action_rule_baseline_test": baseline_metrics,
-            "manual_label_eval": manual_metrics,
-            "manual_label_coverage": manual_label_coverage,
-        },
-        "outputs": {
-            "checkpoint": rel(checkpoint_path),
-            "pruned_graph": rel(pruned_path),
-            "thesis_analysis_after_dqn": rel(thesis_path),
-            "summary": rel(summary_path),
-            **install_info,
-        },
-        "note": (
-            "By default labels are deterministic weak labels derived from attack-origin evidence on graph edges. "
-            "When --train-with-manual-labels is set, controlled-scenario labels override weak labels "
-            "for matching edge_ids and unmatched edges retain weak labels for trainability."
-        ),
-    }
-    dump_json(summary_path, summary)
-    print_summary({
-        "mode": "train-dqn",
-        "deployment_count": 0,
-        "total_alerts": 0,
-        "alert_counts": {},
-        "graph": {
-            "nodes": summary["graph_statistics"]["num_nodes"],
-            "edges": summary["graph_statistics"]["num_edges"],
-        },
-        "pruning_stats": pruned.get("pruning_stats", {}),
-        "outputs": summary["outputs"],
-    })
-    print(f"DQN metrics: {json.dumps(summary['metrics'], ensure_ascii=False)}")
-    return summary
-
-
-def simulate(run_dir: Path, write_defaults: bool):
-    paths = build_run_paths(run_dir)
-    deployments = create_simulated_deployments()
-    groups = enrich_simulated_alert_groups(create_simulated_honeypot_alerts())
-    alerts, split_paths = write_split_and_unified(groups, paths, deployments=deployments)
-    graph_data, pruned, _prompts = run_steps_from_unified(alerts, paths)
-    if write_defaults:
-        copy_run_to_defaults(paths)
-    summary = summarize(alerts, graph_data, pruned, split_paths, paths, "simulate", deployments=deployments)
-    print_summary(summary)
-    return summary
 
 
 def export_live(hours: int, run_dir: Path = None, checkpoint: Path = None):
@@ -2060,10 +1433,6 @@ def main():
     parser = argparse.ArgumentParser(description="Export honeypot alerts into the step1-step4 experiment pipeline.")
     subparsers = parser.add_subparsers(dest="mode", required=True)
 
-    sim_parser = subparsers.add_parser("simulate", help="run an isolated three-honeypot simulation")
-    sim_parser.add_argument("--run-dir", type=Path, default=DEFAULT_RUN_DIR, help="simulation output directory")
-    sim_parser.add_argument("--write-defaults", action="store_true", help="also copy simulation outputs into normal deployment/step output paths")
-
     live_parser = subparsers.add_parser("export-live", help="collect live logs and export to step outputs")
     live_parser.add_argument("--hours", type=int, default=24, help="time window for live collection")
     live_parser.add_argument("--run-dir", type=Path, default=None, help="optional isolated output directory instead of normal output paths")
@@ -2089,30 +1458,8 @@ def main():
     scenario_parser.add_argument("--chain-campaign-id", action="append", default=[], help="controlled campaign id carried by real trigger traffic; repeatable")
     scenario_parser.add_argument("--checkpoint", type=Path, help="validated benchmark DQN checkpoint to use for inference")
 
-    dqn_parser = subparsers.add_parser("train-dqn", help="train and evaluate a reproducible DQN pruning experiment")
-    dqn_parser.add_argument("--graph-path", type=Path, default=build_default_paths()["step2"], help="causal_graph.json used for DQN training/evaluation")
-    dqn_parser.add_argument("--output-dir", type=Path, default=REPO_ROOT / "experiments" / "runs" / "dqn_reproducible", help="DQN experiment output directory")
-    dqn_parser.add_argument("--num-graphs", type=int, default=80, help="number of deterministic augmented graphs")
-    dqn_parser.add_argument("--epochs", type=int, default=80, help="training epochs")
-    dqn_parser.add_argument("--patience", type=int, default=15, help="early-stop patience measured in validation checks")
-    dqn_parser.add_argument("--lr", type=float, default=1e-3, help="learning rate")
-    dqn_parser.add_argument("--seed", type=int, default=42, help="reproducibility seed")
-    dqn_parser.add_argument("--no-augment", action="store_true", help="disable graph augmentation")
-    dqn_parser.add_argument("--label-file", type=Path, default=None, help="optional human edge-label JSON for extra evaluation")
-    dqn_parser.add_argument("--train-with-manual-labels", action="store_true", help="use --label-file labels during training; matching edge_ids override weak labels")
-    dqn_parser.add_argument("--require-label-balance", action="store_true", help="fail when manual labels lack either keep/core edges or prune/noise edges")
-    dqn_parser.add_argument("--install-checkpoint", action="store_true", help="copy the trained checkpoint to the default step3 checkpoint path")
-    dqn_parser.add_argument("--device", default="cpu", help="cpu, cuda, or auto")
-    dqn_parser.add_argument(
-        "--allow-single-scenario-smoke-test",
-        action="store_true",
-        help="allow legacy same-graph augmentation for software smoke tests only; results are invalid for thesis claims",
-    )
-
     args = parser.parse_args()
-    if args.mode == "simulate":
-        simulate(args.run_dir, args.write_defaults)
-    elif args.mode == "export-live":
+    if args.mode == "export-live":
         export_live(args.hours, args.run_dir, args.checkpoint)
     elif args.mode == "export-balanced-live":
         export_balanced_live(args.hours, args.run_dir, args.per_type, args.exclude_ip, args.checkpoint)
@@ -2132,29 +1479,6 @@ def main():
             chain_alert_ids=args.chain_alert_id,
             chain_campaign_ids=args.chain_campaign_id,
             checkpoint=args.checkpoint,
-        )
-    else:
-        if not args.allow_single_scenario_smoke_test:
-            raise RuntimeError(
-                "single-graph DQN training is disabled for scientific experiments because augmented copies leak "
-                "across train/validation/test. Build an independent scenario manifest and run "
-                "`python -m experiments.run_benchmark --manifest ... --output-dir ...`. "
-                "Use --allow-single-scenario-smoke-test only for software diagnostics."
-            )
-        train_dqn_experiment(
-            graph_path=args.graph_path,
-            output_dir=args.output_dir,
-            num_graphs=args.num_graphs,
-            epochs=args.epochs,
-            patience=args.patience,
-            lr=args.lr,
-            seed=args.seed,
-            augment=not args.no_augment,
-            label_file=args.label_file,
-            train_with_manual_labels=args.train_with_manual_labels,
-            require_label_balance=args.require_label_balance,
-            install_checkpoint=args.install_checkpoint,
-            device=args.device,
         )
 
 

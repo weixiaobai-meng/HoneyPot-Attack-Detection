@@ -16,10 +16,8 @@ from .graph_loader import (
     attack_origin_score,
     is_protected_origin_edge,
     attach_manual_labels,
-    generate_synthetic_labels,
     get_graph_statistics,
     load_graph_from_file,
-    load_graphs_for_training,
     load_manual_labels,
 )
 
@@ -40,7 +38,5 @@ __all__ = [
     'load_graph_from_file',
     'load_manual_labels',
     'attach_manual_labels',
-    'generate_synthetic_labels',
-    'load_graphs_for_training',
     'get_graph_statistics'
 ]

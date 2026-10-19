@@ -107,26 +107,6 @@ def pruning_metrics_from_actions(actions: torch.Tensor, labels: torch.Tensor):
     }
 
 
-def compute_graph_metrics(model, data, device):
-    """Compatibility helper for legacy smoke-test scripts.
-
-    It is a one-shot classifier-style evaluation and is intentionally not used
-    by the scenario-isolated DQN benchmark.
-    """
-    model.eval()
-    with torch.no_grad():
-        edge_count = int(data.edge_index.size(1))
-        edge_attr = getattr(data, "edge_attr", None)
-        edge_mask = torch.ones(edge_count, dtype=torch.bool, device=device)
-        q_values, _ = model(
-            data.x.to(device),
-            data.edge_index.to(device),
-            edge_attr.to(device) if edge_attr is not None else None,
-            edge_mask,
-        )
-    return pruning_metrics_from_actions(q_values.argmax(dim=1).cpu(), data.y.cpu())
-
-
 def _mean_metrics(rows):
     if not rows:
         return pruning_metrics_from_actions(torch.tensor([]), torch.tensor([]))

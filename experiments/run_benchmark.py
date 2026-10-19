@@ -332,14 +332,13 @@ def run_benchmark(
     feature_ablations,
     device,
     mechanism_ablations=(),
-    allow_small_dataset_smoke_test=False,
 ):
     dataset = ScenarioDataset(
         manifest,
         require_complete_labels=True,
-        require_double_annotation=not allow_small_dataset_smoke_test,
-        require_raw_alerts=not allow_small_dataset_smoke_test,
-        minimum_split_counts=None if allow_small_dataset_smoke_test else {"train": 6, "validation": 2, "test": 2},
+        require_double_annotation=True,
+        require_raw_alerts=True,
+        minimum_split_counts={"train": 6, "validation": 2, "test": 2},
     )
     validation = dataset.assert_valid(require_all_splits=True)
     output_dir = Path(output_dir).resolve()
@@ -400,7 +399,7 @@ def run_benchmark(
             "feature_ablations": list(feature_ablations),
             "mechanism_ablations": list(mechanism_ablations),
             "device": device,
-            "formal_dataset_requirements_enforced": not allow_small_dataset_smoke_test,
+            "formal_dataset_requirements_enforced": True,
             "test_labels_used_for_inference": False,
             "split_unit": "independent_attack_scenario",
         },
@@ -433,11 +432,6 @@ def main():
         default="",
         help="comma-separated DQN mechanisms: dynamic_state,terminal_reward,shuffled_order",
     )
-    parser.add_argument(
-        "--allow-small-dataset-smoke-test",
-        action="store_true",
-        help="relax formal dataset size/reviewer requirements for software diagnostics only",
-    )
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
     seeds = [int(value) for value in args.seeds.split(",") if value.strip()]
@@ -455,7 +449,6 @@ def main():
         feature_ablations,
         args.device,
         mechanism_ablations=mechanism_ablations,
-        allow_small_dataset_smoke_test=args.allow_small_dataset_smoke_test,
     )
     print(json.dumps(payload["aggregate"], ensure_ascii=False, indent=2))
 
