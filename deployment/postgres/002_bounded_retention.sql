@@ -24,14 +24,18 @@ ON CONFLICT DO NOTHING;
 
 CREATE OR REPLACE FUNCTION retention_track_count() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
-DECLARE kind text := ''; delta integer;
+DECLARE delta integer;
 BEGIN
-    IF TG_TABLE_NAME='alert_events' THEN
-        IF TG_OP='DELETE' THEN kind:=OLD.alert_type; ELSE kind:=NEW.alert_type; END IF;
-    END IF;
     delta := CASE WHEN TG_OP='DELETE' THEN -1 ELSE 1 END;
-    UPDATE alert_retention_policy SET live_rows=live_rows+delta
-      WHERE table_name=TG_TABLE_NAME AND alert_type=kind;
+    IF TG_TABLE_NAME='alert_events' THEN
+        UPDATE alert_retention_policy p SET live_rows=p.live_rows+delta*x.n
+          FROM (SELECT alert_type,count(*) AS n FROM changed_rows GROUP BY alert_type) x
+          WHERE p.table_name=TG_TABLE_NAME AND p.alert_type=x.alert_type;
+    ELSE
+        UPDATE alert_retention_policy p SET live_rows=p.live_rows+delta*x.n
+          FROM (SELECT count(*) AS n FROM changed_rows) x
+          WHERE p.table_name=TG_TABLE_NAME AND p.alert_type='' AND x.n>0;
+    END IF;
     RETURN NULL;
 END $$;
 
@@ -118,7 +122,10 @@ BEGIN
     END LOOP;
     FOR p IN SELECT DISTINCT table_name FROM alert_retention_policy LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS retention_count ON %I',p.table_name);
-        EXECUTE format('CREATE TRIGGER retention_count AFTER INSERT OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION retention_track_count()',p.table_name);
+        EXECUTE format('DROP TRIGGER IF EXISTS retention_count_insert ON %I',p.table_name);
+        EXECUTE format('DROP TRIGGER IF EXISTS retention_count_delete ON %I',p.table_name);
+        EXECUTE format('CREATE TRIGGER retention_count_insert AFTER INSERT ON %I REFERENCING NEW TABLE AS changed_rows FOR EACH STATEMENT EXECUTE FUNCTION retention_track_count()',p.table_name);
+        EXECUTE format('CREATE TRIGGER retention_count_delete AFTER DELETE ON %I REFERENCING OLD TABLE AS changed_rows FOR EACH STATEMENT EXECUTE FUNCTION retention_track_count()',p.table_name);
         EXECUTE format('DROP TRIGGER IF EXISTS retention_limit ON %I',p.table_name);
         EXECUTE format('CREATE CONSTRAINT TRIGGER retention_limit AFTER INSERT ON %I DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION retention_at_commit()',p.table_name);
     END LOOP;

@@ -13,6 +13,7 @@ SSH 隧道 `127.0.0.1:15433` 访问它；公网不开放 5432。
 | 表 | 用途 |
 | --- | --- |
 | alert_events | 所有类型统一告警，唯一事件 ID、时间、来源和幂等键 |
+| all_alerts | 合并三类明细和原始证据的查询视图，不额外复制数据 |
 | file_alert_details / account_alert_details / parasitic_alert_details | 通过 alert_id 外键关联的类型明细 |
 | alert_raw_events | 与统一告警关联的原始证据；孤立记录清理 |
 | account_alerts / trigger_infos | 接收端记录，供同步接口使用，同样限制数量 |
@@ -79,4 +80,5 @@ JSON 模型字段保留 PostgreSQL JSON 类型，原始证据文本保留 TEXT�
 电脑连接：先运行 `ssh -N -L 15432:127.0.0.1:5432 zhangsan@43.163.94.52`。
 Navicat/DBeaver：主机 `127.0.0.1`，端口 `15432`，库 `honeypot`，账号 `honeypot_reader`。
 只读密码在探针 `/etc/honeypot/readonly.json`，用 sudo 查看，不粘贴到论文或 Git。
+统一查询：`SELECT * FROM all_alerts ORDER BY alert_time DESC,id DESC LIMIT 100;`。
 实验导出注入 `SYSTEMWIRE_DATABASE_URL`；连接失败明确报错，不读取旧 SQLite。
