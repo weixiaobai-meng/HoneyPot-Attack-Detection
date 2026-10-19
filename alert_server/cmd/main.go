@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"server/internal/handlers"
 	"server/internal/routes"
 	"server/pkg"
@@ -107,6 +108,9 @@ func main() {
 	db, err := pkg.InitDB()
 	if err != nil {
 		logrus.Error("数据库初始化失败")
+		return
+	}
+	if os.Getenv("ALERT_MIGRATE_ONLY") == "1" {
 		return
 	}
 

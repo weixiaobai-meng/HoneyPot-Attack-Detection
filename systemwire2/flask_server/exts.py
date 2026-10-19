@@ -4,7 +4,7 @@ from flask_apscheduler import APScheduler
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, inspect
 from werkzeug.security import generate_password_hash
 
 from config.config import (
@@ -107,8 +107,9 @@ def _db_path(app):
 
 
 def init_db(app):
-    db_path = _db_path(app)
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    db_path = _db_path(app) if db.engine.dialect.name == 'sqlite' else None
+    if db_path:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
     os.makedirs(app.instance_path, exist_ok=True)
     db.create_all()
     from flask_server.models import AccountAlertInfo
@@ -116,16 +117,14 @@ def init_db(app):
         index.create(bind=db.engine, checkfirst=True)
     _ensure_honeyfile_runtime_columns(db_path)
     db.session.commit()
-    app.logger.info("database ready: %s", db_path)
+    app.logger.info("database ready: %s", db.engine.url.render_as_string(hide_password=True))
 
 
 def _ensure_honeyfile_runtime_columns(db_path):
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    if db_path:
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
     with db.engine.begin() as conn:
-        columns = {
-            row[1]
-            for row in conn.exec_driver_sql('PRAGMA table_info("honeyfiles")').fetchall()
-        }
+        columns = {row['name'] for row in inspect(conn).get_columns('honeyfiles')}
         ddl_statements = []
         if "token_alert_msg" not in columns:
             ddl_statements.append('ALTER TABLE "honeyfiles" ADD COLUMN "token_alert_msg" VARCHAR(255)')

@@ -28,7 +28,8 @@ class DataCollector:
             return None
         if value.tzinfo is not None and value.utcoffset() is not None:
             return value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value
+        from zoneinfo import ZoneInfo
+        return value.replace(tzinfo=ZoneInfo('Asia/Shanghai')).astimezone(timezone.utc).replace(tzinfo=None)
 
     def _in_time_range(
         self,
@@ -52,9 +53,10 @@ class DataCollector:
             "analysis_include_alert_types": [],
             "unified_alert_store": {
                 "enabled": True,
+                "database_url": os.environ.get('SYSTEMWIRE_DATABASE_URL', ''),
                 "db_path": str(self._resolve_systemwire_db_path(base_dir)),
                 "prefer_types": ["file", "account", "parasitic"],
-                "fallback_to_raw": True,
+                "fallback_to_raw": not bool(os.environ.get('SYSTEMWIRE_DATABASE_URL')),
             },
             "file_honeypot": {
                 "db_path": str(base_dir / "alert_server" / "data" / "alert.db"),
@@ -378,7 +380,8 @@ class DataCollector:
     ) -> List[UnifiedAlert]:
         config = self.config.get("unified_alert_store", {})
         db_path = str(config.get("db_path") or "").strip()
-        if not db_path or not os.path.exists(db_path):
+        database_url = config.get('database_url') or os.environ.get('SYSTEMWIRE_DATABASE_URL', '')
+        if not database_url and (not db_path or not os.path.exists(db_path)):
             return []
 
         alerts: List[UnifiedAlert] = []
@@ -397,25 +400,36 @@ class DataCollector:
         if parser is None or query is None:
             return []
 
+        conn = None
         try:
-            conn = sqlite3.connect(db_path)
-            conn.row_factory = sqlite3.Row
-            rows = query(conn)
+            if database_url:
+                import psycopg
+                from psycopg.rows import dict_row
+                conn = psycopg.connect(database_url.replace('postgresql+psycopg://', 'postgresql://', 1),
+                                       row_factory=dict_row, options='-c timezone=Asia/Shanghai')
+            else:
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+            rows = query(conn, start_time, end_time)
             for row in rows:
                 alert = parser(dict(row))
                 if self._in_time_range(alert.timestamp, start_time, end_time):
                     alerts.append(alert)
-            conn.close()
         except Exception as exc:
+            if database_url:
+                raise RuntimeError('PostgreSQL alert export failed; refusing stale SQLite fallback') from None
             print(f"[-] failed to read unified {alert_type} alerts: {exc}")
             return []
+        finally:
+            if conn is not None:
+                conn.close()
 
         return alerts
 
     @staticmethod
-    def _query_unified_file_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    def _query_unified_file_rows(conn, start_time=None, end_time=None):
         cursor = conn.cursor()
-        cursor.execute(
+        DataCollector._execute_window_query(cursor, conn,
             """
             SELECT
                 e.id AS event_id,
@@ -452,13 +466,13 @@ class DataCollector:
             WHERE e.alert_type = 'file'
             ORDER BY e.alert_time DESC, e.id DESC
             """
-        )
+        , start_time, end_time)
         return cursor.fetchall()
 
     @staticmethod
-    def _query_unified_account_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    def _query_unified_account_rows(conn, start_time=None, end_time=None):
         cursor = conn.cursor()
-        cursor.execute(
+        DataCollector._execute_window_query(cursor, conn,
             """
             SELECT
                 e.id AS event_id,
@@ -491,13 +505,13 @@ class DataCollector:
             WHERE e.alert_type = 'account'
             ORDER BY e.alert_time DESC, e.id DESC
             """
-        )
+        , start_time, end_time)
         return cursor.fetchall()
 
     @staticmethod
-    def _query_unified_parasitic_rows(conn: sqlite3.Connection) -> List[sqlite3.Row]:
+    def _query_unified_parasitic_rows(conn, start_time=None, end_time=None):
         cursor = conn.cursor()
-        cursor.execute(
+        DataCollector._execute_window_query(cursor, conn,
             """
             SELECT
                 e.id AS event_id,
@@ -538,8 +552,22 @@ class DataCollector:
             WHERE e.alert_type = 'parasitic'
             ORDER BY e.alert_time DESC, e.id DESC
             """
-        )
+        , start_time, end_time)
         return cursor.fetchall()
+
+    @staticmethod
+    def _execute_window_query(cursor, conn, query, start_time, end_time):
+        postgres = not isinstance(conn, sqlite3.Connection)
+        marker = '%s' if postgres else '?'
+        clauses, params = [], []
+        for value, operator in [(start_time, '>='), (end_time, '<=')]:
+            if value is not None:
+                from zoneinfo import ZoneInfo
+                local = value.replace(tzinfo=ZoneInfo('Asia/Shanghai')) if value.tzinfo is None else value
+                params.append(local if postgres else local.astimezone(ZoneInfo('Asia/Shanghai')).replace(tzinfo=None).isoformat(' '))
+                clauses.append(' AND e.alert_time ' + operator + ' ' + marker)
+        query = query.replace('ORDER BY', ''.join(clauses) + ' ORDER BY', 1)
+        cursor.execute(query, params)
 
     def _parse_unified_file_alert(self, row: Dict) -> UnifiedAlert:
         timestamp = self._parse_time_value(row.get("alert_time"))

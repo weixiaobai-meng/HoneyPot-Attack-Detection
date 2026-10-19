@@ -11,6 +11,7 @@ from sqlalchemy.engine import Engine
 from .exts import db, migrate   # 
 from flask_login import UserMixin
 from config.config import DB_FILE_NAME, DB_FILE_PATH
+from config.database import database_url, engine_options
 
 # 鍒涘缓鏁版嵁搴撳紩鎿庡拰浼氳瘽
 # engine = create_engine('sqlite:///tripwire.db')
@@ -21,8 +22,8 @@ database_path = (
     else os.path.abspath(os.path.join(base_dir, '..', 'instance', DB_FILE_NAME))
 ) # build the configured sqlite path
 engine = create_engine(
-    f'sqlite:///{database_path}',
-    connect_args={"check_same_thread": False},
+    database_url(),
+    **engine_options(),
 )
 
 SessionFactory = sessionmaker(bind=engine, expire_on_commit=False)
@@ -35,6 +36,8 @@ beijing_tz = pytz.timezone('Asia/Shanghai')
 # 璁剧疆鏃跺尯
 @event.listens_for(Engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
+    if not type(dbapi_connection).__module__.startswith('sqlite3'):
+        return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")  # 寮€鍚閿害鏉?
     cursor.execute("PRAGMA busy_timeout=30000")
@@ -304,7 +307,7 @@ class AccountAlertInfo(db.Model):
     dst_ip = db.Column(db.String(100), unique=False, nullable=True)
     dst_port = db.Column(db.String(20), unique=False, nullable=True)
     username = db.Column(db.String(100), unique=False, nullable=True)
-    password = db.Column(db.String(255), unique=False, nullable=True)
+    password = db.Column(db.Text, unique=False, nullable=True)
     client_version = db.Column(db.String(255), unique=False, nullable=True)
     protocol = db.Column(db.String(50), unique=False, nullable=False, default="ssh")
     message = db.Column(db.String(255), unique=False, nullable=True)

@@ -16,7 +16,7 @@ type AccountAlert struct {
 	DstIP         string    `gorm:"size:64"`
 	DstPort       string    `gorm:"size:20"`
 	Username      string    `gorm:"size:128"`
-	Password      string    `gorm:"size:255"`
+	Password      string    `gorm:"type:text"`
 	ClientVersion string    `gorm:"size:255"`
 	Protocol      string    `gorm:"size:32;default:ssh;index"`
 	Message       string    `gorm:"size:255"`

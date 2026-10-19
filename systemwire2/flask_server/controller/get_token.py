@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import os
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -73,6 +74,8 @@ def _register_token_locally(mail_addr, alert_msg):
 
 
 def _register_token_value_locally(token, mail_addr, alert_msg):
+    if os.environ.get('SYSTEMWIRE_DATABASE_URL'):
+        raise RuntimeError('PostgreSQL deployment requires token registration through alert_server')
     db_path = _alert_server_token_db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     now_text = datetime.now().isoformat(sep=" ", timespec="seconds")
@@ -130,6 +133,10 @@ def _register_token_value_locally(token, mail_addr, alert_msg):
 
 
 def _fallback_local_token(mail_addr, alert_msg, remote_reason):
+    if os.environ.get('SYSTEMWIRE_DATABASE_URL'):
+        if 'msg is used' in remote_reason.lower():
+            return 0, _normalize_public_token_url(_build_local_token(mail_addr, alert_msg))
+        return 1, remote_reason
     try:
         err, token_url = _register_token_locally(mail_addr, alert_msg)
         if err:
@@ -177,10 +184,11 @@ def getToken(maillAddr, msg):
     token = token_url.rsplit("/static/img/logo-", 1)[-1] if "/static/img/logo-" in str(token_url) else str(token_url)
     if token.endswith(".png"):
         token = token[:-4]
-    try:
-        _register_token_value_locally(token.strip("/"), maillAddr, msg)
-    except Exception:
-        pass
+    if not os.environ.get('SYSTEMWIRE_DATABASE_URL'):
+        try:
+            _register_token_value_locally(token.strip("/"), maillAddr, msg)
+        except Exception:
+            pass
     return 0, token_url
 
 

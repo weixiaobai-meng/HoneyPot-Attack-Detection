@@ -132,6 +132,7 @@ LEGACY_BUSINESS_TABLE_ORDER = [
 
 class UnifiedAlertEvent(db.Model):
     __tablename__ = "alert_events"
+    __table_args__ = (db.Index('idx_alert_events_type_time', 'alert_type', 'alert_time', 'id'),)
 
     id = db.Column(db.Integer, autoincrement=True, primary_key=True)
     alert_type = db.Column(db.String(32), nullable=False, index=True)
@@ -161,6 +162,7 @@ class UnifiedAlertEvent(db.Model):
 
 class AlertRawEvent(db.Model):
     __tablename__ = "alert_raw_events"
+    __table_args__ = (db.Index('idx_alert_raw_events_source', 'source_service', 'source_event_id'),)
 
     id = db.Column(db.Integer, autoincrement=True, primary_key=True)
     source_service = db.Column(db.String(64), nullable=False, default="systemwire2", index=True)
@@ -195,7 +197,7 @@ class AccountAlertDetail(db.Model):
     alert_id = db.Column(db.Integer, db.ForeignKey("alert_events.id"), primary_key=True)
     protocol = db.Column(db.String(32), nullable=True, index=True)
     username = db.Column(db.String(255), nullable=True, index=True)
-    password = db.Column(db.String(255), nullable=True)
+    password = db.Column(db.Text, nullable=True)
     src_port = db.Column(db.String(32), nullable=True)
     dst_port = db.Column(db.String(32), nullable=True)
     client_version = db.Column(db.String(512), nullable=True)
@@ -1033,6 +1035,8 @@ def backfill_unified_alerts(app):
 
 
 def _current_sqlite_db_path() -> str:
+    if db.engine.dialect.name != 'sqlite':
+        return ''
     try:
         return os.path.abspath(str(db.engine.url.database or ""))
     except Exception:
@@ -1135,6 +1139,8 @@ def _migrate_legacy_business_tables():
 
 
 def _migrate_from_legacy_temp_db():
+    if db.engine.dialect.name != 'sqlite':
+        return
     legacy_path = os.path.abspath(os.path.expandvars(LEGACY_DB_FILE_PATH or ""))
     if not legacy_path or not os.path.exists(legacy_path):
         return

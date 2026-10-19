@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"server/internal/models"
+	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -45,24 +48,36 @@ func InitDB() (*gorm.DB, error) {
 
 	// 连接数据库
 	dbFilePath = filepath.Join(ProjectRootDir, "data/token.db")
-	Db, err = gorm.Open(sqlite.Dialector{
-		DriverName: "sqlite",
-		DSN:        dbFilePath,
-	}, &gorm.Config{})
+	dsn := strings.TrimSpace(os.Getenv("ALERT_DATABASE_URL"))
+	var driver gorm.Dialector
+	if dsn != "" {
+		driver = postgres.Open(dsn)
+	} else {
+		driver = sqlite.Dialector{DriverName: "sqlite", DSN: dbFilePath}
+	}
+	Db, err = gorm.Open(driver, &gorm.Config{})
 	if err != nil {
 		return nil, err
 	}
 
 	// WAL 模式 + busy_timeout：解决 SQLite 读写互斥导致的 "database is locked" 错误
-	Db.Exec("PRAGMA journal_mode=WAL")
-	Db.Exec("PRAGMA busy_timeout=5000")
-	Db.Exec("PRAGMA foreign_keys=ON")
+	if dsn == "" {
+		Db.Exec("PRAGMA journal_mode=WAL")
+		Db.Exec("PRAGMA busy_timeout=5000")
+		Db.Exec("PRAGMA foreign_keys=ON")
+	}
 
 	// 连接池：SQLite 只支持单写者，限制最大连接数避免锁争用
 	sqlDB, _ := Db.DB()
 	if sqlDB != nil {
-		sqlDB.SetMaxOpenConns(1)
-		sqlDB.SetMaxIdleConns(1)
+		if dsn == "" {
+			sqlDB.SetMaxOpenConns(1)
+			sqlDB.SetMaxIdleConns(1)
+		} else {
+			sqlDB.SetMaxOpenConns(5)
+			sqlDB.SetMaxIdleConns(2)
+			sqlDB.SetConnMaxLifetime(30 * time.Minute)
+		}
 	}
 
 	// 数据迁移

@@ -3,6 +3,7 @@ from flask import Flask
 from .exts import init_exts
 from .views import api
 from config.config  import *
+from config.database import database_url, engine_options
 # 鑾峰彇椤圭洰鍩虹洰褰?
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -26,8 +27,9 @@ def create_app():
     app.register_blueprint(blueprint=api)
 
     # 閰嶇疆鏁版嵁搴?
-    db_uri = f"sqlite:///{resolve_sqlite_db_path()}"
+    db_uri = database_url()
     app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
+    app.config['SQLALCHEMY_ENGINE_OPTIONS'] = engine_options()
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # 绂佺敤瀵硅薄杩借釜
     init_exts(app)  # 鍒濆鍖栨彃浠?db-orm,migrate)
     return app

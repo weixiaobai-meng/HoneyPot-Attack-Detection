@@ -1026,6 +1026,19 @@ def _alert_server_has_live_file_token(token_value):
     if not token:
         return False
 
+    if os.environ.get('SYSTEMWIRE_DATABASE_URL'):
+        try:
+            response = requests.get(
+                Server_config.alert_server_manage_address.rstrip('/') + '/token/find',
+                json={'token': token}, headers={'Authorization': 'Bearer ' + Server_config.api_key}, timeout=10,
+            )
+            if response.status_code != 200:
+                return None
+            payload = response.json()
+            return bool(payload.get('code') == 0 and payload.get('data'))
+        except requests.RequestException:
+            return None
+
     db_path = _alert_server_token_db_path()
     if db_path is None:
         return None
@@ -5911,7 +5924,10 @@ def task_file_alert():
             if pull_record:
                 last_pull_time = pull_record.query_time
                 shanghai_tz = pytz.timezone('Asia/Shanghai')
-                last_pull_time = shanghai_tz.localize(last_pull_time)   # 加上时区信息
+                if last_pull_time.tzinfo is None:
+                    last_pull_time = shanghai_tz.localize(last_pull_time)
+                else:
+                    last_pull_time = last_pull_time.astimezone(shanghai_tz)
             else:
                 last_pull_time = new_pull_time - timedelta(days=7)  # 获取东八区时间
                 
@@ -6400,13 +6416,16 @@ def tast_check_client_status():
     online_count = 0    # 在线客户端数量
     offline_count = 0   # 离线客户端数量
     with scheduler.app.app_context():
-        now = datetime.now()
+        now = get_time_bj()
         all_clients = ClientInfo.query.all()
         total = len(all_clients)
         running_client = ClientInfo.query.filter_by(status='online').all()
         shutdown_clients = []
         for client in running_client:
-            if now - client.last_beat_time > timedelta(minutes=1):  # 超过1分钟未收到心跳
+            heartbeat = client.last_beat_time
+            if heartbeat is not None and heartbeat.tzinfo is None:
+                heartbeat = pytz.timezone('Asia/Shanghai').localize(heartbeat)
+            if heartbeat is None or now - heartbeat > timedelta(minutes=1):
                 client.status = 'offline'
                 offline_count += 1
                 shutdown_clients.append(client)
@@ -6534,7 +6553,7 @@ def get_account_alert(last_query_time, page_size=100):
     api_url = f"{base_url}/api/account-alerts"
     # 确保 last_query_time 是 offset-naive 用于 API 请求
     if last_query_time and last_query_time.tzinfo is not None:
-        last_query_time = last_query_time.replace(tzinfo=None)
+        last_query_time = last_query_time.astimezone(pytz.timezone('Asia/Shanghai')).replace(tzinfo=None)
     if last_query_time is not None:
         last_query_time = last_query_time - timedelta(minutes=5)
     since_param = last_query_time.strftime("%Y-%m-%dT%H:%M:%S") if last_query_time else ""
@@ -6556,26 +6575,32 @@ def get_account_alert(last_query_time, page_size=100):
         payload = resp.json()
         rows = payload.get("data") or []
         total = int(payload.get("total") or len(rows))
-        page = 1
-        while len(rows) < total:
-            page += 1
-            req_err, next_response = _alert_server_request(
-                "account alert pull", "GET", api_url,
-                params={"page": page, "size": page_size, "since": since_param}, timeout=15,
-            )
-            if req_err or next_response.status_code != 200:
-                return 1, "account alert pagination failed"
-            next_payload = next_response.json()
-            next_rows = next_payload.get("data") or []
-            if not next_rows:
-                break
-            rows.extend(next_rows)
         if not rows:
             return 0, 0
 
+        def paged_rows():
+            batch, page, received = rows, 1, 0
+            while batch:
+                yield from batch
+                # Commit each page so backlog size does not determine memory use.
+                db.session.commit()
+                received += len(batch)
+                if received >= total:
+                    return
+                page += 1
+                error, response = _alert_server_request(
+                    "account alert pull", "GET", api_url,
+                    params={"page": page, "size": page_size, "since": since_param}, timeout=15,
+                )
+                if error or response.status_code != 200:
+                    raise RuntimeError("account alert pagination failed")
+                batch = response.json().get("data") or []
+                if not batch:
+                    raise RuntimeError("account alert pagination ended before advertised total")
+
         bj_tz = pytz.timezone("Asia/Shanghai")
 
-        for item in rows:
+        for item in paged_rows():
             trigger_time_str = item.get("trigger_time", "")
             trigger_time = datetime.now(bj_tz)
             if trigger_time_str:
@@ -6653,6 +6678,7 @@ def get_account_alert(last_query_time, page_size=100):
         current_app.logger.info("[Account Alert] pulled %s rows since %s", inserted, since_param or "-")
         return 0, inserted
     except Exception as e:
+        db.session.rollback()
         current_app.logger.error("[Account Alert] pull exception: %s", e)
         return 1, str(e)
 
