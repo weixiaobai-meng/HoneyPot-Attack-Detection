@@ -6560,6 +6560,27 @@ def task_parasitic_alert():
 
 def get_account_alert(last_query_time, page_size=100):
     """从 alert_server 拉取账户蜜点告警"""
+    if os.environ.get('HONEYPOT_SINGLE_DATABASE') == '1' and db.engine.dialect.name == 'postgresql':
+        from sqlalchemy import text
+        since = last_query_time
+        if since is not None:
+            if since.tzinfo is None:
+                since = pytz.timezone('Asia/Shanghai').localize(since)
+            since -= timedelta(minutes=5)
+        cursor_id, total_inserted = 9223372036854775807, 0
+        try:
+            while True:
+                row = db.session.execute(text('SELECT * FROM sync_account_alert_batch(:since,:before,500)'),
+                                         {'since': since, 'before': cursor_id}).one()
+                db.session.commit()
+                total_inserted += row.inserted
+                if row.next_id is None:
+                    return 0, total_inserted
+                cursor_id = row.next_id
+        except Exception as exc:
+            db.session.rollback()
+            current_app.logger.error('PostgreSQL account batch sync failed: %s', type(exc).__name__)
+            return 1, 'PostgreSQL account batch sync failed'
     inserted = 0
     base_url = str(getattr(Server_config, "file_alert_server_address", "") or "").strip()
     base_url = base_url.rstrip("/")

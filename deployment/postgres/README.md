@@ -71,8 +71,9 @@ JSON 模型字段保留 PostgreSQL JSON 类型，原始证据文本保留 TEXT�
 没有配置短信/邮件通知。探针数据库连接数 50、shared_buffers 256MB、work_mem 4MB，
 应用连接池有限；中心和探针均不能因此被称为“无限容量”或“高可用”。
 
-中心每日从远端库执行压缩 pg_dump，保留最近一次成功备份，再复制到探针备份目录。
-探针校验备份 SHA-256，最多保留最近 7 个成功备份。切换前备份不在日常轮换目录内。
+探针每日在数据库本机执行压缩 pg_dump，保留最近 7 次成功备份，再传输压缩文件到中心。
+中心校验备份 SHA-256，只保留最近一次成功备份。避免未压缩数据跨机传输挤占应用连接。
+切换前备份不在日常轮换目录内。
 `storage.py archive` 提供额外的 JSONL.gz 导出和校验，不重复执行在线删除。
 隧道断连由 systemd 重连，应用报错后重试；没有实施数据库主从切换。
 
@@ -82,3 +83,7 @@ Navicat/DBeaver：主机 `127.0.0.1`，端口 `15432`，库 `honeypot`，账号 
 只读密码在探针 `/etc/honeypot/readonly.json`，用 sudo 查看，不粘贴到论文或 Git。
 统一查询：`SELECT * FROM all_alerts ORDER BY alert_time DESC,id DESC LIMIT 100;`。
 实验导出注入 `SYSTEMWIRE_DATABASE_URL`；连接失败明确报错，不读取旧 SQLite。
+
+同库部署配置 `HONEYPOT_SINGLE_DATABASE=1`，应用 `004_account_batch_sync.sql` 后，
+账户告警以固定大小批次在数据库内完成规范化和入库，使用源 ID 游标、相同幂等键和事务提交。
+跨库/SQLite 开发环境仍使用分页 HTTP 同步。两种路径都不跳过失败批次或推进失败游标。

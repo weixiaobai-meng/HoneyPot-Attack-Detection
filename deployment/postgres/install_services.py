@@ -43,14 +43,15 @@ def main():
             (directory / 'postgres.conf').write_text(
                 '[Unit]\nAfter=honeypot-db-tunnel.service\nWants=honeypot-db-tunnel.service\n'
                 '[Service]\nEnvironmentFile=/etc/honeypot/' + env + '\nRestart=always\nRestartSec=5\n')
-        scheduled('honeypot-db-backup', 'Honeypot verified database backup',
-                  f'{python} {scripts}/backup.py',
-                  'OnCalendar=*-*-* 03:15:00\nRandomizedDelaySec=10min\nPersistent=true')
-        enabled.extend(['honeypot-db-tunnel.service', 'honeypot-db-backup.timer'])
-    else:
+        enabled.append('honeypot-db-tunnel.service')
         scheduled('honeypot-backup-inventory', 'Verify and rotate received honeypot backups',
                   f'{python} {scripts}/backup_inventory.py', 'OnBootSec=10min\nOnUnitActiveSec=6h')
         enabled.append('honeypot-backup-inventory.timer')
+    else:
+        scheduled('honeypot-db-backup', 'Honeypot verified database backup',
+                  f'{python} {scripts}/backup.py',
+                  'OnCalendar=*-*-* 03:15:00\nRandomizedDelaySec=10min\nPersistent=true')
+        enabled.append('honeypot-db-backup.timer')
     subprocess.run(['systemctl', 'daemon-reload'], check=True)
     subprocess.run(['systemctl', 'enable', '--now', *enabled], check=True)
 

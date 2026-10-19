@@ -27,7 +27,7 @@ def main():
             for block in iter(lambda:f.read(1024*1024),b''):digest.update(block)
         report[name]={'sha256':digest.hexdigest(),'bytes':path.stat().st_size}
     (target/'manifest.json').write_text(json.dumps(report,indent=2))
-    destination=os.environ.get('HONEYPOT_BACKUP_DEST','hpbackup@43.163.94.52:postgres/')
+    destination=os.environ.get('HONEYPOT_BACKUP_DEST','hpbackup@47.239.238.27:postgres/')
     subprocess.run(['rsync','-a','--checksum','--chmod=F600,D700','-e',
                     'ssh -i /etc/honeypot/backup_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes',
                     str(target),destination],check=True)
@@ -35,7 +35,7 @@ def main():
     (target/'transferred.ok').write_text(stamp)
     import shutil
     completed=sorted(p for p in root.glob('pg-*') if p.is_dir() and (p/'transferred.ok').exists())
-    for old in completed[:-1]:
+    for old in completed[:-7]:
         shutil.rmtree(old)
     print(json.dumps({'backup':str(target),'copied_offsite':True,'databases':report}))
 

@@ -30,11 +30,11 @@ def main():
                 raise ValueError('Backup checksum mismatch: ' + directory.name)
         if report:
             valid.append(directory)
-    for old in valid[:-7]:
+    for old in valid[:-1]:
         assert old.resolve().parent == root
         shutil.rmtree(old)
     usage = shutil.disk_usage(root)
-    output = {'time': datetime.now(timezone.utc).isoformat(), 'verified_backups': min(7, len(valid)),
+    output = {'time': datetime.now(timezone.utc).isoformat(), 'verified_backups': min(1, len(valid)),
               'free_gib': round(usage.free / 1024 ** 3, 2)}
     Path('/var/lib/honeypot/backup-inventory.json').write_text(json.dumps(output, indent=2))
     print(json.dumps(output))
