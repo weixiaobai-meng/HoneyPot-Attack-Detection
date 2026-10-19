@@ -28,7 +28,8 @@ def main():
         report[name]={'sha256':digest.hexdigest(),'bytes':path.stat().st_size}
     (target/'manifest.json').write_text(json.dumps(report,indent=2))
     destination=os.environ.get('HONEYPOT_BACKUP_DEST','hpbackup@47.239.238.27:postgres/')
-    subprocess.run(['rsync','-a','--checksum','--bwlimit=64','--chmod=F600,D700','-e',
+    bandwidth = max(1, int(os.environ.get('HONEYPOT_BACKUP_BWLIMIT_KIB', '64')))
+    subprocess.run(['rsync','-a','--checksum','--bwlimit='+str(bandwidth),'--chmod=F600,D700','-e',
                     'ssh -i /etc/honeypot/backup_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=yes',
                     str(target),destination],check=True)
     # Only successful generated backup directories are retained/removed here.

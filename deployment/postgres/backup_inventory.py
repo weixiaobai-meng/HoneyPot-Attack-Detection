@@ -1,6 +1,8 @@
 """Verify received backups, bound retention, and report archive disk use."""
 import hashlib
 import json
+import os
+import pwd
 import re
 import shutil
 from datetime import datetime, timezone
@@ -10,6 +12,8 @@ from pathlib import Path
 def main():
     root = Path('/var/backups/honeypot-center/postgres').resolve()
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    receiver = pwd.getpwnam('hpbackup')
+    os.chown(root, receiver.pw_uid, receiver.pw_gid)
     valid = []
     for directory in sorted(root.iterdir()):
         if not directory.is_dir() or directory.is_symlink() or not re.fullmatch(r'pg-\d{8}T\d{6}Z', directory.name):
