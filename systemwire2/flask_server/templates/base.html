@@ -107,6 +107,7 @@
                 title: '告警信息',
                 items: [
                     { href: '{{ url_for("api.manage_alert_unified") }}', icon: 'fas fa-tachometer-alt', text: '告警中心' },
+                    { href: '{{ url_for("api.manage_web_observations") }}', icon: 'fas fa-globe', text: 'Web 访问观测' },
                     { href: '/manage/alert/analysis/live', icon: 'fas fa-diagram-project', text: '实时分析' },
                     { href: '{{ url_for("api.manage_alert_file") }}', icon: 'fas fa-file-alt', text: '文件告警' },
                     { href: '{{ url_for("api.manage_alert_account") }}', icon: 'fas fa-user-secret', text: '账户告警' },
@@ -151,6 +152,7 @@
     });
     </script>
 
+    <script src="{{ url_for('static', filename='js/api_client.js') }}?v=20261020-1"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

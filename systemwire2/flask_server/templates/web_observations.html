@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="observations">
+<h1>Web 访问观测</h1>
+<p>数据来自探针 Nginx，持久化到 PostgreSQL。HTTP 请求、附件下载、浏览器上报和文件回连分别统计；请求成功不等于恶意攻击或文档已打开。</p>
+<form id="filters"><label>时间 <select id="hours"><option value="24">最近 24 小时</option><option value="168">最近 7 天</option><option value="720">最近 30 天</option></select></label>
+<label>类别 <select id="kind"><option value="">全部</option><option value="page_request">页面访问</option><option value="file_download_request">附件下载请求</option><option value="file_callback_request">文件回连请求</option><option value="browser_telemetry_request">浏览器上报请求</option><option value="unmatched_path_request">未匹配路径</option></select></label>
+<input id="query" placeholder="IP、路径或验收标记"><button>查询</button></form>
+<div id="summary"></div><p id="state">加载中…</p>
+<div class="scroll"><table><thead><tr><th>时间</th><th>来源 IP</th><th>类别</th><th>请求路径</th><th>状态</th><th>验收标记</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div class="pager"><button id="prev">上一页</button><span id="pages"></span><button id="next">下一页</button></div>
+<p>保留最近 30 天、最多 20 万条访问观测。验收标记是请求方提供的标签。各类请求可重复，不据此直接计算用户转化率；三类正式告警请在<a href="/manage/alert/unified">告警中心</a>查看。</p>
+</section>
+<style>.observations{padding:28px;color:#dce9e7}.observations p{line-height:1.8;color:#a5bab5}.observations a{color:#93dfbf}#filters,.pager{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:20px 0}.observations input,.observations select,.observations button{padding:10px;border:1px solid #46615a;border-radius:7px;background:#10251e;color:#dfebe5}#summary{display:flex;flex-wrap:wrap;gap:12px}#summary div{padding:16px;background:#132c23;border-radius:9px}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid #355047;padding:13px;text-align:left;word-break:break-all}.scroll{overflow:auto}button{cursor:pointer}button:disabled{opacity:.4}</style>
+<script>
+const names={page_request:'页面访问',file_download_request:'附件下载请求',file_callback_request:'文件回连请求',browser_telemetry_request:'浏览器上报请求',unmatched_path_request:'未匹配路径',web_request:'其他请求'};
+let page=1, seq=0;
+const byId=id=>document.getElementById(id);
+function node(tag,text){const n=document.createElement(tag);n.textContent=text;return n;}
+async function load(){const turn=++seq;byId('state').textContent='加载中…';
+try{const query=new URLSearchParams({hours:byId('hours').value,kind:byId('kind').value,q:byId('query').value,page,size:50});
+const response=await fetch('/api/observations/web?'+query), result=await response.json();if(turn!==seq)return;
+if(!response.ok||result.code!==0)throw new Error(result.message||'查询失败');const data=result.data;
+byId('rows').replaceChildren(...data.rows.map(r=>{const tr=document.createElement('tr');
+for(const value of [new Date(r.observed_at).toLocaleString(),r.src_ip,names[r.observation_kind]||r.observation_kind,r.method+' '+r.path,r.status,r.diagnostic_marker||'—'])tr.append(node('td',value));return tr;}));
+byId('summary').replaceChildren(...data.summary.map(s=>node('div',`${names[s.observation_kind]||s.observation_kind}：${s.requests} 次 / 2xx ${s.succeeded} 次 / ${s.source_ips} 个来源 IP`)));
+byId('state').textContent=`匹配 ${data.total} 条，当前页 ${data.rows.length} 条`;
+byId('pages').textContent=`第 ${page} / ${Math.max(1,Math.ceil(data.total/50))} 页`;byId('prev').disabled=page<=1;byId('next').disabled=page*50>=data.total;
+}catch(error){byId('state').textContent=error.message;}}
+byId('filters').onsubmit=e=>{e.preventDefault();page=1;load();};byId('prev').onclick=()=>{page--;load();};byId('next').onclick=()=>{page++;load();};load();
+</script>
+<style>.observations th,.observations td:nth-child(1),.observations td:nth-child(2),.observations td:nth-child(5){white-space:nowrap;word-break:normal}.observations table{min-width:1050px}</style>
+{% endblock %}

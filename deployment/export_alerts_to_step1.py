@@ -10,6 +10,7 @@ controlled scenario for independent human annotation.
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter, defaultdict
 from copy import deepcopy
@@ -70,7 +71,7 @@ def _load_dqn_tools() -> bool:
     return DQNTrainer is not None
 
 
-MAX_ALERTS_FOR_LIVE_ANALYSIS = 10000
+MAX_ALERTS_FOR_LIVE_ANALYSIS = int(os.getenv("HONEYPOT_ANALYSIS_MAX_ALERTS", "2000"))
 DQN_PARTITION_EDGES = 512
 MAX_FALLBACK_KEPT_EDGES = 5000
 MAX_PROMPT_EDGES = 200
@@ -261,11 +262,18 @@ def _map_unified_api_row_to_alert(row: Dict[str, Any]) -> UnifiedAlert:
     )
 
 
-def collect_live_alerts_from_systemwire2_api(hours: int) -> List[UnifiedAlert]:
+def collect_live_alerts_from_systemwire2_api(hours: int, start_time=None, end_time=None) -> List[UnifiedAlert]:
     flask_app, build_unified_alert_api_rows = _import_systemwire2_unified_api_builder()
+    from flask_server.alert_store import unified_alert_query
     allowed_types = {"file", "account", "parasitic"}
     with flask_app.app_context():
-        rows: List[Dict[str, Any]] = build_unified_alert_api_rows(hours=hours, alert_type=None)
+        count = unified_alert_query(hours, start_time=start_time, end_time=end_time).count()
+        if count > MAX_ALERTS_FOR_LIVE_ANALYSIS:
+            raise ValueError(f"当前窗口有 {count} 条告警，超过实时分析上限 {MAX_ALERTS_FOR_LIVE_ANALYSIS}；请选择平衡分析或缩小受控场景时间窗口。")
+        rows = build_unified_alert_api_rows(hours=hours, limit=MAX_ALERTS_FOR_LIVE_ANALYSIS + 1,
+                                           start_time=start_time, end_time=end_time)
+        if len(rows) > MAX_ALERTS_FOR_LIVE_ANALYSIS:
+            raise ValueError("分析期间告警数量超过上限，请缩小时间窗口。")
     rows = [row for row in rows if str(row.get("alert_type") or "").strip().lower() in allowed_types]
     alerts = [_map_unified_api_row_to_alert(row) for row in rows]
     alerts.sort(key=lambda item: item.timestamp)
@@ -276,7 +284,7 @@ def collect_live_alerts_between(start_time: datetime, end_time: datetime) -> Lis
     """Collect real unified alerts and filter by an explicit experiment window."""
     if end_time < start_time:
         raise ValueError("end time must be later than or equal to start time")
-    live_alerts = collect_live_alerts_from_systemwire2_api(hours=0)
+    live_alerts = collect_live_alerts_from_systemwire2_api(hours=0, start_time=start_time, end_time=end_time)
     return [
         alert for alert in live_alerts
         if _alert_timestamp_in_range(alert, start_time, end_time)
@@ -834,7 +842,8 @@ def _annotate_pruning_basis(graph_data: Dict[str, Any], pruned: Dict[str, Any]) 
 
 
 def deterministic_fallback_pruning(graph_data, paths, fallback_reason=None):
-    _load_dqn_tools()
+    # Rule fallback is pure Python; importing torch here can exhaust a small
+    # management node even when no trained checkpoint is available.
     important_actions = {"file_access", "url_access", "read", "connect", "execve"}
     important_relations = {
         "web_to_account",
@@ -1029,9 +1038,8 @@ def run_dqn_pruning(paths, graph_data):
         raise
 
     try:
-        trainer = DQNTrainer(device="cpu", use_path_constraints=True)
-        state = torch.load(checkpoint, map_location="cpu", weights_only=True)
-        trainer.model.load_state_dict(state)
+        from step3_dqn_pruning.checkpoint import load_inference_checkpoint
+        trainer, checkpoint_info = load_inference_checkpoint(checkpoint, device="cpu", allow_legacy=True)
         pruned = trainer.predict_and_prune(
             str(paths["step2"]),
             str(paths["step3"]),
@@ -1039,11 +1047,23 @@ def run_dqn_pruning(paths, graph_data):
             max_edges_per_partition=DQN_PARTITION_EDGES,
         )
         stats = pruned.get("pruning_stats", {})
-        stats["mode"] = "dqn_checkpoint"
+        stats.update(checkpoint_info)
         stats["checkpoint"] = rel(checkpoint)
-        stats["feature_source"] = "attack_origin_constrained_honeypot_evidence"
+        legacy = checkpoint_info["mode"] == "legacy_dqn_checkpoint"
+        stats["feature_source"] = "node_type_and_topology_only" if legacy else "attack_origin_constrained_honeypot_evidence"
+        if legacy:
+            stats["algorithm"] = "legacy_gat_edge_q_checkpoint_inference"
+            for key in ("experience_replay", "target_network", "bellman_discount", "terminal_reward_enabled",
+                        "origin_reward_enabled", "training_edge_order_shuffled"):
+                stats[key] = None  # Bare historical weights do not establish their training protocol.
         pruned["pruning_stats"] = stats
         pruned = _annotate_pruning_basis(graph_data, pruned)
+        pruned["pruning_basis"].update({
+            "model_feature_source": stats["feature_source"],
+            "model_edge_feature_dim": stats["edge_feature_dim"],
+            "description": "模型输入与后置约束分开报告；证据评分用于审计和约束，不代表旧版模型使用了68维边特征。" if legacy
+                           else pruned["pruning_basis"]["description"],
+        })
         dump_json(paths["step3"], pruned)
         return pruned, None
     except MemoryError:
@@ -1186,11 +1206,10 @@ def export_live(hours: int, run_dir: Path = None, checkpoint: Path = None):
         live_alerts = collect_live_alerts_from_systemwire2_api(hours)
         collector_sources["analysis_source_mode"] = "systemwire2_unified_api"
         collector_sources["analysis_source_detail"] = "flask_server.alert_store.build_unified_alert_api_rows"
-    except Exception as exc:
-        print(f"[-] unified API export path unavailable, fallback to unified store collector: {exc}")
-        live_alerts = collector.collect_all(start_time, end_time)
-        collector_sources["analysis_source_mode"] = "systemwire2_unified_store_fallback"
-        collector_sources["analysis_source_detail"] = str(exc)
+    except Exception:
+        # Do not bypass a resource limit or a failed PostgreSQL connection by
+        # loading an unbounded alternate store.
+        raise
     alerts = [a.to_dict() for a in live_alerts]
     alerts.sort(key=lambda item: item.get("timestamp") or "")
 
@@ -1245,21 +1264,32 @@ def export_balanced_live(hours: int, run_dir: Path, per_type: int, exclude_ips=N
     start_time = None if hours <= 0 else end_time - timedelta(hours=hours)
     collector = DataCollector(config=build_live_analysis_collector_config())
     collector_sources = collector.describe_sources()
-    try:
-        live_alerts = collect_live_alerts_from_systemwire2_api(hours)
-        collector_sources["analysis_source_mode"] = "systemwire2_unified_api"
-        collector_sources["analysis_source_detail"] = "flask_server.alert_store.build_unified_alert_api_rows"
-    except Exception as exc:
-        print(f"[-] unified API export path unavailable, fallback to unified store collector: {exc}")
-        live_alerts = collector.collect_all(start_time, end_time)
-        collector_sources["analysis_source_mode"] = "systemwire2_unified_store_fallback"
-        collector_sources["analysis_source_detail"] = str(exc)
+    flask_app, builder = _import_systemwire2_unified_api_builder()
+    from flask_server.alert_store import unified_alert_query
+    excluded = {str(ip).strip() for ip in (exclude_ips or []) if str(ip).strip()}
+    candidate_limit = min(1000, max(per_type, per_type * 10))
+    raw_counts, available_counts, live_alerts = {}, {}, []
+    with flask_app.app_context():
+        for kind in ("file", "account", "parasitic"):
+            raw_counts[kind] = unified_alert_query(hours, kind).count()
+            available_counts[kind] = unified_alert_query(hours, kind, exclude_ips=excluded).count()
+            rows = builder(hours, kind, limit=candidate_limit, exclude_ips=excluded)
+            live_alerts.extend(_map_unified_api_row_to_alert(row) for row in rows)
+    collector_sources["analysis_source_mode"] = "systemwire2_unified_api"
+    collector_sources["analysis_source_detail"] = "database_bounded_candidates_per_type"
 
     balanced_alerts, balance_metadata = build_balanced_alert_subset(
         live_alerts,
         per_type=per_type,
         exclude_ips=exclude_ips,
     )
+    balance_metadata.update({
+        "raw_counts": raw_counts, "available_counts_after_exclusion": available_counts,
+        "candidate_limit_per_type": candidate_limit,
+        "method": "latest_candidates_per_type_then_cross_honeypot_priority",
+        "candidate_counts": dict(Counter(_alert_type_value(a) for a in live_alerts)),
+        "note": "从每类最近的有界候选集中抽样；保留真实数量，不代表完整历史关联或正式标注实验。",
+    })
     alerts = [a.to_dict() for a in balanced_alerts]
     alerts.sort(key=lambda item: item.get("timestamp") or "")
 

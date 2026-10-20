@@ -1,0 +1,24 @@
+[Unit]
+Description=Honeypot HTTP observation collector
+After=nginx.service postgresql.service
+Wants=postgresql.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=honeypot_web_observer
+Group=honeypot_web_observer
+SupplementaryGroups=adm
+ExecStart=/opt/honeypot/db-tools/bin/python /opt/honeypot/repo/deployment/public_portal/observe_access.py
+Restart=always
+RestartSec=5
+UMask=0077
+StateDirectory=honeypot-web-observer
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

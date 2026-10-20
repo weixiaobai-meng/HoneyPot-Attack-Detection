@@ -15,6 +15,7 @@
             <label>
                 <span>分析窗口</span>
                 <select id="analysisHours" class="analysis-select">
+                    <option value="1">最近 1 小时</option>
                     <option value="24" selected>最近 24 小时</option>
                     <option value="72">最近 72 小时</option>
                     <option value="168">最近 7 天</option>
@@ -74,11 +75,11 @@
     <section class="mode-guide" aria-label="分析模式说明">
         <article>
             <strong>实时分析</strong>
-            <span>按当前时间窗口读取自然告警，适合看线上真实态势；样本可能天然不平衡。</span>
+            <span>适用于小时间窗口。超出服务器条数上限会拒绝执行，请使用平衡分析或限定受控场景时间。</span>
         </article>
         <article>
             <strong>平衡分析</strong>
-            <span>只用真实告警按类型抽样，适合做三类蜜点对比；不保证形成同一攻击链。</span>
+            <span>推荐用于线上查看：在数据库中按类型取有界候选再抽样，不保证形成同一攻击链或具备正式实验标签。</span>
         </article>
         <article>
             <strong>受控链路分析</strong>
@@ -1469,7 +1470,7 @@ body,
 }
 .kv-item.kv-wide { grid-column: 1 / -1; }
 .kv-item span { display: block; color: var(--muted); font-size: 12px; }
-.kv-item strong { display: block; margin-top: 6px; line-height: 1.55; }
+.kv-item strong { display: block; margin-top: 6px; line-height: 1.55; overflow-wrap:anywhere; }
 .text-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -1629,10 +1630,10 @@ function dqnStateInfo(summary) {
     }
     if (mode.includes('dqn_checkpoint')) {
         return {
-            chip: 'DQN 已生效',
-            tone: 'ok',
-            title: 'Checkpoint 裁剪结果',
-            body: `模式：${mode}；${pruning.checkpoint ? '已记录 checkpoint 路径。' : '未记录 checkpoint 路径。'}`
+            chip: pruning.model_inference_executed === false ? '无边可供推理' : (mode.startsWith('legacy_') ? '旧版 DQN 兼容推理' : 'DQN 推理已运行'),
+            tone: mode.startsWith('legacy_') ? 'warn' : 'ok',
+            title: mode.startsWith('legacy_') ? '128维旧权重，非新版198维方法' : 'Checkpoint 推理结果',
+            body: `${pruning.compatibility_note || '推理成功不等于正式实验效果已验证。'} 模型建议裁剪 ${pruning.model_raw_pruned_edges ?? '-'} 条，约束保留 ${pruning.constraint_restored_edges ?? '-'} 条，最终裁剪 ${pruning.pruned_edges ?? '-'} 条。`
         };
     }
     if (mode.startsWith('deterministic')) {
@@ -1698,11 +1699,7 @@ function switchGraphView(name) {
 }
 
 async function fetchJson(url, options = {}) {
-    const response = await fetch(url, options);
-    const result = await response.json();
-    if (!response.ok || result.code !== 0) {
-        throw new Error(result.message || `HTTP ${response.status}`);
-    }
+    const result = await HoneypotApi.requestJson(url, options);
     return result.data;
 }
 
@@ -3306,7 +3303,7 @@ function renderPruningDiagnosisPanel(rawGraph, prunedGraph) {
         ? `已形成跨蜜点攻击链：${model.golden.observedTypes.map(typePillText).join(' → ')}。`
         : `核心链证据不足：${model.golden.reason}`;
     const dqnText = model.dqn.tone === 'ok'
-        ? 'DQN checkpoint 已参与裁剪，可把该结果作为强化学习裁剪实验输出。'
+        ? 'DQN checkpoint 已执行推理；正式效果还需独立标签和对照评估，不能仅凭加载成功得出结论。'
         : `${model.dqn.title}：${model.dqn.body}`;
     return `
         <div class="pruning-diagnosis">
@@ -3757,6 +3754,10 @@ function renderGraphCompare() {
         ['裁剪模式', pruning.mode || '-'],
         ['回退原因', pruning.fallback_reason || '-'],
         ['Checkpoint', pruning.checkpoint ? '已记录' : '-'],
+        ['模型输入维度', pruning.checkpoint_input_dim ?? '-'],
+        ['模型前向次数', pruning.model_forward_passes ?? '-'],
+        ['模型建议裁剪', pruning.model_raw_pruned_edges ?? '-'],
+        ['约束实际保留', pruning.constraint_restored_edges ?? '-'],
         ['原始边数', pruning.original_edges ?? graphEdges(analysisGraph).length ?? '-'],
         ['保留边数', pruning.kept_edges ?? graphEdges(prunedGraph).length ?? '-'],
         ['剪除边数', pruning.pruned_edges ?? '-'],
@@ -3766,7 +3767,8 @@ function renderGraphCompare() {
         ['保护前核心链', formatPercentValue(before.core_chain_recall)],
         ['证据保护恢复', pruning.restored_core_edges ?? '-'],
         ['裁剪依据', pruningBasis.basis_type || pruning.feature_source || '-'],
-        ['边特征维度', pruningBasis.edge_feature_dim ?? pruning.edge_feature_dim ?? '-'],
+        ['模型边特征维度', pruning.edge_feature_dim ?? '-'],
+        ['审计边特征维度', pruningBasis.edge_feature_dim ?? '-'],
         ['保留边本源均分', pruningBasis.kept_avg_origin_score ?? '-'],
         ['剪除边本源均分', pruningBasis.pruned_avg_origin_score ?? '-'],
     ];
@@ -4307,7 +4309,7 @@ function renderTexts() {
     if (llmReport) {
         const model = meta.model || 'deepseek';
         const generatedAt = meta.generated_at ? String(meta.generated_at).replace('T', ' ').slice(0, 19) : '已生成';
-        chip.textContent = `${model} · ${generatedAt}`;
+        chip.textContent = `${model} · ${generatedAt}${meta.finish_reason === 'length' ? ' · 输出被截断，请提高输出上限后重试' : ''}`;
     } else {
         chip.textContent = analysisTexts && analysisTexts.display_mode === 'debug_prompt_fallback'
             ? 'Prompt 调试输出'
@@ -4460,7 +4462,7 @@ async function runScenarioAnalysis() {
 async function generateLlmReport() {
     setStatus('正在调用 DeepSeek 生成 LLM 辅助告警分析报告...');
     try {
-        await fetchJson('/api/analysis/live/llm-report', {
+        const result = await fetchJson('/api/analysis/live/llm-report', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ run_dir: analysisRunDir, task: 'report' })
@@ -4468,7 +4470,10 @@ async function generateLlmReport() {
         await loadTexts();
         await loadSummary();
         switchTab('text');
-        setStatus('DeepSeek LLM 告警分析报告已生成；该报告作为辅助解释层，不改变原始告警与训练数据。');
+        const truncated = (result.llm_report_meta || {}).finish_reason === 'length';
+        setStatus(truncated
+            ? 'DeepSeek 已返回部分报告，但达到输出上限；请提高 DEEPSEEK_MAX_TOKENS 后重新生成。此报告不完整。'
+            : 'DeepSeek LLM 告警分析报告已生成；该报告作为辅助解释层，不改变原始告警与训练数据。', truncated);
     } catch (error) {
         const message = error.message || '生成 LLM 告警分析报告失败。';
         const hint = message.includes('DEEPSEEK_API_KEY')

@@ -1572,13 +1572,41 @@ def refresh_file_alert_metadata():
     _refresh_file_alert_metadata()
 
 
-def get_unified_alert_events(hours: int = 24, alert_type: Optional[str] = None) -> List[UnifiedAlertEvent]:
-    query = UnifiedAlertEvent.query.order_by(UnifiedAlertEvent.alert_time.desc(), UnifiedAlertEvent.id.desc())
+def unified_alert_query(hours=24, alert_type=None, keyword="", start_time=None, end_time=None, exclude_ips=None):
+    """Filter in the database before loading any raw payloads or relationships."""
+    query = UnifiedAlertEvent.query
     if alert_type:
         query = query.filter(UnifiedAlertEvent.alert_type == alert_type)
     if hours and hours > 0:
         threshold = datetime.now(beijing_tz) - timedelta(hours=hours)
         query = query.filter(UnifiedAlertEvent.alert_time >= threshold)
+    if start_time is not None:
+        query = query.filter(UnifiedAlertEvent.alert_time >= start_time)
+    if end_time is not None:
+        query = query.filter(UnifiedAlertEvent.alert_time <= end_time)
+    if exclude_ips:
+        query = query.filter(or_(UnifiedAlertEvent.src_ip.is_(None), ~UnifiedAlertEvent.src_ip.in_(exclude_ips)))
+    if keyword:
+        pattern = '%' + keyword.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
+        match = lambda column: column.ilike(pattern, escape='\\')
+        query = query.filter(or_(
+            match(UnifiedAlertEvent.src_ip), match(UnifiedAlertEvent.dst_ip),
+            match(UnifiedAlertEvent.title), match(UnifiedAlertEvent.summary),
+            UnifiedAlertEvent.file_detail.has(or_(match(FileAlertDetail.filename), match(FileAlertDetail.token_url))),
+            UnifiedAlertEvent.account_detail.has(or_(match(AccountAlertDetail.username), match(AccountAlertDetail.client_version))),
+            UnifiedAlertEvent.parasitic_detail.has(or_(match(ParasiticAlertDetail.url), match(ParasiticAlertDetail.session_token), match(ParasiticAlertDetail.fingerprint))),
+        ))
+    return query
+
+
+def get_unified_alert_events(hours=24, alert_type=None, *, limit=None, offset=0, **filters):
+    query = unified_alert_query(hours, alert_type, **filters).options(
+        selectinload(UnifiedAlertEvent.file_detail),
+        selectinload(UnifiedAlertEvent.account_detail),
+        selectinload(UnifiedAlertEvent.parasitic_detail),
+    ).order_by(UnifiedAlertEvent.alert_time.desc(), UnifiedAlertEvent.id.desc())
+    if limit is not None:
+        query = query.offset(offset).limit(limit)
     return query.all()
 
 
@@ -1741,10 +1769,10 @@ def get_account_alert_page_rows(days: int = 7, page=None, size=100) -> List[Dict
     return alert_infos
 
 
-def build_unified_alert_api_rows(hours: int = 24, alert_type: Optional[str] = None) -> List[Dict]:
+def build_unified_alert_api_rows(hours: int = 24, alert_type: Optional[str] = None, **filters) -> List[Dict]:
     alert_rows: List[Dict] = []
 
-    for event in get_unified_alert_events(hours=hours, alert_type=alert_type):
+    for event in get_unified_alert_events(hours=hours, alert_type=alert_type, **filters):
         if event.alert_type == "file":
             detail = event.file_detail
             raw_ids = [item for item in _json_list(detail.raw_alert_ids_json if detail else None) if item not in (None, "")]
@@ -1885,24 +1913,19 @@ def build_unified_alert_api_rows(hours: int = 24, alert_type: Optional[str] = No
 
 
 def build_unified_alert_statistics(hours: int = 24) -> Dict:
-    alerts = build_unified_alert_api_rows(hours=hours)
+    query = unified_alert_query(hours)
+    by_type = dict(query.with_entities(UnifiedAlertEvent.alert_type, func.count()).group_by(UnifiedAlertEvent.alert_type).all())
     stats = {
-        "total": len(alerts),
-        "by_type": {},
-        "by_ip": {},
+        "total": sum(by_type.values()),
+        "by_type": by_type,
+        "by_ip": dict(query.filter(UnifiedAlertEvent.src_ip.isnot(None)).with_entities(
+            UnifiedAlertEvent.src_ip, func.count()).group_by(UnifiedAlertEvent.src_ip).all()),
         "time_range": {
             "start": (datetime.now(beijing_tz) - timedelta(hours=hours)).isoformat() if hours and hours > 0 else None,
             "end": datetime.now(beijing_tz).isoformat(),
             "hours": hours,
         },
     }
-
-    for alert in alerts:
-        alert_type = alert.get("alert_type") or "unknown"
-        attacker_ip = alert.get("attacker_ip")
-        stats["by_type"][alert_type] = stats["by_type"].get(alert_type, 0) + 1
-        if attacker_ip:
-            stats["by_ip"][attacker_ip] = stats["by_ip"].get(attacker_ip, 0) + 1
 
     return stats
 

@@ -351,9 +351,13 @@ class DQNTrainer:
         guard = EvidencePathGuard(data) if self.use_path_constraints else None
         self.model.eval()
         decision_batch_size = max(int(decision_batch_size), 1)
+        q_values = None
+        forward_passes = 0
         for batch_start in range(0, edge_count, decision_batch_size):
-            with torch.no_grad():
-                q_values = self._model_q(self.model, data, edge_mask)
+            if q_values is None or self.use_dynamic_state:
+                with torch.no_grad():
+                    q_values = self._model_q(self.model, data, edge_mask)
+                forward_passes += 1
             batch_end = min(batch_start + decision_batch_size, edge_count)
             for edge_idx in range(batch_start, batch_end):
                 action = int(q_values[edge_idx].argmax().item())
@@ -377,6 +381,7 @@ class DQNTrainer:
             "raw_actions": raw_actions,
             "evidence_constraint_overrides": overrides,
             "decision_batch_size": decision_batch_size,
+            "model_forward_passes": forward_passes,
         }
 
     def predict_actions(
@@ -403,6 +408,7 @@ class DQNTrainer:
         actions = torch.zeros(edge_count, dtype=torch.long)
         raw_actions = torch.zeros(edge_count, dtype=torch.long)
         overrides = []
+        forward_passes = 0
         partitions = partition_edge_indices(data, max_edges=int(max_edges_per_partition))
         for indices in partitions:
             subset = edge_partition(data, indices)
@@ -415,12 +421,14 @@ class DQNTrainer:
                 actions[original_idx] = local_actions[local_idx]
                 raw_actions[original_idx] = local_details["raw_actions"][local_idx]
             overrides.extend(indices[local_idx] for local_idx in local_details["evidence_constraint_overrides"])
+            forward_passes += local_details["model_forward_passes"]
         details = {
             "raw_actions": raw_actions,
             "evidence_constraint_overrides": overrides,
             "partition_count": len(partitions),
             "max_edges_per_partition": int(max_edges_per_partition),
             "decision_batch_size": int(decision_batch_size),
+            "model_forward_passes": forward_passes,
         }
         if self.use_path_constraints:
             actions, guard_details = EvidencePathGuard(data).filter_actions(actions)
@@ -461,12 +469,23 @@ class DQNTrainer:
         kept_edges = [edge for idx, edge in enumerate(edges) if idx < len(actions) and int(actions[idx]) == 0]
         original_edges = len(edges)
         pruned_edges = original_edges - len(kept_edges)
+        raw_actions = details["raw_actions"]
+        raw_pruned_ids = [edge["edge_id"] for index, edge in enumerate(edges) if int(raw_actions[index]) == 1]
+        restored_ids = [edge["edge_id"] for index, edge in enumerate(edges)
+                        if int(raw_actions[index]) == 1 and int(actions[index]) == 0]
         graph_data = selected_edge_view(graph_data, kept_edges)
         graph_data["pruning_stats"] = {
             "algorithm": self.algorithm_name,
             "original_edges": original_edges,
             "kept_edges": len(kept_edges),
             "pruned_edges": pruned_edges,
+            "model_inference_executed": details["model_forward_passes"] > 0,
+            "model_forward_passes": details["model_forward_passes"],
+            "model_raw_kept_edges": original_edges - len(raw_pruned_ids),
+            "model_raw_pruned_edges": len(raw_pruned_ids),
+            "model_raw_pruned_edge_ids": raw_pruned_ids,
+            "constraint_restored_edges": len(restored_ids),
+            "constraint_restored_edge_ids": restored_ids,
             "compression_ratio": f"{100 * pruned_edges / max(original_edges, 1):.1f}%",
             "edge_feature_dim": self.edge_attr_dim,
             "feature_source": "observable_honeypot_origin_evidence",

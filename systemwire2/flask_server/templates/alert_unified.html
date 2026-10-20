@@ -91,7 +91,7 @@
             <button class="soc-btn secondary" onclick="runLiveAnalysis()"><i class="fas fa-project-diagram"></i> 运行后续分析</button>
             <button class="soc-btn balanced" onclick="runBalancedAnalysis()"><i class="fas fa-scale-balanced"></i> 运行平衡分析</button>
             <button class="soc-btn ghost" onclick="loadAlerts()"><i class="fas fa-rotate"></i> 刷新</button>
-            <button class="soc-btn primary" onclick="exportAlerts()"><i class="fas fa-download"></i> 导出 JSON</button>
+            <button class="soc-btn primary" onclick="exportAlerts()"><i class="fas fa-download"></i> 导出当前页</button>
         </div>
     </section>
 
@@ -451,6 +451,10 @@ const PAGE_SIZE = 18;
 let allAlerts = [];
 let visibleAlerts = [];
 let currentPage = 1;
+let serverTotal = 0;
+let serverStats = {};
+let filterTimer;
+let loadSequence = 0;
 let currentAlertForCopy = null;
 const expandedEvidence = new Set();
 
@@ -458,7 +462,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAlerts();
 });
 
-async function loadAlerts() {
+async function loadAlerts(page = 1) {
+    const sequence = ++loadSequence;
     const hours = document.getElementById('timeRange').value;
     const tbody = document.getElementById('alertList');
     hideError();
@@ -466,24 +471,32 @@ async function loadAlerts() {
     setSummary('正在从 /api/alerts/unified 读取统一告警数据...');
 
     try {
-        const response = await fetch(`/api/alerts/unified?hours=${encodeURIComponent(hours)}`);
+        const query = new URLSearchParams({hours, page, size: PAGE_SIZE,
+            type: document.getElementById('alertType').value,
+            q: document.getElementById('keywordFilter').value.trim()});
+        const response = await fetch(`/api/alerts/unified?${query}`);
         const result = await response.json();
+        if (sequence !== loadSequence) return;
         if (!response.ok || result.code !== 0) {
             throw new Error(result.message || `HTTP ${response.status}`);
         }
 
         const sourceAlerts = Array.isArray(result.data && result.data.alerts) ? result.data.alerts : [];
-        const deduped = dedupeAlerts(sourceAlerts);
-        allAlerts = deduped.items.sort((a, b) => {
+        allAlerts = sourceAlerts.sort((a, b) => {
             const ta = new Date(a.timestamp || 0).getTime();
             const tb = new Date(b.timestamp || 0).getTime();
             return tb - ta;
         });
-        currentPage = 1;
-        updateStats(sourceAlerts.length, deduped.removed);
+        currentPage = Number(result.data.page || page);
+        serverTotal = Number(result.data.total || 0);
+        serverStats = result.data.statistics || {};
+        updateStats(sourceAlerts.length, 0);
         renderAlerts();
     } catch (error) {
+        if (sequence !== loadSequence) return;
         allAlerts = [];
+        serverTotal = 0;
+        serverStats = {};
         updateStats(0, 0);
         tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><i class="fas fa-triangle-exclamation"></i><h4>统一告警加载失败</h4><p>${escapeHtml(error.message)}</p></div></td></tr>`;
         showError(`统一告警接口返回异常：${error.message}`);
@@ -576,40 +589,26 @@ function semanticKey(alert) {
 }
 
 function updateStats(rawCount, removed) {
-    document.getElementById('totalAlerts').textContent = allAlerts.length;
-    document.getElementById('fileAlerts').textContent = allAlerts.filter(item => item.alert_type === 'file').length;
-    document.getElementById('accountAlerts').textContent = allAlerts.filter(item => item.alert_type === 'account').length;
-    document.getElementById('parasiticAlerts').textContent = allAlerts.filter(item => item.alert_type === 'parasitic').length;
-
-    const mergedCount = allAlerts.reduce((sum, item) => sum + Math.max(Number(item._duplicateCount || 1) - 1, 0), 0) + (removed || 0);
-    document.getElementById('dedupeInfo').textContent = `已合并 ${mergedCount} 条重复告警`;
-    setSummary(`接口返回 ${rawCount || 0} 条告警，语义去重后保留 ${allAlerts.length} 条。`);
+    document.getElementById('totalAlerts').textContent = serverStats.total || 0;
+    for (const type of HONEYPOT_TYPES) {
+        document.getElementById(`${type}Alerts`).textContent = (serverStats.by_type || {})[type] || 0;
+    }
+    document.getElementById('dedupeInfo').textContent = '数据库幂等入库 · 服务端分页';
+    setSummary(`时间窗口共 ${serverStats.total || 0} 条，筛选匹配 ${serverTotal} 条；当前页 ${rawCount || 0} 条。`);
 }
 
 function filterAlerts() {
-    currentPage = 1;
-    renderAlerts();
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(() => loadAlerts(1), 300);
 }
 
 function renderAlerts() {
-    const typeFilter = document.getElementById('alertType').value;
-    const keyword = document.getElementById('keywordFilter').value.trim().toLowerCase();
-
-    visibleAlerts = allAlerts.filter((alert) => {
-        if (typeFilter !== 'all' && alert.alert_type !== typeFilter) {
-            return false;
-        }
-        if (!keyword) {
-            return true;
-        }
-        return stableString(alert).toLowerCase().includes(keyword);
-    });
-
-    const totalPages = Math.max(Math.ceil(visibleAlerts.length / PAGE_SIZE), 1);
+    visibleAlerts = allAlerts;
+    const totalPages = Math.max(Math.ceil(serverTotal / PAGE_SIZE), 1);
     currentPage = Math.min(Math.max(currentPage, 1), totalPages);
 
-    const start = (currentPage - 1) * PAGE_SIZE;
-    const pageItems = visibleAlerts.slice(start, start + PAGE_SIZE);
+    const start = 0;
+    const pageItems = visibleAlerts;
     const tbody = document.getElementById('alertList');
 
     if (pageItems.length === 0) {
@@ -618,7 +617,7 @@ function renderAlerts() {
         tbody.innerHTML = pageItems.map((alert, index) => renderAlertRow(alert, start + index)).join('');
     }
 
-    document.getElementById('pageInfo').textContent = `共 ${visibleAlerts.length} 条，第 ${currentPage} / ${totalPages} 页`;
+    document.getElementById('pageInfo').textContent = `共 ${serverTotal} 条，第 ${currentPage} / ${totalPages} 页`;
     document.getElementById('prevPage').disabled = currentPage <= 1;
     document.getElementById('nextPage').disabled = currentPage >= totalPages;
 }
@@ -1073,6 +1072,7 @@ function extractPullCount(result) {
 }
 
 function countAlertsByType(alerts = allAlerts) {
+    if (alerts === allAlerts && serverStats.by_type) return serverStats.by_type;
     return HONEYPOT_TYPES.reduce((acc, type) => {
         acc[type] = alerts.filter((item) => item.alert_type === type).length;
         return acc;
@@ -1189,16 +1189,11 @@ async function runLiveAnalysis() {
     showStatus(`正在基于当前时间窗口运行原始后续分析...${missingNotice ? ` ${missingNotice}` : ''}`, missingNotice ? 'warn' : '');
 
     try {
-        const response = await fetch('/api/analysis/live', {
+        const result = await HoneypotApi.requestJson('/api/analysis/live', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ hours })
         });
-        const result = await response.json();
-        if (!response.ok || result.code !== 0) {
-            throw new Error(result.message || `HTTP ${response.status}`);
-        }
-
         const data = result.data || {};
         const graph = data.graph || {};
         const pruning = data.pruning_stats || {};
@@ -1213,6 +1208,7 @@ async function runLiveAnalysis() {
             `图节点/边：${graph.nodes || 0} / ${graph.edges || 0}`,
             `标准三元组：${graph.triples || 0} 条`,
             `裁剪模式：${pruning.mode || '-'}`,
+            `模型状态：${pruning.compatibility_note || pruning.fallback_reason || '请在结果页核对模型信息'}`,
             `因果图文件：${outputs.step2_causal_graph || '-'}`,
             `三元组文件：${outputs.step2_standard_triples || '-'}`,
             `事件序列文件：${outputs.step2_event_sequence || '-'}`,
@@ -1221,7 +1217,7 @@ async function runLiveAnalysis() {
         if (resultNotice) {
             lines.push(resultNotice);
         }
-        showStatus(lines.join(' | '), resultNotice ? 'warn' : 'ok');
+        showStatus(lines.join(' | '), resultNotice || pruning.fallback_reason || String(pruning.mode).startsWith('legacy_') ? 'warn' : 'ok');
         setSummary(`后续分析已完成，当前窗口为 ${windowText}。`);
     } catch (error) {
         showStatus(`后续分析运行失败：${error.message}`, 'error');
@@ -1236,20 +1232,16 @@ async function runBalancedAnalysis() {
     hideError();
 
     try {
-        const response = await fetch('/api/analysis/live/balanced', {
+        const result = await HoneypotApi.requestJson('/api/analysis/live/balanced', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ hours, per_type: perType })
         });
-        const result = await response.json();
-        if (!response.ok || result.code !== 0) {
-            throw new Error(result.message || `HTTP ${response.status}`);
-        }
-
         const data = result.data || {};
         const graph = data.graph || {};
         const outputs = data.outputs || {};
         const balance = data.balance || {};
+        const pruning = data.pruning_stats || {};
         const available = balance.available_counts_after_exclusion || {};
         const selected = balance.selected_counts || data.alert_counts || {};
         const missing = Array.isArray(balance.missing_types_after_exclusion) ? balance.missing_types_after_exclusion : [];
@@ -1260,6 +1252,8 @@ async function runBalancedAnalysis() {
             `真实可用：${formatTypeCounts(available)}`,
             `实际抽样：${formatTypeCounts(selected)}`,
             `处理告警：${data.total_alerts || 0} 条`,
+            `裁剪模式：${pruning.mode || '-'}；模型建议裁剪 ${pruning.model_raw_pruned_edges ?? '-'} 条，约束保留 ${pruning.constraint_restored_edges ?? '-'} 条`,
+            `模型说明：${pruning.compatibility_note || pruning.fallback_reason || '请核对结果页模型状态'}`,
             `图节点/边：${graph.nodes || 0} / ${graph.edges || 0}`,
             `标准三元组：${graph.triples || 0} 条`,
             `隔离目录：${data.run_dir || '-'}`,
@@ -1275,7 +1269,7 @@ async function runBalancedAnalysis() {
         if (resultUrl) {
             lines.push(`结果页：${resultUrl}`);
         }
-        showStatus(lines.join(' | '), missing.length ? 'warn' : 'ok');
+        showStatus(lines.join(' | '), missing.length || pruning.fallback_reason || String(pruning.mode).startsWith('legacy_') ? 'warn' : 'ok');
         setSummary(`平衡分析已完成，结果保存在 ${data.run_dir || '独立运行目录'}。`);
     } catch (error) {
         showStatus(`平衡分析运行失败：${error.message}`, 'error');
@@ -1297,12 +1291,11 @@ function exportAlerts() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showStatus('已导出当前筛选结果。', 'ok');
+    showStatus('已导出当前页；完整实验快照请使用分析导出工具。', 'ok');
 }
 
 function changePage(offset) {
-    currentPage += offset;
-    renderAlerts();
+    loadAlerts(currentPage + offset);
 }
 
 function toggleEvidence(alertId) {

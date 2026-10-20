@@ -44,6 +44,7 @@ from flask_server.controller.get_token import getToken
 from flask_server.controller.kafka_alert import send_alert_email, send_alert_file
 from flask_server.controller.ms_excel import gen_tokened_excel, make_canary_msexcel2
 from flask_server.controller.ms_word import gen_tokened_word, make_canary_msword_add
+from flask_server.analysis_guard import one_analysis_at_a_time
 from flask_server.utils.common import *
 from flask_server.utils.token import generate_random_str
 from flask_login import  login_user, logout_user, login_required, current_user
@@ -61,6 +62,7 @@ from flask_server.alert_store import (
     build_parasitic_target_analysis,
     build_unified_alert_api_rows,
     build_unified_alert_statistics,
+    unified_alert_query,
     get_account_alert_page_rows,
     get_file_alert_page_rows,
     ingest_account_alert,
@@ -1862,34 +1864,18 @@ def _ensure_local_honeyfile_is_live(file_obj, *, force_refresh=False):
         file_path = _resolve_generated_honeyfile_path(file_obj)
         if os.path.isfile(file_path):
             try:
-                with open(file_path, "rb") as f:
-                    if str(file_obj.token).encode("utf-8") in f.read():
-                        if metadata_changed:
-                            db.session.add(file_obj)
-                            db.session.commit()
-                        return 0, file_path
+                with zipfile.ZipFile(file_path) as document:
+                    contains_token = any(
+                        str(file_obj.token).encode("utf-8") in document.read(name)
+                        for name in document.namelist() if name.endswith((".xml", ".rels"))
+                    )
+                if contains_token:
+                    if metadata_changed:
+                        db.session.add(file_obj)
+                        db.session.commit()
+                    return 0, file_path
             except Exception:
                 pass
-        fallback = Honeyfile.query.filter(
-            Honeyfile.id != file_obj.id,
-            or_(
-                Honeyfile.token.like("%/static/img/logo-%.png"),
-                Honeyfile.token.like("%/contact/%"),
-            ),
-            Honeyfile.doc_format == file_obj.doc_format,
-        ).order_by(Honeyfile.id.desc()).first()
-        if fallback:
-            fallback_path = _resolve_generated_honeyfile_path(fallback)
-            if os.path.isfile(fallback_path):
-                try:
-                    with open(fallback_path, "rb") as f:
-                        if str(fallback.token).encode("utf-8") in f.read():
-                            if metadata_changed:
-                                db.session.add(file_obj)
-                                db.session.commit()
-                            return 0, fallback_path
-                except Exception:
-                    pass
 
     try:
         token_seed = str(
@@ -2382,22 +2368,28 @@ def manage_alert_account():
 def api_alerts_unified():
     """获取统一格式的告警数据"""
     hours = request.args.get("hours", default=24, type=int)
-    output = request.args.get("output", default="", type=str)
+    page = max(1, request.args.get("page", default=1, type=int))
+    size = min(200, max(1, request.args.get("size", default=50, type=int)))
+    alert_type = request.args.get("type", "").strip()
+    keyword = request.args.get("q", "").strip()[:200]
+    if alert_type not in ("", "all", "file", "account", "parasitic") or hours < 0:
+        return jsonify({"code": 1, "message": "invalid alert type or time window"}), 400
+    alert_type = None if alert_type in ("", "all") else alert_type
 
     try:
-        alert_data = build_unified_alert_api_rows(hours=hours)
-
-        if output:
-            os.makedirs(os.path.dirname(output), exist_ok=True)
-            with open(output, "w", encoding="utf-8") as f:
-                json.dump(alert_data, f, ensure_ascii=False, indent=2)
+        total = unified_alert_query(hours, alert_type, keyword=keyword).count()
+        alert_data = build_unified_alert_api_rows(hours=hours, alert_type=alert_type,
+                                                keyword=keyword, limit=size, offset=(page - 1) * size)
 
         return jsonify({
             "code": 0,
             "message": "success",
             "data": {
                 "alerts": alert_data,
-                "total": len(alert_data),
+                "total": total,
+                "returned": len(alert_data), "page": page, "size": size,
+                "has_more": page * size < total,
+                "statistics": build_unified_alert_statistics(hours),
                 "hours": hours
             }
         })
@@ -2431,6 +2423,28 @@ def manage_alert_unified():
     return render_template('alert_unified.html')
 
 
+@api.route("/manage/alert/web-observations")
+def manage_web_observations():
+    return render_template("web_observations.html")
+
+
+@api.route("/api/observations/web")
+def api_web_observations():
+    from flask_server.web_observations import observation_page
+    try:
+        data = observation_page(
+            hours=min(720, max(1, request.args.get("hours", 24, type=int))),
+            page=max(1, request.args.get("page", 1, type=int)),
+            size=min(100, max(1, request.args.get("size", 50, type=int))),
+            kind=request.args.get("kind", "")[:64], keyword=request.args.get("q", "")[:200],
+        )
+        return jsonify({"code": 0, "data": data})
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("web observation query failed")
+        return jsonify({"code": 1, "message": "访问观测不可用，请检查采集服务和数据库迁移。"}), 503
+
+
 @api.route("/manage/alert/analysis/live")
 def manage_analysis_live():
     return render_template("analysis_live.html")
@@ -2442,6 +2456,7 @@ def manage_analysis_live_legacy():
 
 
 @api.route("/api/analysis/live", methods=["POST"])
+@one_analysis_at_a_time
 def api_analysis_live():
     payload = request.get_json(silent=True) or {}
     hours = payload.get("hours", 24)
@@ -2472,6 +2487,8 @@ def api_analysis_live():
         summary["analysis_result_url"] = url_for("api.manage_analysis_live", run_dir=run_dir_text)
         _write_latest_analysis_run(run_dir_path, summary)
         return jsonify({"code": 0, "message": "success", "data": summary})
+    except ValueError:
+        raise
     except Exception as e:
         current_app.logger.exception("Run live analysis failed")
         return jsonify({
@@ -2482,6 +2499,7 @@ def api_analysis_live():
 
 
 @api.route("/api/analysis/live/balanced", methods=["POST"])
+@one_analysis_at_a_time
 def api_analysis_live_balanced():
     payload = request.get_json(silent=True) or {}
     hours = payload.get("hours", 24)
@@ -2550,6 +2568,7 @@ def api_analysis_live_balanced():
 
 
 @api.route("/api/analysis/live/scenario", methods=["POST"])
+@one_analysis_at_a_time
 def api_analysis_live_scenario():
     payload = request.get_json(silent=True) or {}
     start_value = str(payload.get("start") or "").strip()
@@ -3818,11 +3837,12 @@ def file_download():
 def agent_file_download(file_id):
     file = Honeyfile.query.filter_by(id=file_id).first()
     if file is None:
-        return jsonify({"code": 1, "message": "no such file", "data": {}})
+        return jsonify({"code": 1, "message": "no such file", "data": {}}), 404
     try:
         ensure_err, ensure_msg = _ensure_local_honeyfile_is_live(file)
         if ensure_err:
             current_app.logger.warning("[Agent] live honeyfile refresh skipped for file_id=%s: %s", file_id, ensure_msg)
+            return jsonify({"code": 1, "message": "honeyfile callback validation failed", "data": {}}), 503
         # 使用统一的路径处理方式
         generate_dir = os.path.join(project_path, "Honeyfiles", "generate")
         file_path = ensure_msg if not ensure_err and os.path.isfile(str(ensure_msg)) else os.path.join(generate_dir, file.name)
@@ -3833,9 +3853,10 @@ def agent_file_download(file_id):
         else:
             return jsonify(
                 {"code": 1, "message": "file not exists in server", "data": {}}
-            )
+            ), 404
     except Exception as e:
-        return jsonify({"code": 1, "message": str(e), "data": {}})
+        current_app.logger.exception("honeyfile download failed")
+        return jsonify({"code": 1, "message": "honeyfile download failed", "data": {}}), 500
 
 
 @api.route("/file/findby", methods=["POST"])
