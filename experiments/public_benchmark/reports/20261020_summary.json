@@ -1,0 +1,1613 @@
+{
+  "study": "AIT public benchmark mechanism diagnosis",
+  "date": "2026-10-20",
+  "data_counts": {
+    "total_ads_alerts": 2655821,
+    "groups": 8,
+    "windows": 54,
+    "selected_events": 778,
+    "selected_attack_events": 689,
+    "graph_edges": 1406,
+    "association_edges": 628
+  },
+  "pilot": {
+    "epochs": 3,
+    "optimizer_steps": 145,
+    "checkpoint_sha256": "06b2182594ee3a34e1cdb2858007384116c5113e1035dadb7d1238deb05fe1e5",
+    "input_dim": 198,
+    "preflight": {
+      "totals": {
+        "observed_evidence": 778,
+        "required_reachability": 628
+      },
+      "independent_scenarios": 8,
+      "zero_feasible_deletions": true,
+      "note": "Reachability constraints are modeled structure, not independent attack-path truth."
+    }
+  },
+  "mechanism": {
+    "config": {
+      "manifest_sha256": "fb87c52a91914b9de7b0527929316cf750113819e25786ed703198d1a941df22",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "epochs_max": 12,
+      "folds": 8,
+      "early_stop_validation_only": true,
+      "purpose": "post_preflight_mechanism_diagnosis_not_confirmatory_study",
+      "association_labels": "publisher_event_derived_relevance_proxy_not_causal_truth",
+      "release_allowed": false,
+      "source_sha256": "1c627637f911a312a290e20ce86457eae6543042addc9f04bcfddb851f7bea6a"
+    },
+    "aggregate": {
+      "keep_all": {
+        "compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "attack_event_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        }
+      },
+      "evidence_rule": {
+        "compression": {
+          "mean": 0.5942507828783908,
+          "scenario_bootstrap_ci95": [
+            0.5417552485423964,
+            0.6530151248480985
+          ],
+          "scenario_means": {
+            "fox": 0.523972602739726,
+            "harrison": 0.5119047619047619,
+            "russellmitchell": 0.6075949367088608,
+            "santos": 0.6285714285714286,
+            "shaw": 0.704225352112676,
+            "wardbeck": 0.7195121951219512,
+            "wheeler": 0.5409836065573771,
+            "wilson": 0.5172413793103449
+          }
+        },
+        "attack_event_retention": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "observed_retention": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "normal_event_filter": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        }
+      },
+      "rule_full_guard": {
+        "compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "attack_event_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        }
+      },
+      "rule_direct_evidence_only": {
+        "compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "attack_event_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        }
+      },
+      "dqn_no_guard": {
+        "compression": {
+          "mean": 0.02064795051271252,
+          "scenario_bootstrap_ci95": [
+            0.0022305098639936465,
+            0.04605675146771037
+          ],
+          "scenario_means": {
+            "fox": 0.0027397260273972603,
+            "harrison": 0.0005952380952380952,
+            "russellmitchell": 0.05316455696202531,
+            "santos": 0.09142857142857143,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0.016393442622950817,
+            "wilson": 0.0008620689655172414
+          }
+        },
+        "attack_event_retention": {
+          "mean": 0.9729655961139407,
+          "scenario_bootstrap_ci95": [
+            0.9340605988256934,
+            0.997983870967742
+          ],
+          "scenario_means": {
+            "fox": 0.9972222222222221,
+            "harrison": 1,
+            "russellmitchell": 0.95,
+            "santos": 0.8526315789473685,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 0.9838709677419356,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 0.9660855260885186,
+          "scenario_bootstrap_ci95": [
+            0.9262346738157913,
+            0.9958587305165195
+          ],
+          "scenario_means": {
+            "fox": 0.9947712418300654,
+            "harrison": 0.9988372093023254,
+            "russellmitchell": 0.9125,
+            "santos": 0.8545454545454545,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 0.9696969696969697,
+            "wilson": 0.9983333333333334
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0.08972222222222222,
+          "scenario_bootstrap_ci95": [
+            0.032913194444444446,
+            0.1527951388888888
+          ],
+          "scenario_means": {
+            "fox": 0.04444444444444444,
+            "harrison": 0.05,
+            "russellmitchell": 0.2,
+            "santos": 0.13333333333333333,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0.25,
+            "wilson": 0.04
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "inference_ms": {
+          "mean": 738.6286375083728,
+          "scenario_bootstrap_ci95": [
+            405.59858969139896,
+            1106.5013878901661
+          ],
+          "scenario_means": {
+            "fox": 1274.8484399635345,
+            "harrison": 1493.0171200772747,
+            "russellmitchell": 289.70732000889257,
+            "santos": 258.20859998930246,
+            "shaw": 251.15955998189747,
+            "wardbeck": 293.744260026142,
+            "wheeler": 1042.9244799539447,
+            "wilson": 1005.4193200659938
+          }
+        }
+      },
+      "dqn_full_guard": {
+        "compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "attack_event_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "inference_ms": {
+          "mean": 738.6286375083728,
+          "scenario_bootstrap_ci95": [
+            405.59858969139896,
+            1106.5013878901661
+          ],
+          "scenario_means": {
+            "fox": 1274.8484399635345,
+            "harrison": 1493.0171200772747,
+            "russellmitchell": 289.70732000889257,
+            "santos": 258.20859998930246,
+            "shaw": 251.15955998189747,
+            "wardbeck": 293.744260026142,
+            "wheeler": 1042.9244799539447,
+            "wilson": 1005.4193200659938
+          }
+        }
+      },
+      "dqn_direct_evidence_only": {
+        "compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "attack_event_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "inference_ms": {
+          "mean": 738.6286375083728,
+          "scenario_bootstrap_ci95": [
+            405.59858969139896,
+            1106.5013878901661
+          ],
+          "scenario_means": {
+            "fox": 1274.8484399635345,
+            "harrison": 1493.0171200772747,
+            "russellmitchell": 289.70732000889257,
+            "santos": 258.20859998930246,
+            "shaw": 251.15955998189747,
+            "wardbeck": 293.744260026142,
+            "wheeler": 1042.9244799539447,
+            "wilson": 1005.4193200659938
+          }
+        }
+      },
+      "random_matched_raw": {
+        "compression": {
+          "mean": 0.02064795051271252,
+          "scenario_bootstrap_ci95": [
+            0.0022305098639936465,
+            0.04605675146771037
+          ],
+          "scenario_means": {
+            "fox": 0.0027397260273972603,
+            "harrison": 0.0005952380952380952,
+            "russellmitchell": 0.05316455696202531,
+            "santos": 0.09142857142857143,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0.016393442622950817,
+            "wilson": 0.0008620689655172414
+          }
+        },
+        "attack_event_retention": {
+          "mean": 0.9792344604791549,
+          "scenario_bootstrap_ci95": [
+            0.9476608187134502,
+            0.9981854838709677
+          ],
+          "scenario_means": {
+            "fox": 0.9972222222222221,
+            "harrison": 1,
+            "russellmitchell": 0.9722222222222221,
+            "santos": 0.8789473684210526,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 0.985483870967742,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 0.971199162452155,
+          "scenario_bootstrap_ci95": [
+            0.9372136911825161,
+            0.9960478329809725
+          ],
+          "scenario_means": {
+            "fox": 0.9947712418300654,
+            "harrison": 0.9988372093023254,
+            "russellmitchell": 0.9291666666666666,
+            "santos": 0.8772727272727273,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 0.9712121212121213,
+            "wilson": 0.9983333333333334
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0.08972222222222222,
+          "scenario_bootstrap_ci95": [
+            0.032913194444444446,
+            0.1527951388888888
+          ],
+          "scenario_means": {
+            "fox": 0.04444444444444444,
+            "harrison": 0.05,
+            "russellmitchell": 0.2,
+            "santos": 0.13333333333333333,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0.25,
+            "wilson": 0.04
+          }
+        },
+        "association_compression": {
+          "mean": 0.008256713045019497,
+          "scenario_bootstrap_ci95": [
+            0.0002232142857142857,
+            0.01929683345887981
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0.025806451612903226,
+            "santos": 0.038461538461538464,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0.0017857142857142857,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0.008333333333333333,
+          "scenario_bootstrap_ci95": [
+            0,
+            0.025
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0.06666666666666667,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 0.9416666666666667,
+          "scenario_bootstrap_ci95": [
+            0.8666666666666667,
+            0.995
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 0.8400000000000001,
+            "santos": 0.7333333333333333,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 0.96,
+            "wilson": 1
+          }
+        }
+      },
+      "random_matched_full_guard": {
+        "compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "attack_event_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "observed_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        },
+        "normal_event_filter": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_compression": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "association_proxy_noise_f1": {
+          "mean": 0,
+          "scenario_bootstrap_ci95": [
+            0,
+            0
+          ],
+          "scenario_means": {
+            "fox": 0,
+            "harrison": 0,
+            "russellmitchell": 0,
+            "santos": 0,
+            "shaw": 0,
+            "wardbeck": 0,
+            "wheeler": 0,
+            "wilson": 0
+          }
+        },
+        "modeled_path_retention": {
+          "mean": 1,
+          "scenario_bootstrap_ci95": [
+            1,
+            1
+          ],
+          "scenario_means": {
+            "fox": 1,
+            "harrison": 1,
+            "russellmitchell": 1,
+            "santos": 1,
+            "shaw": 1,
+            "wardbeck": 1,
+            "wheeler": 1,
+            "wilson": 1
+          }
+        }
+      }
+    },
+    "release_gate": {
+      "allowed": false,
+      "reasons": [
+        "official_event_labels_do_not_certify_association_paths",
+        "diagnostic_guard_relaxation_is_not_a_production_change",
+        "external_domain_validation_not_completed"
+      ]
+    },
+    "runs": [
+      {
+        "test_scenario": "fox",
+        "validation_scenario": "harrison",
+        "seed": 42,
+        "optimizer_steps": 437,
+        "epochs_completed": 9,
+        "training_seconds": 54.55809540004702,
+        "checkpoint_sha256": "964d9636fd26577721595ff745a2804d7ca98914e955b4c5361dc929d9f89f06",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "fox",
+        "validation_scenario": "harrison",
+        "seed": 43,
+        "optimizer_steps": 291,
+        "epochs_completed": 6,
+        "training_seconds": 34.51176070002839,
+        "checkpoint_sha256": "422be01a421fc0867dfe74cfa10446070145f31618dcef0943f2cb16f1ec1dc3",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "fox",
+        "validation_scenario": "harrison",
+        "seed": 44,
+        "optimizer_steps": 291,
+        "epochs_completed": 6,
+        "training_seconds": 34.991460099990945,
+        "checkpoint_sha256": "0b77713aefb8df65758f696613cfa8444d4a2ddac34c39a5a5f896a0f4dfd870",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "fox",
+        "validation_scenario": "harrison",
+        "seed": 45,
+        "optimizer_steps": 291,
+        "epochs_completed": 6,
+        "training_seconds": 34.48045569995884,
+        "checkpoint_sha256": "553bde68ac2c49b69926b6136dcc7f214852323af2534860e390771244910c22",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "fox",
+        "validation_scenario": "harrison",
+        "seed": 46,
+        "optimizer_steps": 534,
+        "epochs_completed": 11,
+        "training_seconds": 69.25536750000902,
+        "checkpoint_sha256": "63beb3f5f316652896545e71256d3bca9775d3a78b398b0e0768b430618122a4",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "harrison",
+        "validation_scenario": "russellmitchell",
+        "seed": 42,
+        "optimizer_steps": 371,
+        "epochs_completed": 6,
+        "training_seconds": 36.6168940999778,
+        "checkpoint_sha256": "a9dc9380eeb85a4a064b74569b1d8867f0db17f41c16d86fd335f0801d3cec90",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "harrison",
+        "validation_scenario": "russellmitchell",
+        "seed": 43,
+        "optimizer_steps": 495,
+        "epochs_completed": 8,
+        "training_seconds": 53.200814299983904,
+        "checkpoint_sha256": "96a316ca9e3bf6614980c2c50987d6d1bb78b2150c4408d99ada8aeecd706cef",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "harrison",
+        "validation_scenario": "russellmitchell",
+        "seed": 44,
+        "optimizer_steps": 371,
+        "epochs_completed": 6,
+        "training_seconds": 38.29176709998865,
+        "checkpoint_sha256": "4b6d728492bb4ea7a887afcf4fac420757a299f1716b55bf4ea9dec0d1892d68",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "harrison",
+        "validation_scenario": "russellmitchell",
+        "seed": 45,
+        "optimizer_steps": 371,
+        "epochs_completed": 6,
+        "training_seconds": 38.135621100023855,
+        "checkpoint_sha256": "de6b485ed66fe01f9425ef28643f3aae4926d122d85b58d2c404b12af661899a",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "harrison",
+        "validation_scenario": "russellmitchell",
+        "seed": 46,
+        "optimizer_steps": 371,
+        "epochs_completed": 6,
+        "training_seconds": 37.35203199996613,
+        "checkpoint_sha256": "3d8ab449bddd1da4c1f32a4a5c870aa497c89848aaa990a775915ed28987caed",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "russellmitchell",
+        "validation_scenario": "santos",
+        "seed": 42,
+        "optimizer_steps": 471,
+        "epochs_completed": 6,
+        "training_seconds": 47.93590109999059,
+        "checkpoint_sha256": "3c58c810dcbfe8911897002a619edc0625e8444f347932ca6c68ace902cf90c2",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "russellmitchell",
+        "validation_scenario": "santos",
+        "seed": 43,
+        "optimizer_steps": 707,
+        "epochs_completed": 9,
+        "training_seconds": 78.13469139998779,
+        "checkpoint_sha256": "b24c3c73833f633d942aa93d70acddf92c35a45e110a91996eb3351e95c794f4",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "russellmitchell",
+        "validation_scenario": "santos",
+        "seed": 44,
+        "optimizer_steps": 707,
+        "epochs_completed": 9,
+        "training_seconds": 77.78200150001794,
+        "checkpoint_sha256": "3bad9e550b9714ef6f092905c01856681ede6edf40cfbabc05e34308e3bf10d0",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "russellmitchell",
+        "validation_scenario": "santos",
+        "seed": 45,
+        "optimizer_steps": 471,
+        "epochs_completed": 6,
+        "training_seconds": 48.63604899996426,
+        "checkpoint_sha256": "08521ba3428e793a5edbc587335c3493eafa56638840272a17d4feca03fa6ae9",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "russellmitchell",
+        "validation_scenario": "santos",
+        "seed": 46,
+        "optimizer_steps": 785,
+        "epochs_completed": 10,
+        "training_seconds": 88.67060969996965,
+        "checkpoint_sha256": "981477685c7eb4da0d940989a45d1f2405f3e9620b5f475448871d98933420b8",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "santos",
+        "validation_scenario": "shaw",
+        "seed": 42,
+        "optimizer_steps": 711,
+        "epochs_completed": 9,
+        "training_seconds": 80.16354479995789,
+        "checkpoint_sha256": "b1bc22ea8ded2d236544f8ae434a691e4ae0c292935c386e168160fbc1edd9eb",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "santos",
+        "validation_scenario": "shaw",
+        "seed": 43,
+        "optimizer_steps": 474,
+        "epochs_completed": 6,
+        "training_seconds": 49.58860180003103,
+        "checkpoint_sha256": "dcc1ccd4aecb03ca62649ffafc2c7cfbdbc7b27007e64b0830b0695ca428d004",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "santos",
+        "validation_scenario": "shaw",
+        "seed": 44,
+        "optimizer_steps": 553,
+        "epochs_completed": 7,
+        "training_seconds": 58.84715759998653,
+        "checkpoint_sha256": "36b788fcc2c01967b84e328b7b70c00f79f9787cb321506fef2344852d451895",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "santos",
+        "validation_scenario": "shaw",
+        "seed": 45,
+        "optimizer_steps": 553,
+        "epochs_completed": 7,
+        "training_seconds": 58.073372299957555,
+        "checkpoint_sha256": "07bb465f173edafa45282e93da43477188b0c903a718cfd4b14ede8b8df20ca0",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "santos",
+        "validation_scenario": "shaw",
+        "seed": 46,
+        "optimizer_steps": 948,
+        "epochs_completed": 12,
+        "training_seconds": 110.11406890000217,
+        "checkpoint_sha256": "785a2fa93a38b161ba5cc17937e98c7aa0932de960bd62dddb364cc2bc68d0ff",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "shaw",
+        "validation_scenario": "wardbeck",
+        "seed": 42,
+        "optimizer_steps": 469,
+        "epochs_completed": 6,
+        "training_seconds": 48.059863800008316,
+        "checkpoint_sha256": "5ea2e920ee4c94e7a627d81ab40881aaa9cd76380e262daddd519afdcd9e302d",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "shaw",
+        "validation_scenario": "wardbeck",
+        "seed": 43,
+        "optimizer_steps": 469,
+        "epochs_completed": 6,
+        "training_seconds": 48.87363440002082,
+        "checkpoint_sha256": "16d6ec070b84af99c7b97319027b675487e5e68e6569dfd498bae34a3f91f47e",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "shaw",
+        "validation_scenario": "wardbeck",
+        "seed": 44,
+        "optimizer_steps": 469,
+        "epochs_completed": 6,
+        "training_seconds": 49.34296489995904,
+        "checkpoint_sha256": "2c2c77c9220d6ad552795f8ecad10583b02d39144ac8eea25f3373b6d8983f37",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "shaw",
+        "validation_scenario": "wardbeck",
+        "seed": 45,
+        "optimizer_steps": 469,
+        "epochs_completed": 6,
+        "training_seconds": 48.980058400018606,
+        "checkpoint_sha256": "247086f8fe2db6e12f507c38e73922b4f5cefe05a783912198cea9e6f511ab8a",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "shaw",
+        "validation_scenario": "wardbeck",
+        "seed": 46,
+        "optimizer_steps": 469,
+        "epochs_completed": 6,
+        "training_seconds": 48.993692100048065,
+        "checkpoint_sha256": "119eecf4220011e7f56bf4fcc89d718b8dd8ce3fb9f35ededba7126f4a559ca3",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wardbeck",
+        "validation_scenario": "wheeler",
+        "seed": 42,
+        "optimizer_steps": 405,
+        "epochs_completed": 6,
+        "training_seconds": 44.39770319999661,
+        "checkpoint_sha256": "5adacd6313f14775f73d0129ecc12c9fc5a28d3dc6b9e0e9aa5718464dccc7f9",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wardbeck",
+        "validation_scenario": "wheeler",
+        "seed": 43,
+        "optimizer_steps": 405,
+        "epochs_completed": 6,
+        "training_seconds": 44.81966859998647,
+        "checkpoint_sha256": "11424c41ed70af08b3886ba2c6f51215ce9ad16ac683f6216222c493d94c4cc9",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wardbeck",
+        "validation_scenario": "wheeler",
+        "seed": 44,
+        "optimizer_steps": 405,
+        "epochs_completed": 6,
+        "training_seconds": 44.62030780001078,
+        "checkpoint_sha256": "d0a15b1565331b5272b932ee510d98c022c1a13f6155d46f949cc6bc1752cd07",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wardbeck",
+        "validation_scenario": "wheeler",
+        "seed": 45,
+        "optimizer_steps": 405,
+        "epochs_completed": 6,
+        "training_seconds": 45.35706819995539,
+        "checkpoint_sha256": "783394e0b2bf8c0497152b8a78d736d61827fe02af3be9a618eb284857e8d035",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wardbeck",
+        "validation_scenario": "wheeler",
+        "seed": 46,
+        "optimizer_steps": 405,
+        "epochs_completed": 6,
+        "training_seconds": 44.337450799997896,
+        "checkpoint_sha256": "f33dbca13c9d4873e273200b0d0e993f5b2a75c7042949a9d22834c56136b161",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wheeler",
+        "validation_scenario": "wilson",
+        "seed": 42,
+        "optimizer_steps": 465,
+        "epochs_completed": 8,
+        "training_seconds": 52.988032899971586,
+        "checkpoint_sha256": "33dc6515af2507b725b9033cc5b132b005a5dd6f58646683c7f8aa86e6aeefca",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wheeler",
+        "validation_scenario": "wilson",
+        "seed": 43,
+        "optimizer_steps": 348,
+        "epochs_completed": 6,
+        "training_seconds": 37.85961230000248,
+        "checkpoint_sha256": "61e293a1add7612b874c3c6c1fde4462a91e04ef71cc39b9d669bdddc6376a60",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wheeler",
+        "validation_scenario": "wilson",
+        "seed": 44,
+        "optimizer_steps": 348,
+        "epochs_completed": 6,
+        "training_seconds": 38.347987000015564,
+        "checkpoint_sha256": "6538839d90e8a44972e52e1670a2e9fbd331077f4187a1d0e7a0756230875a51",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wheeler",
+        "validation_scenario": "wilson",
+        "seed": 45,
+        "optimizer_steps": 348,
+        "epochs_completed": 6,
+        "training_seconds": 38.47550020000199,
+        "checkpoint_sha256": "b66d71b0cb1315760453d91c986566a37017bf664a9b3507048bc605d2ff6356",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wheeler",
+        "validation_scenario": "wilson",
+        "seed": 46,
+        "optimizer_steps": 348,
+        "epochs_completed": 6,
+        "training_seconds": 37.710178299981635,
+        "checkpoint_sha256": "fdd1d5fac9df38ce5652dd9f4b9cc9402ab52e481ee14d10cadb2045effae45a",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wilson",
+        "validation_scenario": "fox",
+        "seed": 42,
+        "optimizer_steps": 330,
+        "epochs_completed": 6,
+        "training_seconds": 37.8722931999946,
+        "checkpoint_sha256": "b8f884556d1e8ad337b339dbd6c46cfecb68eceda27d1fcaa6c61dea24965e6a",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wilson",
+        "validation_scenario": "fox",
+        "seed": 43,
+        "optimizer_steps": 330,
+        "epochs_completed": 6,
+        "training_seconds": 37.41531439998653,
+        "checkpoint_sha256": "878fa0d3ffee962af272c02e61eb1721a1bcbc87211e00745781be4cb261bc98",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wilson",
+        "validation_scenario": "fox",
+        "seed": 44,
+        "optimizer_steps": 330,
+        "epochs_completed": 6,
+        "training_seconds": 37.57176150003215,
+        "checkpoint_sha256": "39d47fa84dcaced19c68dc3925f87b5342b0283abeb06a453a0f7d90aa8d4167",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wilson",
+        "validation_scenario": "fox",
+        "seed": 45,
+        "optimizer_steps": 330,
+        "epochs_completed": 6,
+        "training_seconds": 37.827884100028314,
+        "checkpoint_sha256": "2bf95360f3d207286495eaacd21b5b40a55d6cc1ba0f8b87701d308b3345bd60",
+        "checkpoint_input_dim": 198
+      },
+      {
+        "test_scenario": "wilson",
+        "validation_scenario": "fox",
+        "seed": 46,
+        "optimizer_steps": 330,
+        "epochs_completed": 6,
+        "training_seconds": 37.46494099998381,
+        "checkpoint_sha256": "b8df6064d4d4db5775822080f99daa7952ae2529ea5a340e33ffe75f6f2736b0",
+        "checkpoint_input_dim": 198
+      }
+    ]
+  },
+  "release_gate": {
+    "allowed": false,
+    "reasons": [
+      "official_event_labels_do_not_certify_association_paths",
+      "diagnostic_guard_relaxation_is_not_a_production_change",
+      "external_domain_validation_not_completed"
+    ]
+  },
+  "artifact_sha256": {
+    "prepared_manifest": "fb87c52a91914b9de7b0527929316cf750113819e25786ed703198d1a941df22",
+    "pilot_results": "6f692f79d0cd7fdaa670ce27d5604858e6a4fc81331a244a3b628e3accbd97e7",
+    "mechanism_results": "f882a462de1dc08c43cd9312e737e35235ac8c9996b330956cce23c27923e739"
+  },
+  "latency_semantics": "Only raw DQN inference was timed; the same value is reused across its filter variants. Baseline zeros in raw artifacts mean not measured, not zero cost. No method-to-method latency conclusion."
+}
